@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
@@ -40,6 +40,31 @@ library(dplyr)
 ```
 </details>
 
+## Preprocess adrenal gland (AD) files to remove supplementary channels.This does not run in docker and needs to be an in parent folder of intensities.
+
+```{r}
+
+# Folders to process
+folders <- c("intensities-0px/", "intensities-1px/")
+
+# Columns to remove
+cols_to_remove <- c("IF4_NEGATIVE_MIX_mean", "IF4_NEGATIVE_MIX_mean-80")
+
+# Loop through each folder
+for(folder in folders){
+  # List CSVs containing "AD"
+  ad_files <- list.files(folder, pattern="AD.*\\.csv$", full.names = TRUE)
+  print(ad_files)
+  
+  # Loop through each file
+  for(f in ad_files){
+    df <- read.csv(f, check.names = FALSE)        # read CSV
+    df <- df %>% select(-any_of(cols_to_remove)) # remove columns if present
+    write.csv(df, f, row.names = FALSE)           # overwrite file
+  }
+}
+
+```
 ## Read single-cell measurement
 
 Replace `path` with the path to the folder where you stored the single-cell data (e.g. `path/to/folder/MapMetIP_ProcessedDataset` in case processed data was downloaded from Zenodo). 
@@ -47,7 +72,7 @@ In [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP), we exported singl
 
 
 ```{r read-steinbock}
-path <- file.path(params$input, "MapMetIP_ProcessedDataset")
+path <- file.path(params$input)
 
 spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL) 
 spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL) 
@@ -55,6 +80,8 @@ spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(pat
 #Combine SPE objects into one object
 spe <- spe_0px
 assay(spe, "counts_1px") <- assay(spe_1px, "counts")
+
+spe_save <- spe
 
 #remove single SPE objects
 rm(spe_0px)
@@ -66,6 +93,7 @@ rm(spe_1px)
 We set the `colnames` of the object to generate unique identifiers per cell.
 
 ```{r set-colnames}
+spe <- spe_save
 colnames(spe) <- paste0(spe$sample_id, "_", spe$ObjectNumber)
 ```
 
@@ -90,7 +118,8 @@ and assign it to the colData slot in our SPE object.
 
 ```{r add-coldata}
 
-spe$sample <- gsub(spe$sample_id, pattern="([UM]).*", replacement="\\1")
+#spe$sample <- gsub(spe$sample_id, pattern="([UMD]).*", replacement="\\1")
+spe$sample <- sub("_[^_]+$", "", spe$sample_id)
 spe$fm_id <- str_match(spe$sample, "_.*_(.*)_")[,2]  
 spe$tissue <- str_match(spe$sample, "^.*_.*_(.*)")[,2] 
 spe$tissue[spe$tissue=="TU"] = "PT"
@@ -103,6 +132,9 @@ spe$imc_date <- meta$IMC_date[match(paste(spe$fm_id, spe$tissue), paste(meta$Sam
 spe$control <- meta$control[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$patient_id <- meta$Patient_ID[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$timepoint <- meta$Timepoint[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
+spe$timepoint[spe$tissue == "AD"] <- "DE"
+spe <- spe[, spe$timepoint == "DE"]
+
 spe$stage <- meta$INSS_stage[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$progression <- meta$efs[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$death <- meta$death[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
@@ -125,7 +157,7 @@ Before we save the SPE object, we check the distribution of markers.
 
 ```{r plot by staining date}
 
-marker <- 'CD3_Sm152_mean'
+marker <- 'DNA1_Ir193_mean'
 tissue <- unique(spe$tissue)
 
 dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", assay = "counts") +
@@ -138,6 +170,7 @@ dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", as
 Finally, the generated SPE object can be saved for further downstream processing and analysis.
 
 ```{r save-objects-read-data}
+spe_save <- spe 
 
 saveRDS(spe, file.path(params$output, "spe.rds"))
 ```

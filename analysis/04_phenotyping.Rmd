@@ -7,15 +7,57 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Cell phenotyping {#phenotyping}
@@ -48,6 +90,7 @@ library(SingleR)
 library(circlize)
 library(readxl)
 library(writexl)
+library(ggplot2)
 ```
 </details>
 
@@ -97,42 +140,144 @@ col_sample = setNames(sample(col_vector_433, length(unique(spe$sample))), unique
 
 rand_cells <- sample(seq_len(ncol(mat)), 2000)
 
-Heatmap(mat[,rand_cells], 
+ht <- Heatmap(mat[,rand_cells], 
         column_title = "Single-cell heatmap",
         show_column_dend = F,
         show_column_names=F,
         col=viridis(100)
         )
+
+# Draw and save
+ht_drawn <- draw(ht)
+save_plot(ht_drawn, "vis-scdata.pdf", width = 10, height = 8)
+ht_drawn
 ```
 
-## Dimensionality reduction prior to clustering {#umap1}
-We reduce dimensionality of the data to five dimensions prior to clustering as described [here](https://umap-learn.readthedocs.io/en/latest/clustering.html). `calculateUMAP` is a wrapper function using the package `uwot`. `uwot` relies on the underlying compiler and C++ standard library on your machine and this can result in minor differences in output even with the same input data, arguments, packages and R version, as described [here](https://rdrr.io/github/jlmelville/uwot/f/vignettes/articles/reproducibility.Rmd). To ensure reproducibility of the exact same results between machines, we provide the dimensionality reduced count data, used for figure generation, as R object, on Zenodo [(R_intermediary/20240808_mat_red_clustering.rds)](https://doi.org/10.5281/zenodo.13220634). 
 
-```{r UMAP-pre-clustering}
-#mat_red_clustering <- calculateUMAP(mat, ncomponents=5, n_neighbors=30, min_dist= 0, BPPARAM = MulticoreParam(RNGseed = 221228))
-mat_red_clustering <- readRDS(file.path(params$input, "R_intermediary/20230628_mat_red_clustering.rds")) 
+## Dimensionality reduction via PCA prior to clustering
 
-rownames(mat_red_clustering) <- colnames(spe)
-reducedDim(spe, "UMAP_clustering") <- mat_red_clustering
-```
+```{r}
 
-## Phenograph clustering
-Next, we perform phenograph clustering on these five dimensions.
 
-```{r phenograph-clustering}
 set.seed(221228)
 
-Rphenograph_out <- Rphenoannoy(mat_red_clustering, k = 45)
+# Transpose: cells must be rows
+mat_t <- t(mat)
+
+# Run PCA
+pca_res <- prcomp(mat_t, center = TRUE, scale. = TRUE)
+
+# Keep first 30 PCs 
+n_pcs_use <- 30
+pca_mat <- pca_res$x[, 1:n_pcs_use]
+
+rownames(pca_mat) <- colnames(spe)
+reducedDim(spe, "PCA_clustering") <- pca_mat
+```
+
+## Phenograph clustering on PCA space
+```{r}
+
+set.seed(221228)
+
+Rphenograph_out <- Rphenoannoy(pca_mat, k = 100)
 clusters <- factor(membership(Rphenograph_out[[2]]))
 
 saveRDS(clusters, file.path(params$output, "pg_clusters.rds"))
 
 spe$pg_clusters <- clusters
 ```
+## UMAP for visualization only (computed on PCA space
+```{r}
+
+mat_red <- calculateUMAP(
+  pca_mat,
+  n_neighbors = 30,
+  min_dist = 0.3,
+  BPPARAM = MulticoreParam(RNGseed = 221228)
+)
+
+rownames(mat_red) <- colnames(spe)
+reducedDim(spe, "UMAP") <- mat_red
+```
+
+## Writing proportions of PT, BM and AD cells in each cluster for manual annotation 
+```{r}
+library(dplyr)
+library(tidyr)
+library(writexl)
+
+# Ensure cluster is character
+spe$pg_clusters <- as.character(spe$pg_clusters)
+
+# -----------------------------
+# 1. Absolute counts
+# -----------------------------
+count_table <- as.data.frame(table(
+  cluster = spe$pg_clusters,
+  tissue  = spe$tissue
+))
+
+count_wide <- count_table %>%
+  pivot_wider(
+    names_from = tissue,
+    values_from = Freq,
+    values_fill = 0
+  )
+
+# Ensure all tissues exist
+for(t in c("BM","PT","AD")){
+  if(!t %in% colnames(count_wide)){
+    count_wide[[t]] <- 0
+  }
+}
+
+count_wide <- count_wide %>%
+  select(cluster, BM, PT, AD)
+
+# -----------------------------
+# 2. Percentages WITHIN cluster
+# -----------------------------
+percent_within_cluster <- count_wide %>%
+  rowwise() %>%
+  mutate(
+    total = BM + PT + AD,
+    BM_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * BM / total), "0.0%"),
+    PT_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * PT / total), "0.0%"),
+    AD_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * AD / total), "0.0%")
+  ) %>%
+  ungroup() %>%
+  select(-total)
+
+# -----------------------------
+# 3. Add annotation columns
+# -----------------------------
+annotation_template <- percent_within_cluster %>%
+  mutate(
+    BM_celltype = "",
+    BM_metacluster = "",
+    PT_celltype = "",
+    PT_metacluster = "",
+    AD_celltype = "",
+    AD_metacluster = "",
+    literature = ""
+  ) %>%
+  arrange(as.numeric(cluster))
+
+# -----------------------------
+# 4. Write Excel
+# -----------------------------
+write_xlsx(
+  annotation_template,
+  file.path(params$output, "cluster_annotation_template.xlsx")
+)
+```
 
 Let's plot the mean marker expressions per cluster in a bubble plot.
 
 ```{r vis-data-bubbleplot, fig.height=14, fig.width=16}
+spe$pg_clusters <- clusters
+
 #Mean expression per cluster
 exp_mat_ <- aggregate(t(mat), list(spe$pg_clusters), mean)
 exp_mat <- exp_mat_[,2:ncol(exp_mat_)]
@@ -159,7 +304,13 @@ pt_count <- table(spe[,spe$tissue=="PT"]$pg_clusters)
 pt_count[setdiff(colnames(exp_mat), names(pt_count))] <- 0
 pt_count <- pt_count[colnames(exp_mat)]
 
-mean_morph <- aggregate(morph_mat_clipped, list(spe$pg_clusters), mean)
+#mean_morph <- aggregate(morph_mat_clipped, list(spe$pg_clusters), mean)
+# Aggregate while ignoring NA
+mean_morph <- aggregate(
+  morph_mat_clipped,
+  list(cluster = spe$pg_clusters),
+  function(x) mean(x, na.rm = TRUE)
+)
 area_mean = mean_morph[,"area"]
 solidity_mean = mean_morph[,"solidity"]
 col_mean_area = colorRamp2(c(min(area_mean),min(area_mean)+(max(area_mean)-min(area_mean))/2, max(area_mean)), c("blue", "white", "red"))
@@ -229,14 +380,17 @@ hp <- Heatmap(exp_mat,
         column_names_rot = 45,
         border = "black")
 
-d1 <- draw( hp, annotation_legend_list = lgd_list)
+# Save and draw
+hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+save_plot(hp_drawn, "vis-data-bubbleplot.pdf", width = 16, height = 14)
+hp_drawn
 ```
 
-For visualization purposes we will use different UMAP parameters. We read a previously generated R file from Zenodo [(R_intermediary/20240808_mat_red.rds)](https://doi.org/10.5281/zenodo.13220634) due to reasons explained in (#umap1).
+For visualization purposes we will use different UMAP parameters. We read a previously generated R file from Zenodo [(R_intermediary/20240808_mat_red.rds)](https://doi.org/10.5281/zenodo.13220634 ) due to reasons explained in (#umap1).
 
 ```{r UMAP-visualization}
-#mat_red <- calculateUMAP(mat, n_neighbors=30, BPPARAM = MulticoreParam(RNGseed = 221228))
-mat_red <- readRDS(file.path(params$input, "R_intermediary/20230628_mat_red.rds")) 
+mat_red <- calculateUMAP(mat, n_neighbors=30, BPPARAM = MulticoreParam(RNGseed = 221228))
+#mat_red <- readRDS(file.path(params$input, "R_intermediary/20230628_mat_red.rds")) 
 
 rownames(mat_red) <- colnames(spe)
 reducedDim(spe, "UMAP") <- mat_red
@@ -253,6 +407,8 @@ p1 <- dittoDimPlot(spe, var = "pg_clusters",
   theme(legend.title = element_blank()) +
   ggtitle("PG clusters on UMAP")
 
+# Save ggplot
+save_plot(p1, "UMAP-vis-clusters.png", width = 8, height = 6)
 p1
 ```
 
@@ -267,7 +423,11 @@ p2 <- dittoDimPlot(spe, var = "CD15_Bi209_mean", assay = "counts",
              colors = viridis(100), do.label = TRUE) +
     scale_color_viridis()
 
-p1+p2
+combined <- p1 + p2
+
+# Save combined plot
+save_plot(combined, "UMAP-vis-marker.png", width = 10, height = 6)
+combined
 ```
 
 Next, we will plot the tissue type separately in the dim-red space.
@@ -301,16 +461,27 @@ for(i in 1: length(tissue_types)){
           axis.line = element_line(colour = "black"))
 }
 
+# Save each tissue plot individually
+for(i in 1:length(tissue_types)) {
+  save_plot(plot_list[[i]], paste0("UMAP-vis-tissue_", tissue_types[i], ".png"), 
+            width = 6, height = 6)
+}
 
+# Display them
 plot_list[[1]]
 plot_list[[2]]
+plot_list[[3]]
 ```
 
 We can see that PT samples are primarily comprised of tumor cells (GD2+) and bone marrow samples include a large proprotion of granulocytes (CD15+).
 
+```{r stop-here}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
 ## Annotation and merging of clusters
 
-Next, we read assigned celltype and metacluster-labels for clusters from the metadata file provided on Zenodo [(Supplementary_Tables/20240808_Suppl_Table3.xlsx)](https://doi.org/10.5281/zenodo.13220634). These have been assigned based on thorough examination of images and co-expressions and using literature.
+Next, we read assigned celltype and metacluster-labels for clusters from the metadata file provided on Zenodo [(Supplementary_Tables/20240808_Suppl_Table3.xlsx)](https://doi.org/10.5281/zenodo.13220634 ). These have been assigned based on thorough examination of images and co-expressions and using literature.
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
@@ -375,10 +546,12 @@ ht<- Heatmap(t(tmp2[rand_cells,]),
         col=viridis(100)
         )
 
-d1 <- draw(ht)
+ht_drawn <- draw(ht)
+save_plot(ht_drawn, "GD2-MPO-subclustering.pdf", width = 6, height = 6)
+ht_drawn
 ```
 
-In the heatmap above, we can see a clear separation of CD45+ MPO+ CD15+ CD11b+ (cluster 1) from GD2+ GD2+ CD45- MPOlow CD15- CD11b- (cluster 2) cells. After thorough investigation on the image-level, cluster 2 was assigned to DTCs and cluster 1, a mix of DTCs and granulocytes, to “other”. 
+In the heatmap above, we can see a clear separation of CD45+ MPO+ CD15+ CD11b+ (cluster 1) from GD2+ GD2+ CD45- MPOlow CD15- CD11b- (cluster 2) cells. After thorough investigation on the image-level, cluster 2 was assigned to DTCs and cluster 1, a mix of DTCs and granulocytes, to "other". 
 
 Finally, the tumor subphenotypes of DTCs within GMM cluster 2 is determined based on similarity in expression profiles to the identified tumor subtypes from above, using singleR.
 
@@ -402,7 +575,12 @@ col_clusters <- c("CD24+ marker-lo TC"=rgb(230,245,201, maxColorValue = 255),
                 "CD44+ TC"=rgb(27,158,119, maxColorValue = 255),
                 "GD2lo TC"=rgb(102,194,165, maxColorValue = 255))
 
-plotScoreHeatmap(predicted_labels, annotation_colors=list(Labels = col_clusters), annotation_legend=F, treeheight_row=0) #define the colors first 
+# SingleR plotScoreHeatmap is base R graphics, save manually
+full_path <- file.path(plot_dir, paste0(date_prefix, "_singleR-tumor-cell-assignment.pdf"))
+pdf(full_path, width = 10, height = 8)
+plotScoreHeatmap(predicted_labels, annotation_colors=list(Labels = col_clusters), annotation_legend=F, treeheight_row=0)
+dev.off()
+message("Saved: ", full_path)
 
 labels <- predicted_labels$labels
 
@@ -496,7 +674,7 @@ metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
 
 ## Visualizations
-For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(R_intermediary/celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634)
+For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(R_intermediary/celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
 
 ```{r order-celltypes}
 clusternames_ordered <- read.csv(file.path(params$input, "R_intermediary/celltype_order.csv"), sep=";", colClasses = c("order" = "character"))
@@ -527,6 +705,10 @@ p2 <- dittoDimPlot(spe, var = "metacluster",
   scale_color_manual(values = metadata(spe)$color_vectors$col_metacluster) +
   theme(legend.title = element_blank()) +
   ggtitle("Metaclusters on UMAP")
+
+# Save both
+save_plot(p1, "umap-final-celltypes_celltypes.png", width = 10, height = 8)
+save_plot(p2, "umap-final-celltypes_metaclusters.png", width = 10, height = 8)
 
 p1
 ```
@@ -629,7 +811,10 @@ hp <- Heatmap(exp_mat,
         column_names_rot = 45,
         border = "black")
 
-d1 <- draw( hp, annotation_legend_list = lgd_list)
+# Save and draw
+hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+save_plot(hp_drawn, "bubbleplot-final-celltypes.pdf", width = 12, height = 10)
+hp_drawn
 ```
 
 ## Save object
