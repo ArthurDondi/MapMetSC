@@ -101,6 +101,12 @@ We will first read the data that passed the [second quality control step](#qc-2)
 ```{r read-data}
 spe <- readRDS(file.path(params$output,"spe_qc2.rds"))
 
+# Adding AD samples metadata for Harmony batch correction
+colData(spe)$stainer[colData(spe)$tissue == "AD"] <- "Stainer_1"
+colData(spe)$imc_date[colData(spe)$tissue == "AD"] <- "2025-06-23"
+# typo correction, as IMC obviously didn't exist in 2022
+colData(spe)$imc_date[colData(spe)$imc_date == "2002-10-18"] <- "2022-10-18"
+
 intensity_mat <- assay(spe, "counts")
 colnames(intensity_mat) <- colnames(spe)
 
@@ -168,8 +174,8 @@ mat_t <- t(mat)
 # Run PCA
 pca_res <- prcomp(mat_t, center = TRUE, scale. = TRUE)
 
-# Keep first 30 PCs 
-n_pcs_use <- 30
+# Keep first 32 PCs (at least as many as the number of markers used)
+n_pcs_use <- 32
 pca_mat <- pca_res$x[, 1:n_pcs_use]
 
 rownames(pca_mat) <- colnames(spe)
@@ -180,12 +186,12 @@ Harmony is applied to the PCA matrix to remove batch effects across samples befo
 
 ```{r harmony-batch-correction}
 # Apply Harmony batch correction to the PCA embeddings to account for
-# sample-level batch effects. The corrected matrix retains the same dimensions
-# (cells x 30 PCs) and replaces pca_mat for all downstream steps.
+# batch effects across fm_id and tissue_id. The corrected matrix retains
+# the same dimensions (cells x 32 PCs) and replaces pca_mat for all downstream steps.
 pca_mat <- HarmonyMatrix(
   data_mat  = pca_mat,
   meta_data = as.data.frame(colData(spe)),
-  vars_use  = "sample_id",
+  vars_use  = c("fm_id", "tissue_id"),
   do_pca    = FALSE
 )
 
@@ -211,7 +217,6 @@ spe$pg_clusters <- clusters
 mat_red <- calculateUMAP(
   pca_mat,
   n_neighbors = 30,
-  min_dist = 0.3,
   BPPARAM = MulticoreParam(RNGseed = 221228)
 )
 
