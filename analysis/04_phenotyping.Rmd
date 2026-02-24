@@ -409,16 +409,6 @@ save_plot(hp_drawn, "vis-data-bubbleplot.pdf", width = 16, height = 14)
 hp_drawn
 ```
 
-For visualization purposes we will use different UMAP parameters. We read a previously generated R file from Zenodo [(R_intermediary/20240808_mat_red.rds)](https://doi.org/10.5281/zenodo.13220634 ) due to reasons explained in (#umap1).
-
-```{r UMAP-visualization}
-mat_red <- calculateUMAP(pca_mat, n_neighbors=30, BPPARAM = MulticoreParam(RNGseed = 221228))
-#mat_red <- readRDS(file.path(params$input, "R_intermediary/20230628_mat_red.rds")) 
-
-rownames(mat_red) <- colnames(spe)
-reducedDim(spe, "UMAP") <- mat_red
-```
-
 Let's visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
 
 ```{r UMAP-vis-clusters}
