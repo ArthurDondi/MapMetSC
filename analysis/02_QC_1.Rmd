@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
@@ -151,7 +151,7 @@ We can see that cluster 11 represents cells that swam off (DAPI expression witho
 To be sure that we only exclude cells that are really not present on the IMC channels, we will identify the samples with the highest number of cells from cluster 11.
 
 ```{r sanity-check}
-c <- "11"
+c <- "17"
 mat <- t(mat)
 
 data <- data.frame(sample=colnames(mat), clusters)
@@ -174,8 +174,8 @@ Sample `r max_sample` has the highest number of cells from cluster 11. For a las
 
 ```{r sanity-check-2, fig.show='hide'}
 
-masks <- loadImages(file.path(params$input, "MapMetIP_ProcessedDataset/masks", paste0(max_sample, ".tif")), as.is = TRUE)
-img <- loadImages(file.path(params$input, "MapMetIP_ProcessedDataset/img", paste0(max_sample, ".tif")))
+masks <- loadImages(file.path(params$input, "masks", paste0(max_sample, ".tif")), as.is = TRUE)
+img <- loadImages(file.path(params$input, "img", paste0(max_sample, ".tif")))
 
 mcols(masks) <- DataFrame(sample_id = names(masks))
 mcols(img) <- DataFrame(sample_id = names(img))
