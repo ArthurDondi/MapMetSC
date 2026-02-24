@@ -91,6 +91,7 @@ library(circlize)
 library(readxl)
 library(writexl)
 library(ggplot2)
+library(harmony)
 ```
 </details>
 
@@ -99,6 +100,12 @@ We will first read the data that passed the [second quality control step](#qc-2)
 
 ```{r read-data}
 spe <- readRDS(file.path(params$output,"spe_qc2.rds"))
+
+# Adding AD samples metadata for Harmony batch correction
+colData(spe)$stainer[colData(spe)$tissue == "AD"] <- "Stainer_1"
+colData(spe)$imc_date[colData(spe)$tissue == "AD"] <- "2025-06-23"
+# typo correction, as IMC obviously didn't exist in 2022
+colData(spe)$imc_date[colData(spe)$imc_date == "2002-10-18"] <- "2022-10-18"
 
 intensity_mat <- assay(spe, "counts")
 colnames(intensity_mat) <- colnames(spe)
@@ -167,9 +174,26 @@ mat_t <- t(mat)
 # Run PCA
 pca_res <- prcomp(mat_t, center = TRUE, scale. = TRUE)
 
-# Keep first 30 PCs 
-n_pcs_use <- 30
+# Keep first 32 PCs (at least as many as the number of markers used)
+n_pcs_use <- 32
 pca_mat <- pca_res$x[, 1:n_pcs_use]
+
+rownames(pca_mat) <- colnames(spe)
+```
+
+## Harmony batch correction
+Harmony is applied to the PCA matrix to remove batch effects across samples before clustering and UMAP visualization.
+
+```{r harmony-batch-correction}
+# Apply Harmony batch correction to the PCA embeddings to account for
+# batch effects across fm_id and tissue_id. The corrected matrix retains
+# the same dimensions (cells x 32 PCs) and replaces pca_mat for all downstream steps.
+pca_mat <- HarmonyMatrix(
+  data_mat  = pca_mat,
+  meta_data = as.data.frame(colData(spe)),
+  vars_use  = c("fm_id", "tissue_id"),
+  do_pca    = FALSE
+)
 
 rownames(pca_mat) <- colnames(spe)
 reducedDim(spe, "PCA_clustering") <- pca_mat
@@ -193,7 +217,6 @@ spe$pg_clusters <- clusters
 mat_red <- calculateUMAP(
   pca_mat,
   n_neighbors = 30,
-  min_dist = 0.3,
   BPPARAM = MulticoreParam(RNGseed = 221228)
 )
 
@@ -384,16 +407,6 @@ hp <- Heatmap(exp_mat,
 hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
 save_plot(hp_drawn, "vis-data-bubbleplot.pdf", width = 16, height = 14)
 hp_drawn
-```
-
-For visualization purposes we will use different UMAP parameters. We read a previously generated R file from Zenodo [(R_intermediary/20240808_mat_red.rds)](https://doi.org/10.5281/zenodo.13220634 ) due to reasons explained in (#umap1).
-
-```{r UMAP-visualization}
-mat_red <- calculateUMAP(mat, n_neighbors=30, BPPARAM = MulticoreParam(RNGseed = 221228))
-#mat_red <- readRDS(file.path(params$input, "R_intermediary/20230628_mat_red.rds")) 
-
-rownames(mat_red) <- colnames(spe)
-reducedDim(spe, "UMAP") <- mat_red
 ```
 
 Let's visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
