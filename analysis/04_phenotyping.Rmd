@@ -186,12 +186,12 @@ Harmony is applied to the PCA matrix to remove batch effects across samples befo
 
 ```{r harmony-batch-correction}
 # Apply Harmony batch correction to the PCA embeddings to account for
-# batch effects across fm_id and tissue_id. The corrected matrix retains
+# batch effects across fm_id, tissue, stainer, and imc_date. The corrected matrix retains
 # the same dimensions (cells x 32 PCs) and replaces pca_mat for all downstream steps.
 pca_mat <- HarmonyMatrix(
   data_mat  = pca_mat,
   meta_data = as.data.frame(colData(spe)),
-  vars_use  = c("fm_id", "tissue_id"),
+  vars_use  = c("fm_id", "tissue", "stainer", "imc_date"),
   do_pca    = FALSE
 )
 
