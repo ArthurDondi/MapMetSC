@@ -227,7 +227,7 @@ reducedDim(spe, "PCA_clustering") <- pca_mat
 set.seed(221228)
 
 mat_red <- calculateUMAP(
-  pca_mat,
+  t(pca_mat),
   n_neighbors = 30,
   BPPARAM = MulticoreParam(RNGseed = 221228)
 )
@@ -236,8 +236,28 @@ rownames(mat_red) <- colnames(spe)
 reducedDim(spe, "UMAP") <- mat_red
 ```
 
-## Batch correction strength: Average Silhouette Width
-We quantify the strength of batch effect correction using the **average silhouette width (ASW)** of batch labels computed in PCA space. A lower (or more negative) ASW after Harmony indicates better batch integration: cells from different batches are more interleaved.
+Let's visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
+
+```{r UMAP-vis-clusters}
+p1 <- dittoDimPlot(spe, var = "pg_clusters", 
+             reduction.use = "UMAP", size = 1,
+             do.label = TRUE,
+             legend.show=F) +
+  scale_color_manual(values = col_clusters) + 
+  theme(legend.title = element_blank()) +
+  ggtitle("PG clusters on UMAP")
+
+# Save ggplot
+save_plot(p1, "UMAP-vis-clusters.png", width = 8, height = 6)
+p1
+```
+
+
+## Writing proportions of PT, BM and AD cells in each cluster for manual annotation 
+```{r}
+library(dplyr)
+library(tidyr)
+library(writexl)
 
 ```{r batch-correction-asw, fig.width=5, fig.height=5}
 # Subsample for computational feasibility
@@ -454,8 +474,8 @@ hp <- Heatmap(exp_mat,
         cell_fun = cell_fun,
         show_row_dend = F,
         column_dend_height = unit(1.5, "cm"),
-        row_names_gp = gpar(fontsize = 10),
-        column_names_gp = gpar(fontsize = 10),
+        row_names_gp = gpar(fontsize = 15),
+        column_names_gp = gpar(fontsize = 15),
         column_names_rot = 45,
         border = "black")
 
@@ -465,7 +485,25 @@ save_plot(hp_drawn, "vis-data-bubbleplot.pdf", width = 16, height = 14)
 hp_drawn
 ```
 
-## UMAP: Tissue types
+
+```{r UMAP-vis-marker, fig.width=10}
+p1 <- dittoDimPlot(spe, var = "GD2_Gd155_mean", assay = "counts",
+             reduction.use = "UMAP", size = 0.2, 
+             colors = viridis(100), do.label = TRUE) +
+    scale_color_viridis()
+
+p2 <- dittoDimPlot(spe, var = "CD15_Bi209_mean", assay = "counts",
+             reduction.use = "UMAP", size = 0.2, 
+             colors = viridis(100), do.label = TRUE) +
+    scale_color_viridis()
+
+combined <- p1 + p2
+
+# Save combined plot
+save_plot(combined, "UMAP-vis-marker.png", width = 10, height = 6)
+combined
+```
+
 Next, we will plot the tissue type separately in the dim-red space.
 
 ```{r UMAP-vis-tissue}
