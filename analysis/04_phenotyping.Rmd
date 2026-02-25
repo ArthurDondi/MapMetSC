@@ -91,7 +91,9 @@ library(circlize)
 library(readxl)
 library(writexl)
 library(ggplot2)
+library(patchwork)
 library(harmony)
+library(cluster)
 ```
 </details>
 
@@ -182,7 +184,7 @@ rownames(pca_mat) <- colnames(spe)
 ```
 
 ## Pre-Harmony UMAP for batch effect visualization
-Before applying Harmony batch correction, we compute a UMAP embedding from the raw PCA space. This allows us to visualize the batch structure present in the data prior to correction.
+Before applying Harmony batch correction, we compute a UMAP embedding from the raw PCA space to make the batch structure visible prior to correction.
 
 ```{r umap-pre-harmony}
 set.seed(221228)
@@ -199,24 +201,6 @@ mat_red_pre <- calculateUMAP(
 
 rownames(mat_red_pre) <- colnames(spe)
 reducedDim(spe, "UMAP_preharmony") <- mat_red_pre
-```
-
-```{r umap-pre-harmony-batch, fig.width=18, fig.height=6}
-p_pre_tissue   <- dittoDimPlot(spe, var = "tissue",
-                   reduction.use = "UMAP_preharmony", size = 0.3) +
-  ggtitle("Pre-Harmony: tissue")
-
-p_pre_stainer  <- dittoDimPlot(spe, var = "stainer",
-                   reduction.use = "UMAP_preharmony", size = 0.3) +
-  ggtitle("Pre-Harmony: stainer")
-
-p_pre_imc_date <- dittoDimPlot(spe, var = "imc_date",
-                   reduction.use = "UMAP_preharmony", size = 0.3) +
-  ggtitle("Pre-Harmony: imc_date")
-
-combined_pre <- p_pre_tissue + p_pre_stainer + p_pre_imc_date
-save_plot(combined_pre, "UMAP-preharmony-batch.png", width = 18, height = 6)
-combined_pre
 ```
 
 ## Harmony batch correction
@@ -237,20 +221,10 @@ rownames(pca_mat) <- colnames(spe)
 reducedDim(spe, "PCA_clustering") <- pca_mat
 ```
 
-## Phenograph clustering on PCA space
-```{r}
+## UMAP after Harmony (for visualization only)
 
+```{r umap-post-harmony}
 set.seed(221228)
-
-Rphenograph_out <- Rphenoannoy(pca_mat, k = 100)
-clusters <- factor(membership(Rphenograph_out[[2]]))
-
-saveRDS(clusters, file.path(params$output, "pg_clusters.rds"))
-
-spe$pg_clusters <- clusters
-```
-## UMAP for visualization only (computed on PCA space
-```{r}
 
 mat_red <- calculateUMAP(
   pca_mat,
@@ -262,78 +236,125 @@ rownames(mat_red) <- colnames(spe)
 reducedDim(spe, "UMAP") <- mat_red
 ```
 
-## Writing proportions of PT, BM and AD cells in each cluster for manual annotation 
-```{r}
-library(dplyr)
-library(tidyr)
-library(writexl)
+## Batch correction strength: Average Silhouette Width
+We quantify the strength of batch effect correction using the **average silhouette width (ASW)** of batch labels computed in PCA space. A lower (or more negative) ASW after Harmony indicates better batch integration: cells from different batches are more interleaved.
 
-# Ensure cluster is character
-spe$pg_clusters <- as.character(spe$pg_clusters)
+```{r batch-correction-asw, fig.width=5, fig.height=5}
+# Subsample for computational feasibility
+set.seed(221228)
+n_sample <- min(5000, ncol(spe))
+idx <- sample(seq_len(ncol(spe)), n_sample)
 
-# -----------------------------
-# 1. Absolute counts
-# -----------------------------
-count_table <- as.data.frame(table(
-  cluster = spe$pg_clusters,
-  tissue  = spe$tissue
-))
+# Compute Euclidean distances in pre- and post-Harmony PCA spaces (top 10 PCs)
+dist_pre  <- dist(pca_mat_raw[idx, 1:10])
+dist_post <- dist(reducedDim(spe, "PCA_clustering")[idx, 1:10])
 
-count_wide <- count_table %>%
-  pivot_wider(
-    names_from = tissue,
-    values_from = Freq,
-    values_fill = 0
-  )
+# Use stainer as batch variable (clear technical batch)
+batch_labels <- as.integer(factor(spe$stainer[idx]))
 
-# Ensure all tissues exist
-for(t in c("BM","PT","AD")){
-  if(!t %in% colnames(count_wide)){
-    count_wide[[t]] <- 0
-  }
-}
+sil_pre  <- silhouette(batch_labels, dist_pre)
+sil_post <- silhouette(batch_labels, dist_post)
 
-count_wide <- count_wide %>%
-  select(cluster, BM, PT, AD)
+asw_pre  <- mean(sil_pre[, "sil_width"])
+asw_post <- mean(sil_post[, "sil_width"])
 
-# -----------------------------
-# 2. Percentages WITHIN cluster
-# -----------------------------
-percent_within_cluster <- count_wide %>%
-  rowwise() %>%
-  mutate(
-    total = BM + PT + AD,
-    BM_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * BM / total), "0.0%"),
-    PT_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * PT / total), "0.0%"),
-    AD_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * AD / total), "0.0%")
-  ) %>%
-  ungroup() %>%
-  select(-total)
-
-# -----------------------------
-# 3. Add annotation columns
-# -----------------------------
-annotation_template <- percent_within_cluster %>%
-  mutate(
-    BM_celltype = "",
-    BM_metacluster = "",
-    PT_celltype = "",
-    PT_metacluster = "",
-    AD_celltype = "",
-    AD_metacluster = "",
-    literature = ""
-  ) %>%
-  arrange(as.numeric(cluster))
-
-# -----------------------------
-# 4. Write Excel
-# -----------------------------
-write_xlsx(
-  annotation_template,
-  file.path(params$output, "cluster_annotation_template.xlsx")
+asw_df <- data.frame(
+  Stage = factor(c("Pre-Harmony", "Post-Harmony"), levels = c("Pre-Harmony", "Post-Harmony")),
+  ASW   = c(asw_pre, asw_post)
 )
+print(asw_df)
+
+p_asw <- ggplot(asw_df, aes(x = Stage, y = ASW, fill = Stage)) +
+  geom_col(width = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_fill_manual(values = c("Pre-Harmony" = "#E88C8C", "Post-Harmony" = "#8CBBE8")) +
+  labs(
+    title = "Average Silhouette Width of stainer labels\nbefore and after Harmony correction",
+    y     = "Average Silhouette Width",
+    x     = NULL
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+save_plot(p_asw, "batch-correction-asw.png", width = 5, height = 5)
+p_asw
 ```
 
+## Batch effect: 8-panel UMAP comparison (before vs. after Harmony)
+Each batch variable (`fm_id`, `tissue`, `stainer`, `imc_date`) is shown in a 2 × 4 panel: the top row is pre-Harmony and the bottom row is post-Harmony.
+
+```{r umap-harmony-8panel, fig.width=24, fig.height=12}
+p_pre_fm       <- dittoDimPlot(spe, var = "fm_id",    reduction.use = "UMAP_preharmony", size = 0.2) + ggtitle("Pre-Harmony: fm_id")
+p_pre_tissue   <- dittoDimPlot(spe, var = "tissue",   reduction.use = "UMAP_preharmony", size = 0.2) + ggtitle("Pre-Harmony: tissue")
+p_pre_stainer  <- dittoDimPlot(spe, var = "stainer",  reduction.use = "UMAP_preharmony", size = 0.2) + ggtitle("Pre-Harmony: stainer")
+p_pre_imc_date <- dittoDimPlot(spe, var = "imc_date", reduction.use = "UMAP_preharmony", size = 0.2) + ggtitle("Pre-Harmony: imc_date")
+
+p_post_fm       <- dittoDimPlot(spe, var = "fm_id",    reduction.use = "UMAP", size = 0.2) + ggtitle("Post-Harmony: fm_id")
+p_post_tissue   <- dittoDimPlot(spe, var = "tissue",   reduction.use = "UMAP", size = 0.2) + ggtitle("Post-Harmony: tissue")
+p_post_stainer  <- dittoDimPlot(spe, var = "stainer",  reduction.use = "UMAP", size = 0.2) + ggtitle("Post-Harmony: stainer")
+p_post_imc_date <- dittoDimPlot(spe, var = "imc_date", reduction.use = "UMAP", size = 0.2) + ggtitle("Post-Harmony: imc_date")
+
+panel_8 <- (p_pre_fm | p_pre_tissue | p_pre_stainer | p_pre_imc_date) /
+           (p_post_fm | p_post_tissue | p_post_stainer | p_post_imc_date)
+
+save_plot(panel_8, "UMAP-harmony-8panel.png", width = 24, height = 12)
+panel_8
+```
+
+## Phenograph clustering on PCA space
+
+```{r phenograph-clustering}
+set.seed(221228)
+
+Rphenograph_out <- Rphenoannoy(pca_mat, k = 100)
+clusters <- factor(membership(Rphenograph_out[[2]]))
+
+saveRDS(clusters, file.path(params$output, "pg_clusters.rds"))
+
+spe$pg_clusters <- clusters
+```
+
+## UMAP: Phenograph clusters
+Let's visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
+
+```{r UMAP-vis-clusters}
+col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
+col_clusters = setNames(sample(col_vector_433, length(unique(spe$pg_clusters))), unique(spe$pg_clusters))
+
+p1 <- dittoDimPlot(spe, var = "pg_clusters", 
+             reduction.use = "UMAP", size = 1,
+             do.label = TRUE,
+             legend.show=F) +
+  scale_color_manual(values = col_clusters) + 
+  theme(legend.title = element_blank()) +
+  ggtitle("PG clusters on UMAP")
+
+# Save ggplot
+save_plot(p1, "UMAP-vis-clusters.png", width = 8, height = 6)
+p1
+```
+
+## UMAP: Marker expression
+
+```{r UMAP-vis-marker, fig.width=10}
+p1 <- dittoDimPlot(spe, var = "GD2_Gd155_mean", assay = "counts",
+             reduction.use = "UMAP", size = 0.2, 
+             colors = viridis(100), do.label = TRUE) +
+    scale_color_viridis()
+
+p2 <- dittoDimPlot(spe, var = "CD15_Bi209_mean", assay = "counts",
+             reduction.use = "UMAP", size = 0.2, 
+             colors = viridis(100), do.label = TRUE) +
+    scale_color_viridis()
+
+combined <- p1 + p2
+
+# Save combined plot
+save_plot(combined, "UMAP-vis-marker.png", width = 10, height = 6)
+combined
+```
+
+## Bubble plot: Mean marker expression per cluster
 Let's plot the mean marker expressions per cluster in a bubble plot.
 
 ```{r vis-data-bubbleplot, fig.height=14, fig.width=16}
@@ -376,9 +397,6 @@ area_mean = mean_morph[,"area"]
 solidity_mean = mean_morph[,"solidity"]
 col_mean_area = colorRamp2(c(min(area_mean),min(area_mean)+(max(area_mean)-min(area_mean))/2, max(area_mean)), c("blue", "white", "red"))
 col_mean_solidity = colorRamp2(c(min(solidity_mean),min(solidity_mean)+(max(solidity_mean)-min(solidity_mean))/2, max(solidity_mean)), c("blue", "white", "red"))
-
-col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
-col_clusters = setNames(sample(col_vector_433, length(unique(spe$pg_clusters))), unique(spe$pg_clusters))
 
 column_ha = HeatmapAnnotation(pg_clusters = colnames(exp_mat),
                               roundness = solidity_mean,
@@ -447,40 +465,7 @@ save_plot(hp_drawn, "vis-data-bubbleplot.pdf", width = 16, height = 14)
 hp_drawn
 ```
 
-Let's visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
-
-```{r UMAP-vis-clusters}
-p1 <- dittoDimPlot(spe, var = "pg_clusters", 
-             reduction.use = "UMAP", size = 1,
-             do.label = TRUE,
-             legend.show=F) +
-  scale_color_manual(values = col_clusters) + 
-  theme(legend.title = element_blank()) +
-  ggtitle("PG clusters on UMAP")
-
-# Save ggplot
-save_plot(p1, "UMAP-vis-clusters.png", width = 8, height = 6)
-p1
-```
-
-```{r UMAP-vis-marker, fig.width=10}
-p1 <- dittoDimPlot(spe, var = "GD2_Gd155_mean", assay = "counts",
-             reduction.use = "UMAP", size = 0.2, 
-             colors = viridis(100), do.label = TRUE) +
-    scale_color_viridis()
-
-p2 <- dittoDimPlot(spe, var = "CD15_Bi209_mean", assay = "counts",
-             reduction.use = "UMAP", size = 0.2, 
-             colors = viridis(100), do.label = TRUE) +
-    scale_color_viridis()
-
-combined <- p1 + p2
-
-# Save combined plot
-save_plot(combined, "UMAP-vis-marker.png", width = 10, height = 6)
-combined
-```
-
+## UMAP: Tissue types
 Next, we will plot the tissue type separately in the dim-red space.
 
 ```{r UMAP-vis-tissue}
@@ -526,68 +511,73 @@ plot_list[[3]]
 
 We can see that PT samples are primarily comprised of tumor cells (GD2+) and bone marrow samples include a large proprotion of granulocytes (CD15+).
 
-## Harmony effect: side-by-side comparison and batch correction strength
-To assess the effect of Harmony correction, we compare UMAP embeddings before and after correction, coloured by the same batch variables. We also quantify the strength of batch effect correction using the **average silhouette width (ASW)** of batch labels computed in PCA space. A lower (or more negative) ASW after Harmony indicates better batch integration: cells from different batches are more interleaved.
+## Writing cluster proportions for manual annotation (Excel)
 
-```{r harmony-comparison, fig.width=18, fig.height=6}
-p_post_tissue   <- dittoDimPlot(spe, var = "tissue",
-                    reduction.use = "UMAP", size = 0.3) +
-  ggtitle("Post-Harmony: tissue")
+```{r cluster-annotation-excel}
+# Ensure cluster is character
+spe$pg_clusters <- as.character(spe$pg_clusters)
 
-p_post_stainer  <- dittoDimPlot(spe, var = "stainer",
-                    reduction.use = "UMAP", size = 0.3) +
-  ggtitle("Post-Harmony: stainer")
+# -----------------------------
+# 1. Absolute counts
+# -----------------------------
+count_table <- as.data.frame(table(
+  cluster = spe$pg_clusters,
+  tissue  = spe$tissue
+))
 
-p_post_imc_date <- dittoDimPlot(spe, var = "imc_date",
-                    reduction.use = "UMAP", size = 0.3) +
-  ggtitle("Post-Harmony: imc_date")
+count_wide <- count_table %>%
+  pivot_wider(
+    names_from = tissue,
+    values_from = Freq,
+    values_fill = 0
+  )
 
-combined_post <- p_post_tissue + p_post_stainer + p_post_imc_date
-save_plot(combined_post, "UMAP-postharmony-batch.png", width = 18, height = 6)
-combined_post
-```
+# Ensure all tissues exist
+for(t in c("BM","PT","AD")){
+  if(!t %in% colnames(count_wide)){
+    count_wide[[t]] <- 0
+  }
+}
 
-```{r batch-correction-asw, fig.width=5, fig.height=5}
-library(cluster)
+count_wide <- count_wide %>%
+  select(cluster, BM, PT, AD)
 
-# Subsample for computational feasibility
-set.seed(221228)
-n_sample <- min(5000, ncol(spe))
-idx <- sample(seq_len(ncol(spe)), n_sample)
+# -----------------------------
+# 2. Percentages WITHIN cluster
+# -----------------------------
+percent_within_cluster <- count_wide %>%
+  rowwise() %>%
+  mutate(
+    total = BM + PT + AD,
+    BM_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * BM / total), "0.0%"),
+    PT_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * PT / total), "0.0%"),
+    AD_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * AD / total), "0.0%")
+  ) %>%
+  ungroup() %>%
+  select(-total)
 
-# Compute Euclidean distances in pre- and post-Harmony PCA spaces (top 10 PCs)
-dist_pre  <- dist(pca_mat_raw[idx, 1:10])
-dist_post <- dist(reducedDim(spe, "PCA_clustering")[idx, 1:10])
+# -----------------------------
+# 3. Add annotation columns
+# -----------------------------
+annotation_template <- percent_within_cluster %>%
+  mutate(
+    BM_celltype = "",
+    BM_metacluster = "",
+    PT_celltype = "",
+    PT_metacluster = "",
+    AD_celltype = "",
+    AD_metacluster = "",
+    literature = ""
+  ) %>%
+  arrange(as.numeric(cluster))
 
-# Use stainer as batch variable (clear technical batch)
-batch_labels <- as.integer(factor(spe$stainer[idx]))
-
-sil_pre  <- silhouette(batch_labels, dist_pre)
-sil_post <- silhouette(batch_labels, dist_post)
-
-asw_pre  <- mean(sil_pre[, "sil_width"])
-asw_post <- mean(sil_post[, "sil_width"])
-
-asw_df <- data.frame(
-  Stage = factor(c("Pre-Harmony", "Post-Harmony"), levels = c("Pre-Harmony", "Post-Harmony")),
-  ASW   = c(asw_pre, asw_post)
+# -----------------------------
+# 4. Write Excel
+# -----------------------------
+write_xlsx(
+  annotation_template,
+  file.path(params$output, "cluster_annotation_template.xlsx")
 )
-print(asw_df)
-
-p_asw <- ggplot(asw_df, aes(x = Stage, y = ASW, fill = Stage)) +
-  geom_col(width = 0.5) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  scale_fill_manual(values = c("Pre-Harmony" = "#E88C8C", "Post-Harmony" = "#8CBBE8")) +
-  labs(
-    title = "Average Silhouette Width of stainer labels\nbefore and after Harmony correction",
-    y     = "Average Silhouette Width",
-    x     = NULL
-  ) +
-  theme_bw() +
-  theme(legend.position = "none")
-
-save_plot(p_asw, "batch-correction-asw.png", width = 5, height = 5)
-p_asw
 ```
 
 ```{r stop-here}
