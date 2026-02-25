@@ -181,6 +181,44 @@ pca_mat <- pca_res$x[, 1:n_pcs_use]
 rownames(pca_mat) <- colnames(spe)
 ```
 
+## Pre-Harmony UMAP for batch effect visualization
+Before applying Harmony batch correction, we compute a UMAP embedding from the raw PCA space. This allows us to visualize the batch structure present in the data prior to correction.
+
+```{r umap-pre-harmony}
+set.seed(221228)
+
+# Keep raw PCA for pre-Harmony comparison
+pca_mat_raw <- pca_mat
+
+# Compute UMAP on pre-Harmony PCA embeddings
+mat_red_pre <- calculateUMAP(
+  pca_mat_raw,
+  n_neighbors = 30,
+  BPPARAM = MulticoreParam(RNGseed = 221228)
+)
+
+rownames(mat_red_pre) <- colnames(spe)
+reducedDim(spe, "UMAP_preharmony") <- mat_red_pre
+```
+
+```{r umap-pre-harmony-batch, fig.width=18, fig.height=6}
+p_pre_tissue   <- dittoDimPlot(spe, var = "tissue",
+                   reduction.use = "UMAP_preharmony", size = 0.3) +
+  ggtitle("Pre-Harmony: tissue")
+
+p_pre_stainer  <- dittoDimPlot(spe, var = "stainer",
+                   reduction.use = "UMAP_preharmony", size = 0.3) +
+  ggtitle("Pre-Harmony: stainer")
+
+p_pre_imc_date <- dittoDimPlot(spe, var = "imc_date",
+                   reduction.use = "UMAP_preharmony", size = 0.3) +
+  ggtitle("Pre-Harmony: imc_date")
+
+combined_pre <- p_pre_tissue + p_pre_stainer + p_pre_imc_date
+save_plot(combined_pre, "UMAP-preharmony-batch.png", width = 18, height = 6)
+combined_pre
+```
+
 ## Harmony batch correction
 Harmony is applied to the PCA matrix to remove batch effects across samples before clustering and UMAP visualization.
 
@@ -487,6 +525,70 @@ plot_list[[3]]
 ```
 
 We can see that PT samples are primarily comprised of tumor cells (GD2+) and bone marrow samples include a large proprotion of granulocytes (CD15+).
+
+## Harmony effect: side-by-side comparison and batch correction strength
+To assess the effect of Harmony correction, we compare UMAP embeddings before and after correction, coloured by the same batch variables. We also quantify the strength of batch effect correction using the **average silhouette width (ASW)** of batch labels computed in PCA space. A lower (or more negative) ASW after Harmony indicates better batch integration: cells from different batches are more interleaved.
+
+```{r harmony-comparison, fig.width=18, fig.height=6}
+p_post_tissue   <- dittoDimPlot(spe, var = "tissue",
+                    reduction.use = "UMAP", size = 0.3) +
+  ggtitle("Post-Harmony: tissue")
+
+p_post_stainer  <- dittoDimPlot(spe, var = "stainer",
+                    reduction.use = "UMAP", size = 0.3) +
+  ggtitle("Post-Harmony: stainer")
+
+p_post_imc_date <- dittoDimPlot(spe, var = "imc_date",
+                    reduction.use = "UMAP", size = 0.3) +
+  ggtitle("Post-Harmony: imc_date")
+
+combined_post <- p_post_tissue + p_post_stainer + p_post_imc_date
+save_plot(combined_post, "UMAP-postharmony-batch.png", width = 18, height = 6)
+combined_post
+```
+
+```{r batch-correction-asw, fig.width=5, fig.height=5}
+library(cluster)
+
+# Subsample for computational feasibility
+set.seed(221228)
+n_sample <- min(5000, ncol(spe))
+idx <- sample(seq_len(ncol(spe)), n_sample)
+
+# Compute Euclidean distances in pre- and post-Harmony PCA spaces (top 10 PCs)
+dist_pre  <- dist(pca_mat_raw[idx, 1:10])
+dist_post <- dist(reducedDim(spe, "PCA_clustering")[idx, 1:10])
+
+# Use stainer as batch variable (clear technical batch)
+batch_labels <- as.integer(factor(spe$stainer[idx]))
+
+sil_pre  <- silhouette(batch_labels, dist_pre)
+sil_post <- silhouette(batch_labels, dist_post)
+
+asw_pre  <- mean(sil_pre[, "sil_width"])
+asw_post <- mean(sil_post[, "sil_width"])
+
+asw_df <- data.frame(
+  Stage = factor(c("Pre-Harmony", "Post-Harmony"), levels = c("Pre-Harmony", "Post-Harmony")),
+  ASW   = c(asw_pre, asw_post)
+)
+print(asw_df)
+
+p_asw <- ggplot(asw_df, aes(x = Stage, y = ASW, fill = Stage)) +
+  geom_col(width = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_fill_manual(values = c("Pre-Harmony" = "#E88C8C", "Post-Harmony" = "#8CBBE8")) +
+  labs(
+    title = "Average Silhouette Width of stainer labels\nbefore and after Harmony correction",
+    y     = "Average Silhouette Width",
+    x     = NULL
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+save_plot(p_asw, "batch-correction-asw.png", width = 5, height = 5)
+p_asw
+```
 
 ```{r stop-here}
 knitr::opts_chunk$set(eval = FALSE)
