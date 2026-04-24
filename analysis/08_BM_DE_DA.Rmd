@@ -139,7 +139,7 @@ sce$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
 sce$fm_id <- spe[keep_rows, keep_cols]$fm_id
 sce$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
 
-sce$sample_id <- factor(paste0(sce$progress, "_", sce$mna, "_", sce$patient, "_", sce$fm_id, "_", sce$tissue))
+sce$sample_id <- factor(spe[keep_rows, keep_cols]$sample_id)
 sce$age_diag <- spe[keep_rows, keep_cols]$age_diag
 
 sce$metacluster <- factor(spe[keep_rows, keep_cols]$metacluster)
@@ -241,11 +241,9 @@ condition <- sample_summary$condition
 het_t <- as.vector(unname(het[clustered_samples]))
 
 #calculate tumor infiltration per sample
-temp <- as.data.frame(table(spe[, paste0(spe$fm_id, "_", spe$tissue)%in%sub(".*_([^_]+_[^_]+$)", "\\1", clustered_samples)]$sample))
-rownames(temp) <- sapply(strsplit(as.character(temp$Var1), "_"), function(x) paste(x[3], x[4], sep = "_"))
-temp <- temp[sub(".*_([^_]+_[^_]+$)", "\\1", clustered_samples), ]
-rownames(temp) <- clustered_samples
-perc_tumor <- round((as.vector(unname(table(sce$sample_id)[clustered_samples]))/temp[clustered_samples,]$Freq)*100,3)
+total_cells_per_sample <- table(spe$sample_id)[clustered_samples]
+comp_cells_per_sample <- table(sce$sample_id)[clustered_samples]
+perc_tumor <- round((as.vector(comp_cells_per_sample) / as.vector(total_cells_per_sample)) * 100, 3)
 
 # Plot metadata
 cont_df <- data.frame(perc_tumor, het_t, age, condition,row.names=clustered_samples)

@@ -127,7 +127,8 @@ sce$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
 sce$fm_id <- spe[keep_rows, keep_cols]$fm_id
 sce$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
 
-sce$sample_id <- factor(paste0(sce$progress, "_", sce$mna, "_", sce$patient, "_", sce$fm_id, "_", sce$tissue))
+sce$sample_id <- factor(spe[keep_rows, keep_cols]$sample_id)
+sce$sample <- paste0(sce$fm_id, "_", as.character(sce$tissue))
 
 sce$age_diag <- spe[keep_rows, keep_cols]$age_diag
 sce$solidity_clipped <- spe[keep_rows, keep_cols]$solidity_clipped
@@ -144,6 +145,10 @@ metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_
 metadata(sce)$experiment_info <- as.data.frame(colData(sce)) %>% group_by(sample_id,patient, mna, condition, progress) %>% 
     summarise(n_cells=n(),.groups = 'drop') %>%
     as.data.frame()
+
+# Mapping from original sample_id to short fm_id_tissue label for display
+sample_to_short <- setNames(sce$sample, as.character(sce$sample_id))
+sample_to_short <- sample_to_short[!duplicated(names(sample_to_short))]
 
 # Define cell_type_markers 
 type_markers <- c("MPO_Y89_mean", "CD44_In115_mean", "CD11b_Nd142_mean", "HLA-DR_Nd143_mean", "PRPH_Nd144_mean", "HLA-ABC_Sm147_mean", "CD20_Nd148_mean", "LUM_Sm149_mean", "CD11c_Nd150_mean",
@@ -180,7 +185,7 @@ We store the order of the clustered samples to be able to plot corresponding met
 condition <- c("crtl", "inf.")
 clustered_samples <- list()
 for (i in seq_along(condition)){
-  clustered_samples <- c(clustered_samples, sub(".*_([^_]+_[^_]+$)", "\\1", levels(droplevels(p$data[p$data$condition==condition[i],]$sample_id))))
+  clustered_samples <- c(clustered_samples, unique(sample_to_short[levels(droplevels(p$data[p$data$condition==condition[i],]$sample_id))]))
 }
 clustered_samples <- as.character(clustered_samples)
 ```
@@ -199,7 +204,7 @@ rownames(prop) <- prop$sample_id
 prop <- prop %>% select(-sample_id)
 prop <- t(prop)
 rownames(prop) <- levels(sce$cluster_id)
-colnames(prop) <- sub(".*_([^_]+_[^_]+$)", "\\1", colnames(prop))
+colnames(prop) <- sample_to_short[colnames(prop)]
 prop <- prop[,clustered_samples]
 het <- apply(prop,2, entropy)
 ```
@@ -218,7 +223,7 @@ sample_summary <- as.data.frame(colData(sce)) %>%
   )
 
 sample_summary <- as.data.frame(sample_summary)
-rownames(sample_summary) <- sub(".*_([^_]+_[^_]+$)", "\\1", sample_summary$sample_id)  
+rownames(sample_summary) <- sample_to_short[as.character(sample_summary$sample_id)]
 sample_summary <- sample_summary %>% select(-sample_id)
 sample_summary <- sample_summary[clustered_samples,]
 
@@ -250,8 +255,6 @@ p_anno
 To investigate the shift in granulocyte maturity upon metastasis, we plot the mean granulocyte roundness per sample. 
 
 ```{r granulocyte-roundness, fig.width=4, fig.height=5}
-sce$sample <- sub(".*_([^_]+_[^_]+$)", "\\1", sce$sample_id)  
-
 df <- aggregate(sce[,sce$metacluster=="granulocytes"]$solidity_clipped, list(sce[,sce$metacluster=="granulocytes"]$sample), mean)
 rownames(df) <- df[,1]
 df <- df[-c(1)]
