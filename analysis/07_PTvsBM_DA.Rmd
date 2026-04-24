@@ -140,7 +140,7 @@ sce$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
 sce$fm_id <- spe[keep_rows, keep_cols]$fm_id
 sce$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
 
-sce$sample_id <- factor(spe[keep_rows, keep_cols]$sample_id)
+sce$sample_id <- factor(paste0(sce$progress, "_", sce$mna, "_", sce$patient, "_", sce$fm_id, "_", sce$tissue))
 
 sce$age_diag <- spe[keep_rows, keep_cols]$age_diag
 
@@ -159,13 +159,6 @@ tmp <- as.data.frame(colData(sce)) %>% group_by(sample_id,patient, mna, tissue, 
     as.data.frame()
 colnames(tmp) <- c("sample_id", "patient", "mna", "condition", "progress", "n_cells")
 metadata(sce)$experiment_info <- tmp
-
-# Mapping from original sample_id to short fm_id_tissue label for display
-sample_to_short <- setNames(
-  paste0(as.character(sce$fm_id), "_", as.character(sce$tissue)),
-  as.character(sce$sample_id)
-)
-sample_to_short <- sample_to_short[!duplicated(names(sample_to_short))]
 
 # Define cell_type_markers 
 type_markers <- c("MPO_Y89_mean", "CD44_In115_mean", "CD11b_Nd142_mean", "HLA-DR_Nd143_mean", "PRPH_Nd144_mean", "HLA-ABC_Sm147_mean", "CD20_Nd148_mean", "LUM_Sm149_mean", "CD11c_Nd150_mean",
@@ -203,7 +196,7 @@ condition <- c("PT_nMNA", "PT_MNA", "BM_nMNA", "BM_MNA")
 clustered_samples <- list()
 clustered_samples_long <- list()
 for (i in seq_along(condition)){
-  clustered_samples <- c(clustered_samples, unique(sample_to_short[levels(droplevels(p$data[p$data$condition==condition[i],]$sample_id))]))
+  clustered_samples <- c(clustered_samples, sapply(strsplit(levels(droplevels(p$data[p$data$condition==condition[i],]$sample_id)), "_"), function(x) paste(x[5], x[6], sep = "_")))
   clustered_samples_long <- c(clustered_samples_long, levels(droplevels(p$data[p$data$condition==condition[i],]$sample_id)))
 }
 clustered_samples <- as.character(clustered_samples)

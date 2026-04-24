@@ -374,14 +374,12 @@ In this second part, we perform differential abundance analysis between identifi
 ```{r set-condition}
 compartment <- "tumor"
 
-samples_with_tumor_cells <- unique(spe[,spe$tissue=="BM"& spe$metacluster=="tumor"]$sample_id)
-
 keep_rows <- rowData(spe)$use_channel 
 
 if (compartment=="tumor"){
-  keep_cols <- spe$celltype != "other" & spe$tissue=="BM" & spe$timepoint=="DE" & spe$sample_id%in%samples_with_tumor_cells & spe$metacluster == "tumor"
+  keep_cols <- spe$fm_id %in% valid_fm & spe$celltype != "other" & spe$tissue=="BM" & spe$timepoint=="DE" & spe$metacluster == "tumor"
 }else{
-  keep_cols <- spe$celltype != "other" & spe$tissue=="BM" & spe$timepoint=="DE" & spe$sample_id%in%samples_with_tumor_cells & spe$metacluster != "tumor" & spe$metacluster != "mesenchymal"
+  keep_cols <- spe$fm_id %in% valid_fm & spe$celltype != "other" & spe$tissue=="BM" & spe$timepoint=="DE" & spe$metacluster != "tumor" & spe$metacluster != "mesenchymal"
 }
 
 sce_comp <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows, keep_cols], exprs=assay(spe, "counts")[keep_rows, keep_cols]))
@@ -400,8 +398,7 @@ sce_comp$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
 sce_comp$fm_id <- spe[keep_rows, keep_cols]$fm_id
 sce_comp$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
 
-#sce_comp$sample_id <- factor(paste0(sce_comp$progress, "_", sce_comp$mna, "_", sce_comp$patient, "_", sce_comp$fm_id, "_", sce_comp$tissue), levels=clustered_samples)
-sce_comp$sample_id <- sce_comp$fm_id
+sce_comp$sample_id <- factor(paste0(sce_comp$progress, "_", sce_comp$mna, "_", sce_comp$patient, "_", sce_comp$fm_id, "_", sce_comp$tissue), levels=clustered_samples)
 
 sce_comp$age_diag <- spe[keep_rows, keep_cols]$age_diag
 sce_comp$solidity_clipped <- spe[keep_rows, keep_cols]$solidity_clipped
@@ -441,20 +438,14 @@ We first prepare data for DA analysis using the `diffcyt` package.
 
 ```{r prepare-data}
 # list of samples (one data.frame per sample)
-df_list <- lapply(unique(sce_comp$fm_id), function(x) {
-  as.data.frame(t(counts(sce_comp[, sce_comp$fm_id == x])))
+df_list <- lapply(unique(sce_comp$sample_id), function(x) {
+  as.data.frame(t(counts(sce_comp[, sce_comp$sample_id == x])))
 })
-names(df_list) <- unique(sce_comp$fm_id)
+names(df_list) <- unique(sce_comp$sample_id)
 
 # experiment info
 experiment_info <- metadata(sce_comp)$experiment_info
-
-# REQUIRED: create sample_id and align with df_list
-experiment_info$sample_id <- experiment_info$fm_id
 experiment_info <- experiment_info[match(names(df_list), experiment_info$sample_id), ]
-
-# sanity check (must be TRUE)
-stopifnot(all(names(df_list) == experiment_info$sample_id))
 
 # marker info
 channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows, ]), "_"), "[[", 2)

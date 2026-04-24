@@ -127,7 +127,7 @@ sce$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
 sce$fm_id <- spe[keep_rows, keep_cols]$fm_id
 sce$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
 
-sce$sample_id <- factor(spe[keep_rows, keep_cols]$sample_id)
+sce$sample_id <- factor(paste0(sce$progress, "_", sce$mna, "_", sce$patient, "_", sce$fm_id, "_", sce$tissue))
 
 sce$metacluster <- factor(spe[keep_rows, keep_cols]$metacluster)
 if (analysis_level=="c"){
