@@ -7,15 +7,62 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/07_BM_CTRLvsIN_DA")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+    
+  } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
+    
+    # save as PNG instead of PDF if you want consistency
+    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    draw(plot_obj)
+    dev.off()
+    
+  } else {
+    
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Sample overview - before and after metastasis {#crtl-inf}
@@ -50,14 +97,14 @@ library(gtools)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final.rds"))
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object. 
 
 ```{r catalyst-comp-object}
 keep_rows <- rowData(spe)$use_channel 
-keep_cols <- spe$tissue=="BM" & spe$celltype != "other" & (spe$timepoint=="DE"|spe$timepoint=="NA") & spe$metacluster!="tumor" & spe$metacluster!="mesenchymal" 
+keep_cols <- spe$tissue=="BM" & spe$celltype != "other" & (spe$timepoint=="DE"|spe$timepoint=="NA") & spe$metacluster!="tumor" & spe$metacluster!="mesenchymal"
 
 sce <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows, keep_cols], exprs=assay(spe, "counts")[keep_rows, keep_cols]))
 
@@ -121,6 +168,9 @@ set.seed(20231103)
 
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=metadata(spe)$color_vectors$col_celltype_ordered, 
                     linkage="ward.D", distance="manhattan") 
+
+save_plot(p, "SuppplFigS2d1_BM_abundance_immune.png", width = 16, height = 6)
+
 p
 ```
 
@@ -184,10 +234,14 @@ col_age_diag = colorRamp2(c(min(sample_summary$age_diag, na.rm = TRUE), (quantil
 col_het = colorRamp2(c(min(het, na.rm = TRUE), (max(het, na.rm = TRUE)-min(het, na.rm = TRUE))/2, max(het, na.rm = TRUE)), viridis(3))
 
 # Plot metadata
-columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
+p_anno <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
   columnAnnotation(age=sample_summary$age_diag, col=list(age=col_age_diag)) %v%
   columnAnnotation(het=het, col=list(het=col_het))
+
+save_plot(p_anno, "SuppplFigS2d2_BM_abundance_immune_metadata_clustering.png", width = 12, height = 6)
+
+p_anno
   
 ```
 
@@ -198,7 +252,7 @@ To investigate the shift in granulocyte maturity upon metastasis, we plot the me
 ```{r granulocyte-roundness, fig.width=4, fig.height=5}
 sce$sample <- sub(".*_([^_]+_[^_]+$)", "\\1", sce$sample_id)  
 
-df <- aggregate(sce[,sce$metacluster=="granulocyte"]$solidity_clipped, list(sce[,sce$metacluster=="granulocyte"]$sample), mean)
+df <- aggregate(sce[,sce$metacluster=="granulocytes"]$solidity_clipped, list(sce[,sce$metacluster=="granulocytes"]$sample), mean)
 rownames(df) <- df[,1]
 df <- df[-c(1)]
 colnames (df) <- "y"
@@ -213,14 +267,16 @@ stats_df$p_adj_signif <- stars.pval(stats_df$p.adj)
 stats_df$p_adj_signif[stats_df$p_adj_signif==" "] <- "ns"
 stats_df$p_long <- paste0(stats_df$p.adj, " (", stats_df$p_adj_signif, ")")
 
-p <- ggboxplot(df, x = "condition", y = "y",
+p_round <- ggboxplot(df, x = "condition", y = "y",
                 color = "condition", palette =c("slategray1", "slategray"),
                 add.params = list(size = 1.5),
                 add = "jitter")+ 
                 stat_pvalue_manual(stats_df, label = "p_long", y.position = max(df$y), step.increase = 0.2,) +
                 theme(aspect.ratio = 1.5, legend.position="none") 
 
-p
+save_plot(p_round, "Fig5g2_BM_roundness_granulo_CTRLvsINF.png", width = 6, height = 6)
+
+p_round
 ```
 
 # Differential abundance analysis - CRTL vs INF
@@ -331,7 +387,10 @@ for(i in 1:length(unique(p$data$cluster_id))){
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
 }
 
-grid.arrange(grobs = plot_list_fc, ncol = 4)
+p_boxplot <- grid.arrange(grobs = plot_list_fc, ncol = 4)
+
+save_plot(p_boxplot, "Fig5g1_BM_immune_celltypes_DA_CTRLvsINF.png", width = 24, height = 12)
+
 ```
 Finally we plot the mean celltype abundance over all samples per condition.
 
@@ -343,12 +402,16 @@ df_normalized <- p$data %>%
 
 df_normalized$cluster_id <- factor(df_normalized$cluster_id)
 
-ggplot(df_normalized, aes(fill=cluster_id, y=normalized_count, x=condition)) + 
+p_barplot <- ggplot(df_normalized, aes(fill=cluster_id, y=normalized_count, x=condition)) + 
   geom_bar(
     stat="identity",
     show.legend = T) + 
   scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_ordered) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+save_plot(p_barplot, "Fig3g_BM_immune_celltypes_abundance_CTRLvsINF.png", width = 8, height = 6)
+
+
 ```
 ## Session Info
 

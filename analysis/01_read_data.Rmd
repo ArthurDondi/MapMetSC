@@ -12,10 +12,52 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/01_read_data")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Read in the data {#read-data}
@@ -81,8 +123,6 @@ spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(pat
 spe <- spe_0px
 assay(spe, "counts_1px") <- assay(spe_1px, "counts")
 
-spe_save <- spe
-
 #remove single SPE objects
 rm(spe_0px)
 rm(spe_1px)
@@ -93,7 +133,6 @@ rm(spe_1px)
 We set the `colnames` of the object to generate unique identifiers per cell.
 
 ```{r set-colnames}
-spe <- spe_save
 colnames(spe) <- paste0(spe$sample_id, "_", spe$ObjectNumber)
 ```
 
@@ -132,8 +171,10 @@ spe$imc_date <- meta$IMC_date[match(paste(spe$fm_id, spe$tissue), paste(meta$Sam
 spe$control <- meta$control[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$patient_id <- meta$Patient_ID[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$timepoint <- meta$Timepoint[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
+
+# Keeping only Diagnosis samples + BM control samples
 spe$timepoint[spe$tissue == "AD"] <- "DE"
-spe <- spe[, spe$timepoint == "DE"]
+spe <- spe[, spe$timepoint == "DE" | spe$control == "yes"]
 
 spe$stage <- meta$INSS_stage[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$progression <- meta$efs[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
@@ -157,20 +198,24 @@ Before we save the SPE object, we check the distribution of markers.
 
 ```{r plot by staining date}
 
-marker <- 'DNA1_Ir193_mean'
 tissue <- unique(spe$tissue)
 
-dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", assay = "counts") +
+p1 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = 'DNA1_Ir191_mean', group.by = "tissue", assay = "counts") +
     ggtitle(paste(marker,  "- per tissue"))
+p2 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = 'DNA2_Ir193_mean', group.by = "tissue", assay = "counts") +
+    ggtitle(paste(marker,  "- per tissue"))
+p <- (p1 | p2)
+
+p
+
+save_plot(p, "DNA_markers_rawdata.png", width = 24, height = 12)
 
 ```
-
 ## Save object
 
 Finally, the generated SPE object can be saved for further downstream processing and analysis.
 
 ```{r save-objects-read-data}
-spe_save <- spe 
 
 saveRDS(spe, file.path(params$output, "spe.rds"))
 ```

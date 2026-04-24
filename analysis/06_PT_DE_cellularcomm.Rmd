@@ -7,15 +7,62 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/06_PT_DE_cellularcom")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+    
+  } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
+    
+    # save as PNG instead of PDF if you want consistency
+    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    draw(plot_obj)
+    dev.off()
+    
+  } else {
+    
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Identifying cellular communities in diagnostic primary tumors {#pt-dx}
@@ -45,7 +92,7 @@ library(ggpubr)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final.rds"))
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object. 
@@ -100,6 +147,8 @@ p <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust=T, k_pal
                     linkage="ward.D", distance="manhattan") 
 
 p
+
+save_plot(p, "Fig3a1_PT_abundance_patients_clustered_cancer.png", width = 8, height = 6)
 ```
 
 along with the dendogram:
@@ -119,6 +168,8 @@ dist_matrix <- dist(wide_df, method = "manhattan")
 hc <- hclust(dist_matrix, method = "ward.D")
 
 plot(hc)
+
+save_plot(plot(hc), "Fig3a2_PT_abundance_patients_clustered_dendrogram.png", width = 8, height = 6)
 ```
 We then save the order of clustered samples along with cluster labels.
 
@@ -145,6 +196,8 @@ sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
 p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered)
 
 p_ME
+
+save_plot(p_ME, "Fig3a3_PT_abundance_patients_clustered_immune.png", width = 8, height = 6)
 ```
 
 ## Compute tumor and TME heterogeneity
@@ -207,12 +260,14 @@ col_me_het = colorRamp2(c(min(me_het, na.rm = TRUE), (max(me_het, na.rm = TRUE)-
 col_tumor_het = colorRamp2(c(min(tumor_het, na.rm = TRUE), (max(tumor_het, na.rm = TRUE)-min(tumor_het, na.rm = TRUE))/2, max(tumor_het, na.rm = TRUE)), viridis(3))
 
 # Plot metadata
-columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
+p <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(X1p_loss=sample_summary$X1p_loss, col=list(X1p_loss=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
   columnAnnotation(age=sample_summary$age_diag, col=list(age=col_age_diag)) %v%
   columnAnnotation(TUM_het=tumor_het, col=list(TUM_het=col_tumor_het)) %v%
   columnAnnotation(ME_het=me_het, col=list(ME_het=col_me_het))
+
+save_plot(p, "Fig3a4_PT_abundance_patients_clustered_metadata.png", width = 8, height = 6)
   
 ```
 
@@ -248,7 +303,9 @@ plot_list[[d]] <- ggplot(result, aes(x="", y=Freq, fill=dis_var, group=dis_var))
     theme_void()
 }
 
-do.call("grid.arrange", c(plot_list, ncol=1))
+p<-do.call("grid.arrange", c(plot_list, ncol=1))
+
+save_plot(p, "Fig3b_PT_abundance_piecharts_metadata.png", width = 6, height = 8)
 ```
 ```{r boxplots}
 het_m <- as.vector(unname(me_het[clustered_samples]))
@@ -271,7 +328,9 @@ plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
                 theme(aspect.ratio = 1.5, legend.position="none") 
 }
 
-do.call("grid.arrange", c(plot_list, ncol=3))
+p<-do.call("grid.arrange", c(plot_list, ncol=3))
+
+save_plot(p, "Fig3c_PT_abundance_het_boxplot_metadata.png", width = 6, height = 8)
 ```
 
 ## Plot metaclusters
@@ -284,6 +343,8 @@ metadata(sce)$cluster_codes <- data.frame(celltype = factor(sce$metacluster))
 p_all <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_metacluster)
 
 p_all
+
+save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width = 8, height = 6)
 ```
 
 ## Session Info

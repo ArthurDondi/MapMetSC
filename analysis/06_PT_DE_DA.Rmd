@@ -7,15 +7,62 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/06_PT_DE_DA")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+    
+  } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
+    
+    # save as PNG instead of PDF if you want consistency
+    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    draw(plot_obj)
+    dev.off()
+    
+  } else {
+    
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Identifying cellular communities in diagnostic primary tumors {#pt-dx}
@@ -42,7 +89,7 @@ library(gtools)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final.rds"))
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object. Select whether you want to investigate differential abundance (DA) in the tumor (`tumor`) or TME (`TME`) compartment. Chose which genetic subtype should be compared (`mna` or `x1p`). Third, decide whether you want to do the DA analysis at celltype (`c`) or metacluster (`m`) level. 
@@ -127,6 +174,9 @@ set.seed(20231103)
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=col_vector, 
                     linkage="ward.D", distance="manhattan") 
 
+
+save_plot(p, "SuppplFigS7a1_PT_abundance_patients_MNAclust_tumor.png", width = 10, height = 6)
+
 p
 ```
 
@@ -140,13 +190,17 @@ df_normalized <- p$data %>%
 
 df_normalized$cluster_id <- factor(df_normalized$cluster_id)
 
-ggplot(df_normalized, aes(fill=cluster_id, y=normalized_count, x=condition)) + 
+p_meanfreq<- ggplot(df_normalized, aes(fill=cluster_id, y=normalized_count, x=condition)) + 
   geom_bar(
     stat="identity",
     position="dodge",
     show.legend = T) + 
   scale_fill_manual(values = col_vector) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p_meanfreq
+
+save_plot(p_meanfreq, "Fig3d_PT_meanfreq_tumor.png", width = 8, height = 6)
 ```
 
 ## Differential abundance analysis
@@ -267,7 +321,9 @@ for(i in 1:length(unique(p$data$cluster_id))){
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
 }
 
-grid.arrange(grobs = plot_list_fc, ncol = 6)
+p_boxplot <- grid.arrange(grobs = plot_list_fc, ncol = 6)
+
+save_plot(p_boxplot, "Fig3e_PT_mDA_MNA_tumor.png", width = 12, height = 9)
 ```
 
 ```{r barplot-logFC, fig.width=5, fig.height=8}
@@ -286,6 +342,8 @@ p1 <- ggplot(df, aes(fill=cluster, y=logFC, x=cluster)) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   geom_text(aes(label = p_adj_signif), vjust = 0)
   
+save_plot(p1, "Fig3e_PT_DA_foldchange_MNA_tumor.png", width = 6, height = 8)
+
 p1
 ```
 

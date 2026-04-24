@@ -7,15 +7,58 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/08_BM_DE_cellularcomm")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Identifying cellular communities in diagnostic bone marrow samples {#bm-dx}
@@ -49,16 +92,26 @@ library(edgeR)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final.rds"))
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object. 
 
 ```{r catalyst-comp-object}
-samples_with_tumor_cells <- unique(spe[,spe$tissue=="BM"& spe$metacluster=="tumor"]$sample_id)
 
 keep_rows <- rowData(spe)$use_channel 
-keep_cols <- spe$celltype != "other" & spe$tissue=="BM" & spe$timepoint=="DE" & spe$sample_id%in%samples_with_tumor_cells 
+# Step 1: count tumor cells per fm_id at DE
+counts <- table(spe$fm_id[spe$metacluster == "tumor" & spe$timepoint == "DE" & spe$tissue=="BM"])
+
+# Step 2: keep fm_id with >100 tumor cells
+valid_fm <- names(counts[counts > 100])
+samples_with_tumor_cells <- valid_fm
+
+# Step 3: filter
+keep_cols <- spe$fm_id %in% valid_fm & 
+             spe$celltype != "other" & 
+             spe$timepoint == "DE" &
+            spe$tissue=="BM"
 
 sce <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows, keep_cols], exprs=assay(spe, "counts")[keep_rows, keep_cols]))
 
@@ -101,6 +154,8 @@ sce_tumor <- sce[,sce$metacluster=="tumor"]
 p <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust=T, k_pal=metadata(spe)$color_vectors$col_celltype_ordered, 
                     linkage="ward.D", distance="manhattan") 
 
+save_plot(p, "Fig6a1_BM_abundance_clustering_tumor.png", width = 18, height = 10)
+
 p
 ```
 
@@ -119,6 +174,8 @@ wide_df <- wide_df %>% select(-sample_id)
 
 dist_matrix <- dist(wide_df, method = "manhattan")
 hc <- hclust(dist_matrix, method = "ward.D")
+
+save_plot(plot(hc), "Fig6a2_BM_abundance_clustering_dendrogram.png", width = 8, height = 6)
 
 plot(hc)
 ```
@@ -145,6 +202,8 @@ sce$sample_id <- factor(sce$sample_id, levels=clustered_samples)
 sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
 
 p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered)
+
+save_plot(plot(hc), "Fig6a3_BM_abundance_clustering_immune.png", width = 8, height = 6)
 
 p_ME
 ```
@@ -205,11 +264,13 @@ col_me_het = colorRamp2(c(min(me_het, na.rm = TRUE), (max(me_het, na.rm = TRUE)-
 col_tumor_het = colorRamp2(c(min(tumor_het, na.rm = TRUE), (max(tumor_het, na.rm = TRUE)-min(tumor_het, na.rm = TRUE))/2, max(tumor_het, na.rm = TRUE)), viridis(3))
 
 # Plot metadata
-columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
+p_col <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
   columnAnnotation(age=sample_summary$age_diag, col=list(age=col_age_diag)) %v%
   columnAnnotation(TUM_het=tumor_het, col=list(TUM_het=col_tumor_het)) %v%
   columnAnnotation(ME_het=me_het, col=list(ME_het=col_me_het))
+
+save_plot(p_col, "Fig6a4_BM_abundance_clustering_metadata.png", width = 8, height = 6)
   
 ```
 
@@ -244,7 +305,11 @@ plot_list[[d]] <- ggplot(result, aes(x="", y=Freq, fill=dis_var, group=dis_var))
     theme_void()
 }
 
-do.call("grid.arrange", c(plot_list, ncol=1))
+p_pie <- do.call("grid.arrange", c(plot_list, ncol=1))
+
+save_plot(p_pie, "Fig6b_BM_piecharts_metadata.png", width = 8, height = 6)
+
+p_pie
 ```
 
 ```{r boxplots}
@@ -280,7 +345,9 @@ plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
                 theme(aspect.ratio = 2, legend.position="none") 
 }
 
-do.call("grid.arrange", c(plot_list, ncol=3))
+p_boxplot <- do.call("grid.arrange", c(plot_list, ncol=3))
+
+save_plot(p_boxplot, "Fig6c_BM_het_boxplot_metadata.png", width = 8, height = 6)
 ```
 
 ## Plot metaclusters
@@ -293,6 +360,10 @@ sce_tmp$cluster_id <- sce_tmp$metacluster
 metadata(sce_tmp)$cluster_codes <- data.frame(celltype = factor(sce_tmp$metacluster))
 p_all <- plotAbundances(sce_tmp, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_metacluster)
 rm(sce_tmp)
+
+
+save_plot(p_all, "Fig6a5_BM_abundance_clustering_metacluster.png", width = 8, height = 6)
+
 p_all
 ```
 
@@ -329,7 +400,8 @@ sce_comp$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
 sce_comp$fm_id <- spe[keep_rows, keep_cols]$fm_id
 sce_comp$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
 
-sce_comp$sample_id <- factor(paste0(sce_comp$progress, "_", sce_comp$mna, "_", sce_comp$patient, "_", sce_comp$fm_id, "_", sce_comp$tissue), levels=clustered_samples)
+#sce_comp$sample_id <- factor(paste0(sce_comp$progress, "_", sce_comp$mna, "_", sce_comp$patient, "_", sce_comp$fm_id, "_", sce_comp$tissue), levels=clustered_samples)
+sce_comp$sample_id <- sce_comp$fm_id
 
 sce_comp$age_diag <- spe[keep_rows, keep_cols]$age_diag
 sce_comp$solidity_clipped <- spe[keep_rows, keep_cols]$solidity_clipped
@@ -368,34 +440,41 @@ rowData(sce_comp)$marker_class <- ifelse(rownames(sce_comp) %in% type_markers, "
 We first prepare data for DA analysis using the `diffcyt` package. 
 
 ```{r prepare-data}
-#list of samples as input to diffcyt methods
-df_list <- lapply(unique(sce_comp$sample_id), function(x){as.data.frame(t(counts(sce_comp[,sce_comp$sample_id==x])))})
-names(df_list) <- unique(sce_comp$sample_id)
+# list of samples (one data.frame per sample)
+df_list <- lapply(unique(sce_comp$fm_id), function(x) {
+  as.data.frame(t(counts(sce_comp[, sce_comp$fm_id == x])))
+})
+names(df_list) <- unique(sce_comp$fm_id)
 
-#experiment info
+# experiment info
 experiment_info <- metadata(sce_comp)$experiment_info
-experiment_info <- experiment_info[match(names(df_list),experiment_info$sample_id),]
 
-#marker info
-channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 2)
-marker_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 1)
-marker_class <-ifelse(rownames(spe)[keep_rows] %in% type_markers, "type",
-                                    ifelse(rownames(spe)[keep_rows] %in% state_markers, "state", 
-                                    "other"))
-row_data <- data.frame(cbind(channel_name, marker_name), row.names=marker_name)
-row_data$marker_class <- as.factor(marker_class)
+# REQUIRED: create sample_id and align with df_list
+experiment_info$sample_id <- experiment_info$fm_id
+experiment_info <- experiment_info[match(names(df_list), experiment_info$sample_id), ]
 
-marker_info <-  row_data
+# sanity check (must be TRUE)
+stopifnot(all(names(df_list) == experiment_info$sample_id))
 
-#prepare data into format for diffcyt pipeline 
+# marker info
+channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows, ]), "_"), "[[", 2)
+marker_name  <- sapply(strsplit(rownames(rowData(spe)[keep_rows, ]), "_"), "[[", 1)
+
+marker_class <- ifelse(rownames(spe)[keep_rows] %in% type_markers, "type",
+                 ifelse(rownames(spe)[keep_rows] %in% state_markers, "state", "other"))
+
+marker_info <- data.frame(channel_name, marker_name, row.names = marker_name)
+marker_info$marker_class <- factor(marker_class)
+
+# prepare data
 d_se <- prepareData(df_list, experiment_info, marker_info)
-rowData(d_se)$cluster_id <- sce_comp[,rownames(d_se)]$cluster_id 
+
+# add cluster info
+rowData(d_se)$cluster_id <- sce_comp[, rownames(d_se)]$cluster_id
 metadata(d_se)$cluster_codes <- metadata(sce_comp)$cluster_codes
 
-# Transform data
-d_se <- transformData(d_se)
-
-# Calculate counts
+# transform + count
+d_se     <- transformData(d_se)
 d_counts <- calcCounts(d_se)
 ```
 
@@ -481,7 +560,9 @@ for(i in 1:length(unique(p$data$cluster_id))){
               
 }
 
-grid.arrange(grobs = plot_list_fc, ncol = 5)
+p_boxplot <- grid.arrange(grobs = plot_list_fc, ncol = 5)
+
+save_plot(p_boxplot, "Fig6associated_BM_abundance_clustering_boxplot_celltype.png", width = 16, height = 12)
 ```
 ```{r barplot-logFC, fig.width=16, fig.height=8}
 plot_list <- list()
@@ -504,7 +585,11 @@ for (i in 1: length(colnames(contrasts))){
   
 }
 
-grid.arrange(grobs = plot_list, ncol = 3)
+p_barplot <- grid.arrange(grobs = plot_list, ncol = 3)
+
+save_plot(p_barplot, "Fig6d_BM_abundance_clustering_barplot_celltype.png", width = 10, height = 6)
+
+p_barplot
 ```
 
 ## Session Info

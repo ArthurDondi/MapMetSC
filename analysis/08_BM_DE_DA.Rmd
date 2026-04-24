@@ -7,15 +7,58 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/08_BM_DE_DA")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # DA analysis between clinical conditions in BM samples {#bm-da}
@@ -46,7 +89,7 @@ library(BioQC)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final.rds"))
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object. Select whether you want to investigate differential abundance (DA) in the tumor (`tumor`) or TME (`TME`) compartment. We decide whether we want to compare between progression (`prog`) or MYCN (`mycn`) status. Reduce the dataset to only `nMNA` or `MNA` samples with `reduce_to`.
@@ -57,7 +100,17 @@ status <- "prog"
 reduce_to <- "none"
 
 if (compartment == "tumor"){
-  keep_cols <- spe$celltype != "other" & spe$timepoint=="DE" & spe$metacluster=="tumor" & spe$tissue=="BM"
+  # Step 1: count tumor cells per fm_id at DE
+  counts <- table(spe$fm_id[spe$metacluster == "tumor" & spe$timepoint == "DE" & spe$tissue=="BM"])
+  
+  # Step 2: keep fm_id with >100 tumor cells
+  valid_fm <- names(counts[counts > 100])
+  
+  # Step 3: filter
+  keep_cols <- spe$fm_id %in% valid_fm & 
+               spe$metacluster == "tumor" & 
+               spe$timepoint == "DE" &
+              spe$tissue=="BM"
 }else{
   keep_cols <- spe$celltype != "other" & spe$timepoint=="DE" & spe$metacluster!="tumor" & spe$metacluster!="mesenchymal"  & spe$tissue=="BM"
 }
@@ -127,6 +180,8 @@ set.seed(20231103)
 
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=col_vector, 
                     linkage="ward.D", distance="manhattan") 
+
+save_plot(p1, paste0("BM_abundance_", status, "_stackedbarplot.png"),  width = 18, height = 10)
 
 p
 ```
@@ -210,16 +265,22 @@ for (d in colnames(cont_df)[1:ncol(cont_df)-1]) {
   stats_df$p_adj_signif <- stars.pval(stats_df$p.adj)
   stats_df$p_adj_signif[stats_df$p_adj_signif==" "] <- "ns"
   stats_df$p_long <- paste0(stats_df$p.adj, " (", stats_df$p_adj_signif, ")")
+  print(d)
+  print(stats_df)
 
-plot_list[[d]] <- ggboxplot(df, x = "condition", y = d,
-                color = "condition", palette =c("slategray1", "slategray"),
+plot_list[[d]] <- ggboxplot(df, x = "condition", y = "y",
+                color = "condition", palette = c("slategray1", "slategray"),
                 add.params = list(size = 1.5),
-                add = "jitter")+ 
-                stat_pvalue_manual(stats_df, label = "p_long", y.position = max(df$y), step.increase = 0.2,) +
-                theme(aspect.ratio = 2, legend.position="none") 
+                add = "jitter") + 
+  stat_pvalue_manual(stats_df, label = "p_long", 
+                     y.position = max(df$y, na.rm = TRUE) * 1.1, 
+                     step.increase = 0.2) +
+  theme(aspect.ratio = 2, legend.position = "none")
 }
 
-do.call("grid.arrange", c(plot_list, ncol=3))
+p_boxplot <- do.call("grid.arrange", c(plot_list, ncol=3))
+
+save_plot(p_boxplot, paste0("Fig6e_BM_abundance_", status, "_boxplot_metadata.png"), width = 18, height = 10)
 ```
 
 ## Differential abundance analysis
@@ -340,6 +401,8 @@ for(i in 1:length(unique(p$data$cluster_id))){
 }
 
 grid.arrange(grobs = plot_list_fc, ncol = 5)
+
+save_plot(p_boxplot, paste0("Fig6g_BM_abundance_", status, "_boxplot_celltype.png"), width = 18, height = 10)
 ```
 ```{r barplot-logFC, fig.width=5, fig.height=8}
 df <- res[, c("logFC", "p_adj")]
@@ -356,6 +419,8 @@ p1 <- ggplot(df, aes(fill=cluster, y=logFC, x=cluster)) +
   scale_fill_manual(values = col_vector) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   geom_text(aes(label = p_adj_signif), vjust = 0)
+
+save_plot(p1, paste0("Fig6g2_BM_abundance_", status, "_barplot.png"),  width = 18, height = 10)
   
 p1
 ```

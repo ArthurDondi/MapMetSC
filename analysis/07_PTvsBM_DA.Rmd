@@ -7,17 +7,63 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
-```
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/07_PTvsBM_DA")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
 
+# create phenograph heatmap folder
+outdir <- paste0(plot_dir,"/pg_heatmap")
+dir.create(outdir, showWarnings = FALSE)
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
+```
 # Sample overview - primary versus metastatic site {#pt-bm}
 
 Next, to understand how metastasis affects tumor cell diversity, we investigate the tumor cellular composition in PT samples as compared to BM samples. 
@@ -50,7 +96,7 @@ library(gtools)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final.rds"))
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object. We decide, whether a `paired` or `unpaired` analysis should be performed. 
@@ -64,7 +110,16 @@ if(analysis=="paired"){
   paired_patients <- intersect(BM_patients, PT_patients)
   keep_cols <- spe$celltype != "other" & spe$timepoint=="DE" & spe$metacluster=="tumor" & spe$study_id%in%paired_patients
 }else{
-  keep_cols <- spe$celltype != "other" & spe$timepoint=="DE" & spe$metacluster=="tumor"
+  # Step 1: count tumor cells per fm_id at DE
+  counts <- table(spe$fm_id[spe$metacluster == "tumor" & spe$timepoint == "DE"])
+  
+  # Step 2: keep fm_id with >100 tumor cells
+  valid_fm <- names(counts[counts > 100])
+  
+  # Step 3: filter
+  keep_cols <- spe$fm_id %in% valid_fm & 
+               spe$metacluster == "tumor" & 
+               spe$timepoint == "DE"
 }
 
 keep_rows <- rowData(spe)$use_channel 
@@ -128,6 +183,9 @@ set.seed(20231103)
 
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=metadata(spe)$color_vectors$col_celltype_ordered, 
                     linkage="ward.D", distance="manhattan") 
+
+save_plot(p, "SuppplFigS2d2_BM_abundance_tumor.png", width = 16, height = 12)
+
 p
 ```
 
@@ -319,7 +377,9 @@ for(i in 1:length(unique(p$data$cluster_id))){
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
 }
 
-grid.arrange(grobs = plot_list_fc, ncol = 5)
+p_boxplot <- grid.arrange(grobs = plot_list_fc, ncol = 5)
+
+save_plot(p_boxplot, "Fig5c_PTvsBM_boxplot.png", width = 16, height = 12)
 ```
 Finally we plot the mean celltype abundance over all samples per condition in a piechart.
 
@@ -331,12 +391,16 @@ df_normalized <- p$data %>%
 
 df_normalized$cluster_id <- factor(df_normalized$cluster_id)
 
-ggplot(df_normalized, aes(x="", y=normalized_count, fill=cluster_id, group=cluster_id)) +
+p_pie <- ggplot(df_normalized, aes(x="", y=normalized_count, fill=cluster_id, group=cluster_id)) +
   geom_bar(stat="identity", width=1, color="white") +
   scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_ordered) +
   coord_polar("y", start=0)  +
   facet_grid(.~ condition) +
   theme_void()
+
+save_plot(p_pie, "Fig5a_PTvsBM_piechart.png", width = 8, height = 4)
+
+p_pie
 ```
 ## Session Info
 
