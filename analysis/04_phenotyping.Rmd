@@ -193,6 +193,7 @@ clusters <- factor(membership(Rphenograph_out[[2]]))
 saveRDS(clusters, file.path(params$output, "pg_clusters.rds"))
 
 spe$pg_clusters <- clusters
+spe$pg_clusters_beforesubclustering <- clusters
 ```
 
 ## Subclustering of clusters 6, 18, and 31 using GMM
@@ -200,8 +201,9 @@ spe$pg_clusters <- clusters
 ```{r gmm-subclustering}
 library(mclust)
 
-# Save original cluster assignments before subclustering
-spe$pg_clusters_beforesubclustering <- spe$pg_clusters
+set.seed(221228)
+
+spe$pg_clusters <- spe$pg_clusters_beforesubclustering
 
 # Ensure pg_clusters is character for easy reassignment
 spe$pg_clusters <- as.character(spe$pg_clusters)
@@ -213,22 +215,49 @@ subcluster_map <- list(
   "31" = "44"
 )
 
-set.seed(221228)
+# define marker sets per cluster
+marker_map <- list(
+  "6"  = c("CD3_", "CD11b"),
+  "18" = c("CD34", "HLA-ABC"),
+  "31" = c("S100B", "CD45")
+)
+
 for (cl in names(subcluster_map)) {
   new_cl <- subcluster_map[[cl]]
   
-  # Indices of cells in this cluster
   idx <- which(spe$pg_clusters == cl)
+  if (length(idx) < 4) next
   
-  if (length(idx) < 4) next   # not enough cells to split
+  sub_mat <- t(mat[, idx])  # cells x markers
   
-  # Features: use the same marker matrix (columns = cells)
-  sub_mat <- t(mat[, idx])    # cells x markers
+  # --- select cluster-specific markers ---
+  if (cl %in% names(marker_map)) {
+    markers <- marker_map[[cl]]
+    keep_cols <- grep(paste0("^(", paste(markers, collapse="|"), ")"), colnames(sub_mat))
+    sub_mat <- sub_mat[, keep_cols, drop = FALSE]
+  }
   
-  # Fit GMM with G = 2
-  gmm_fit <- Mclust(sub_mat, G = 2, verbose = FALSE)
+  print(cl)
+  print(head(sub_mat))
   
-  # Assign new label to cells belonging to component 2
+  # --- clean data ---
+  sub_mat <- sub_mat[complete.cases(sub_mat), , drop = FALSE]
+  sub_mat <- sub_mat[, apply(sub_mat, 2, var) > 0, drop = FALSE]
+  print(cl)
+  print(head(sub_mat))
+  
+  #if (nrow(sub_mat) < 4 || ncol(sub_mat) < 2) next
+  
+  sub_mat <- scale(sub_mat)
+  
+  # --- GMM ---
+  gmm_fit <- tryCatch(
+    Mclust(sub_mat, G = 2, verbose = FALSE),
+    error = function(e) NULL
+  )
+  
+  if (is.null(gmm_fit)) next
+  
   comp2 <- which(gmm_fit$classification == 2)
   spe$pg_clusters[idx[comp2]] <- new_cl
 }
@@ -336,7 +365,7 @@ Lets visualize phenograph clusters and tissue types in UMAP space. Here `dittoDi
 
 ```{r UMAP-vis-clusters}
 col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
-col_clusters = setNames(sample(col_vector_433, length(unique(spe$pg_clusters))), unique(spe$pg_clusters_))
+col_clusters = setNames(sample(col_vector_433, length(unique(spe$pg_clusters))), unique(spe$pg_clusters))
 
 p <- dittoDimPlot(spe, var = "pg_clusters", 
              reduction.use = "UMAP", size = 1,
@@ -347,7 +376,7 @@ p <- dittoDimPlot(spe, var = "pg_clusters",
   ggtitle("PG clusters on UMAP")
 
 # Save ggplot
-save_plot(p, "UMAP-vis-clusters.png", width = 8, height = 6)
+save_plot(p, "umap_pg_clusters.png", width = 8, height = 6)
 
 p
 
@@ -733,7 +762,7 @@ Next, we read assigned celltype and metacluster-labels for clusters from the met
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-file_path <- file.path('/home/rstudio/data/output', 'cluster_annotation_raw_k30_AD_VHZ.xlsx')
+file_path <- file.path('/home/rstudio/data/output', 'cluster_annotation_raw_k30_subclustering.xlsx')
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)

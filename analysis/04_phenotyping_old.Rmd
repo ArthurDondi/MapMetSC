@@ -599,7 +599,7 @@ ggplot(df, aes(x = UMAP1, y = UMAP2)) +
   scale_fill_viridis_c() +
   ggtitle("Density of low DAPI cells on UMAP") +
   theme_classic()
-```
+
 ggplot(df, aes(x = UMAP1, y = UMAP2)) +
   geom_point(color = "grey80", size = 0.5) +
   stat_density_2d(
@@ -1232,6 +1232,28 @@ hp <- Heatmap(exp_mat,
         border = "black")
 
 d1 <- draw( hp, annotation_legend_list = lgd_list)
+```
+
+```{r }
+library(dplyr)
+
+df_counts <- colData(spe) %>%
+  as_tibble() %>%
+  mutate(is_target = tissue == "BM" & metacluster == "tumor") %>%
+  group_by(fm_id) %>%
+  summarise(n_cells = sum(is_target), .groups = "drop")
+  
+  library(ggplot2)
+
+ggplot(df_counts, aes(x = fm_id, y = n_cells)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_classic() +
+  labs(
+    x = "fm_id",
+    y = "Number of tumor cells in BM",
+    title = "Tumor cell counts per fm_id (BM only)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Save object
