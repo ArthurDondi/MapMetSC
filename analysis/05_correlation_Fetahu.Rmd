@@ -7,16 +7,59 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
-  public: "/mnt/Multimodal_Imaging_Daria/Publication/public_datasets"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  public: "/home/rstudio/daria/public_datasets"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/05_correlation_Fetahu")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Validation using scRNA-seq data by Fetahu et al. {#fetahu}
@@ -43,7 +86,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 
 ```{r read-data}
 #read IMC data
-protein <- readRDS(file.path(params$output,"spe_final.rds"))
+protein <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
 
@@ -142,10 +185,17 @@ protein_mat <- assay(protein, "counts")[common_features, ]
 
 predicted_labels <- SingleR(test = protein_mat, ref = rna_mat, labels = rna_clusters, BPPARAM = MulticoreParam(workers=10, RNGseed=20231030))
 
-plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 2000),],annotation_colors=list(Labels = col_clusters), annotation_legend=F, treeheight_row=0,
+```
+
+Plotting
+```{r}
+
+p<- plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 2000),],annotation_colors=list(Labels = col_clusters), annotation_legend=F, treeheight_row=0,
                  rows.order=names(col_clusters)) 
 
 protein$predicted_celltype <- predicted_labels$labels
+
+save_plot(p, "SupplFig3a_Fetahu_labeltransfer.png", width = 8, height = 6)
 ```
 
 For visualization purposes, we rename the predicted celltypes to their metacluster and assign colors.
@@ -175,10 +225,12 @@ p1 <- dittoDimPlot(protein, var = "predicted_metacluster",
              reduction.use = "UMAP", size = 0.3, labels.size=2,
              do.label = F,
              order = "randomize",
-             legend.show=F) +
+             legend.show=T) +
   scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_meta) +
   theme(legend.title = element_blank()) +
   ggtitle("Predicted celltype on UMAP")
+
+save_plot(p1, "Fig2b_Fetahu_labeltransfer.png", width = 8, height = 6)
 
 p1
 ```
