@@ -195,6 +195,45 @@ saveRDS(clusters, file.path(params$output, "pg_clusters.rds"))
 spe$pg_clusters <- clusters
 ```
 
+## Subclustering of clusters 6, 18, and 31 using GMM
+
+```{r gmm-subclustering}
+library(mclust)
+
+# Save original cluster assignments before subclustering
+spe$pg_clusters_beforesubclustering <- spe$pg_clusters
+
+# Ensure pg_clusters is character for easy reassignment
+spe$pg_clusters <- as.character(spe$pg_clusters)
+
+# Mapping: original cluster -> new subcluster label for the second component
+subcluster_map <- list(
+  "6"  = "42",
+  "18" = "43",
+  "31" = "44"
+)
+
+set.seed(221228)
+for (cl in names(subcluster_map)) {
+  new_cl <- subcluster_map[[cl]]
+  
+  # Indices of cells in this cluster
+  idx <- which(spe$pg_clusters == cl)
+  
+  if (length(idx) < 4) next   # not enough cells to split
+  
+  # Features: use the same marker matrix (columns = cells)
+  sub_mat <- t(mat[, idx])    # cells x markers
+  
+  # Fit GMM with G = 2
+  gmm_fit <- Mclust(sub_mat, G = 2, verbose = FALSE)
+  
+  # Assign new label to cells belonging to component 2
+  comp2 <- which(gmm_fit$classification == 2)
+  spe$pg_clusters[idx[comp2]] <- new_cl
+}
+```
+
 # For later annotation, we generate one clustered heatmap per sample
 
 ```{r}
@@ -237,6 +276,59 @@ for (cl in clusters) {
   )
 }
 
+```
+
+## Single-cell heatmaps for subclustered clusters (6/42, 18/43, 31/44)
+
+```{r subcluster-heatmaps}
+library(dittoSeq)
+library(ggplot2)
+library(viridis)
+
+genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
+
+# Define the pairs: original cluster and its new sibling
+subcluster_pairs <- list(
+  list(orig = "6",  new = "42"),
+  list(orig = "18", new = "43"),
+  list(orig = "31", new = "44")
+)
+
+set.seed(221228)
+for (pair in subcluster_pairs) {
+  orig_cl <- pair$orig
+  new_cl  <- pair$new
+
+  # Cells belonging to either subcluster
+  idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
+
+  if (length(idx) == 0) next
+
+  # Sample up to 8000 cells
+  n_cells   <- min(8000, length(idx))
+  rand_idx  <- sample(idx, n_cells)
+
+  spe_cl <- spe[, rand_idx]
+
+  # Order cells by subcluster so the two groups appear side-by-side
+  cell_order <- order(spe_cl$pg_clusters)
+
+  p1 <- dittoHeatmap(
+    spe_cl[, cell_order],
+    genes          = genes_use,
+    cluster_cols   = FALSE,          # preserve subcluster ordering
+    scaled.to.max  = TRUE,
+    heatmap.colors.max.scaled = viridis(100),
+    annot.by       = "pg_clusters"   # colour bar showing subclusters
+  )
+
+  save_plot(
+    p1,
+    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".png"),
+    width  = 14,
+    height = 6
+  )
+}
 ```
 
 ## UMAP: Phenograph clusters
