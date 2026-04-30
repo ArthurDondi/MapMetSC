@@ -227,9 +227,9 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   # --- 8. DA test ---
   design   <- createDesignMatrix(experiment_info, cols_design = "condition")
   contrast <- createContrast(c(0, 1))
-  min_sam  <- if (!is.null(min_samples_frac)) round(ncol(d_counts) * min_samples_frac) else 1
+  min_samples <- if (!is.null(min_samples_frac)) round(ncol(d_counts) * min_samples_frac) else 1
 
-  res_DA <- testDA_voom(d_counts, design, contrast, min_cells = 3, min_samples = min_sam)
+  res_DA <- testDA_voom(d_counts, design, contrast, min_cells = 3, min_samples = min_samples)
   FDR_cutoff <- 0.1
   print(rowData(res_DA)[rowData(res_DA)$p_adj < FDR_cutoff, ])
   res <- data.frame(rowData(res_DA))
@@ -243,6 +243,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
     if (as.character(cluster_name) %in% rownames(res)) {
       p_adj_val <- round(res[as.character(cluster_name), "p_adj"], 3)
+      # logFC is negated to show fold-change in the direction of the second group (g2 vs g1)
       logFC_val <- -1 * round(res[as.character(cluster_name), "logFC"], 2)
     } else {
       p_adj_val <- NA; logFC_val <- NA
@@ -254,7 +255,10 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     stats_df$p_fc <- paste0(stats_df$logFC, " (", stats_df$p_adj, ") (", stats_df$p_adj_signif, ")")
 
     color <- unname(col_vec[as.character(cluster_name)])
-    if (is.na(color) || is.null(color)) color <- "gray50"
+    if (is.na(color) || is.null(color)) {
+      warning("No color found for cluster: ", as.character(cluster_name), ". Using gray50.")
+      color <- "gray50"
+    }
 
     plot_list_fc[[i]] <- ggboxplot(proportions, x = "condition", y = "Freq", order = ord,
                 color = "condition", palette = c(color, color),
@@ -274,6 +278,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   # --- 10. logFC barplot ---
   df_fc <- res[, c("logFC", "p_adj")]
+  # Negate logFC to show enrichment in the second group (g2 vs g1 baseline from design matrix)
   df_fc$logFC <- -1 * df_fc$logFC
   df_fc$p_adj_signif <- stars.pval(df_fc$p_adj)
   df_fc$p_adj_signif[df_fc$p_adj_signif == " "] <- "ns"
