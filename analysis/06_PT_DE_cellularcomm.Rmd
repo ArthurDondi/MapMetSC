@@ -378,7 +378,7 @@ save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width
 
 All panels share the same sample order (dendrogram order) and community split.
 
-```{r fig3a-combined, fig.width=14, fig.height=18}
+```{r fig3a-combined, fig.width=8, fig.height=15}
 # ---- Helper: remove x-axis elements (shared axis) ----
 clean_x <- function(p) {
   p + theme(
@@ -389,6 +389,9 @@ clean_x <- function(p) {
     strip.text.x = element_blank()
   )
 }
+
+# Community strip labeller used by the dendrogram panel
+comm_labeller <- labeller(community = c("1" = "Community 1", "2" = "Community 2"))
 
 # ---- 1. Dendrogram as ggplot, split by community ----
 ddata <- dendro_data(hc, type = "rectangle")
@@ -417,17 +420,54 @@ segs$community <- factor(mapply(function(x1, x2) {
 
 segs_c <- segs[!is.na(segs$community), ]
 
-p_dendro <- ggplot(segs_c) +
+# ---- Hack: add root connection ----
+# Each community gets a horizontal arm at root height extending to the far
+# panel edge (max + 0.5 / min - 0.5), implying the two communities connect
+# at the top of the dendrogram.
+root_y_val  <- max(segs$yend)
+c1_root_seg <- segs_c[segs_c$community == 1 & abs(segs_c$yend - root_y_val) < 1e-6, ]
+c2_root_seg <- segs_c[segs_c$community == 2 & abs(segs_c$yend - root_y_val) < 1e-6, ]
+
+if (nrow(c1_root_seg) > 0 && nrow(c2_root_seg) > 0) {
+  if (mean(c1_x) < mean(c2_x)) {
+    # c1 is on the left: arm extends rightward to panel edge
+    # c2 is on the right: arm extends leftward to panel edge
+    root_arms <- data.frame(
+      x    = c(c1_root_seg$x[1], min_c2 - 0.5),
+      y    = c(root_y_val,        root_y_val),
+      xend = c(max_c1 + 0.5,     c2_root_seg$x[1]),
+      yend = c(root_y_val,        root_y_val),
+      community = factor(c(1L, 2L))
+    )
+  } else {
+    # c1 is on the right: arm extends leftward to panel edge
+    # c2 is on the left:  arm extends rightward to panel edge
+    root_arms <- data.frame(
+      x    = c(min_c1 - 0.5,     c2_root_seg$x[1]),
+      y    = c(root_y_val,        root_y_val),
+      xend = c(c1_root_seg$x[1], max_c2 + 0.5),
+      yend = c(root_y_val,        root_y_val),
+      community = factor(c(1L, 2L))
+    )
+  }
+  segs_with_root <- rbind(segs_c, root_arms)
+} else {
+  segs_with_root <- segs_c
+}
+
+p_dendro <- ggplot(segs_with_root) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
   scale_x_continuous(expand = c(0, 0.5)) +
-  facet_grid(. ~ community, scales = "free_x", space = "free_x") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  facet_grid(. ~ community, scales = "free_x", space = "free_x",
+             labeller = comm_labeller) +
   theme_minimal() +
   theme(
     axis.text    = element_blank(),
     axis.ticks   = element_blank(),
     axis.title   = element_blank(),
     plot.title   = element_blank(),
-    strip.text.x = element_text(face = "bold"),
+    strip.text.x = element_text(face = "bold", size = 11),
     panel.grid   = element_blank(),
     plot.margin  = margin(2, 2, 0, 2)
   )
@@ -439,16 +479,27 @@ meta_df$ME_het    <- me_het[clustered_samples]
 meta_df$sample_id <- factor(clustered_samples, levels = clustered_samples)
 meta_df$community <- factor(cellular_communities[clustered_samples, "community_cluster"])
 
+# Compact colorbar for continuous variables
+cbar_guide <- guide_colorbar(
+  barwidth       = unit(0.35, "cm"),
+  barheight      = unit(1.5,  "cm"),
+  title.position = "top",
+  ticks          = FALSE
+)
+
 # Shared ggplot layers for each metadata strip
 meta_layers <- list(
   geom_tile(),
   facet_grid(. ~ community, scales = "free_x", space = "free_x"),
   theme_void(),
   theme(
-    strip.text.x = element_blank(),
+    strip.text.x    = element_blank(),
     legend.position = "right",
-    axis.title.y = element_text(angle = 0, vjust = 0.5, size = 7),
-    plot.margin  = margin(0, 2, 0, 2)
+    legend.key.size = unit(0.35, "cm"),
+    legend.text     = element_text(size = 6),
+    legend.title    = element_text(size = 7, face = "bold"),
+    axis.title.y    = element_text(angle = 0, vjust = 0.5, size = 7),
+    plot.margin     = margin(0, 2, 0, 2)
   )
 )
 
@@ -467,31 +518,21 @@ p_prog_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(progre
   scale_fill_manual(values = col_code, name = "Prog", na.value = "white") +
   labs(y = "Prog")
 
+# Use scale_fill_viridis_c for all continuous metadata (avoids fragile attr() calls
+# on colorRamp2 functions; viridis palette matches the colorRamp2 definitions above)
 p_age_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = age_diag)) +
   meta_layers +
-  scale_fill_gradientn(
-    colors = attr(col_age_diag, "colors"),
-    values = scales::rescale(attr(col_age_diag, "breaks")),
-    na.value = "white", name = "Age", guide = "none"
-  ) +
+  scale_fill_viridis_c(name = "Age", na.value = "white", guide = cbar_guide) +
   labs(y = "Age")
 
 p_tumhet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = TUM_het)) +
   meta_layers +
-  scale_fill_gradientn(
-    colors = attr(col_tumor_het, "colors"),
-    values = scales::rescale(attr(col_tumor_het, "breaks")),
-    na.value = "white", name = "TUM_het", guide = "none"
-  ) +
+  scale_fill_viridis_c(name = "TUM_het", na.value = "white", guide = cbar_guide) +
   labs(y = "TUM_het")
 
 p_mehet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = ME_het)) +
   meta_layers +
-  scale_fill_gradientn(
-    colors = attr(col_me_het, "colors"),
-    values = scales::rescale(attr(col_me_het, "breaks")),
-    na.value = "white", name = "ME_het", guide = "none"
-  ) +
+  scale_fill_viridis_c(name = "ME_het", na.value = "white", guide = cbar_guide) +
   labs(y = "ME_het")
 
 # ---- 3. Clean barplots (remove x-axis, title, and facet strips) ----
@@ -500,16 +541,18 @@ p_meta_c   <- clean_x(p_all)
 p_immune_c <- clean_x(p_ME)
 
 # ---- 4. Stack all panels ----
+# guides = "collect" consolidates all legends into one area, eliminating overlap
 p_fig3a <- (p_dendro /
   p_tumor_c /
   p_mna_m / p_1p_m / p_prog_m / p_age_m / p_tumhet_m / p_mehet_m /
   p_meta_c /
   p_immune_c) +
-  plot_layout(ncol = 1, heights = c(2, 4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 3, 3))
+  plot_layout(ncol = 1, heights = c(1, 4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 4, 4),
+              guides = "collect")
 
 p_fig3a
 
-save_plot(p_fig3a, "Fig3a_combined_stacked.png", width = 14, height = 18)
+save_plot(p_fig3a, "Fig3a_combined_stacked.png", width = 8, height = 15)
 ```
 
 ## Save SPE
