@@ -218,7 +218,7 @@ subcluster_map <- list(
 # define marker sets per cluster
 marker_map <- list(
   "6"  = c("CD3_", "CD11b"),
-  "18" = c("CD34", "HLA-ABC"),
+  "18" = c("CD34",  "CD10", "Vimentin", "MPO", "CD15"),
   "31" = c("S100B", "CD45")
 )
 
@@ -781,41 +781,51 @@ Finally, we assign colors to all celltypes and metaclusters.
 ```{r colors-celltypes raw_k30}
 col_celltype <- c(
 
-  ## ---- Tumor (categorical greens, not gradient) ----
+  ## ---- Tumor (unchanged) ----
   "GATA3hi Tu"    = rgb(0,   90,  50, maxColorValue = 255),
-  "CXCR4hi Tu"   = rgb(120, 180, 40, maxColorValue = 255),  # more yellow-green
-  "CD44+ Tu"     = rgb(65,  208, 57, maxColorValue = 255),
-  "GD2lo Tu"     = rgb(40,  150,130, maxColorValue = 255),  # more teal
-  "Ki67hi Tu"    = rgb(173, 255, 47, maxColorValue = 255),
-  "early NB Tu"  = rgb(150, 220,170, maxColorValue = 255),  # lighter mint
-  "marker-lo Tu" = rgb(40,  120, 70, maxColorValue = 255),
+  "CXCR4hi Tu"    = rgb(120, 180, 40, maxColorValue = 255),
+  "CD44+ Tu"      = rgb(65,  208, 57, maxColorValue = 255),
+  "GD2lo Tu"      = rgb(40,  150,130, maxColorValue = 255),
+  "Ki67hi Tu"     = rgb(173, 255, 47, maxColorValue = 255),
+  "early NB Tu"   = rgb(150, 220,170, maxColorValue = 255),
+  "marker-lo Tu"  = rgb(40,  120, 70, maxColorValue = 255),
 
   ## ---- Proliferation ----
-  "Ki67+ cells"        = rgb(255, 200,   0, maxColorValue = 255),  # bright vivid yellow
-  "Ki67+ CXCR4+ cells" = rgb(255, 170,  40, maxColorValue = 255),  # warm amber (slightly orange)
-  "MSCs"               = rgb(210, 190,  80, maxColorValue = 255),   # muted / pale yellow
+  "Ki67+ cells"        = rgb(255, 200,   0, maxColorValue = 255),
+  "Ki67+ CXCR4+ cells" = rgb(255, 245, 160, maxColorValue = 255),
 
-  ## ---- T cells (expanded categorical reds/pinks) ----
-  "CD8+ naïve T cells" = rgb(215,25,28, maxColorValue = 255),
-  "CD4+ naïve T cells" = rgb(253,174,97, maxColorValue = 255),
-  "CD4+ PD1+ T cells" = rgb(244,109,67, maxColorValue = 255),
-  "CD8+ S100B+ T cells" = rgb(215,48,39, maxColorValue = 255),
-  "dense T cell region" = rgb(178,24,43, maxColorValue = 255),
+  ## ---- Progenitor ----
+  "MSCs"          = rgb(255, 165,  60, maxColorValue = 255),
+  "CD34+ HSPCs"   = rgb(255,  95,   0, maxColorValue = 255),
 
-  ## ---- Myeloid ----
-  "granulocytes" = rgb(8,48,107, maxColorValue = 255),
-  "CD14+ PDL1- MO" = rgb(33,102,172, maxColorValue = 255),
-  "CD14+ PDL1+ MO" = rgb(67,147,195, maxColorValue = 255),
-  "monoblast-like" = rgb(116,169,207, maxColorValue = 255),
-  "GZMB+ DC/NK" = rgb(158,202,225, maxColorValue = 255),
-  "pDC" = rgb(158,218,229, maxColorValue = 255),
+  ## ---- T cells ----
+  ## ---- T cells (rebalanced distinct reds) ----
+  
+  "CD8+ naïve T cells"   = rgb(220, 20, 60,  maxColorValue = 255),  # crimson (clean bright red)
+  
+  "CD4+ naïve T cells"   = rgb(232, 80, 70, maxColorValue = 255),  # firebrick (deep structured red)
+  
+  "CD8+ S100B+ T cells"   = rgb(199, 21, 133, maxColorValue = 255),  # medium violet-red (pinkish red, distinct hue shift)
+    
+  "CD4+ PD1+ T cells" = rgb(123, 0, 60,  maxColorValue = 255),
+  
+  "GZMB+ T cells" = rgb(220, 90, 40, maxColorValue = 255),  # true deep red (kept warm red identity)
+  
+  "dense T cell region"  = rgb(170, 30, 120, maxColorValue = 255),   # dark crimson (slightly different tone than GZMB)
+  ## ---- Myeloid (UPDATED: clearly distinct blues) ----
+  "granulocytes"      = rgb(8, 48,107, maxColorValue = 255),    # deep navy
+  "CD14+ PDL1- MO"    = rgb(33,102,172, maxColorValue = 255),   # strong blue
+  "CD14+ PDL1+ MO"    = rgb(67,147,195, maxColorValue = 255),   # lighter sky blue
+  "monoblast-like"    = rgb(64, 180, 170, maxColorValue = 255),  # very light blue
+  "GZMB+ DC/NK"       = rgb(107,174,214, maxColorValue = 255),  # mid-light blue
+  "pDC"               = rgb(198,219,239, maxColorValue = 255),  # pale blue
 
   ## ---- B cells ----
   "B cells" = rgb(136,86,167, maxColorValue = 255),
 
-  ## ---- Stromal ----
-  "mesenchymal" = rgb(166,97,26, maxColorValue = 255),
-  "schwann/fibroblasts" = rgb(140,81,10, maxColorValue = 255),
+  ## ---- Stromal (renamed) ----
+  "schwann cells"        = rgb(166,97,26, maxColorValue = 255),
+  "fibroblast/endothel" = rgb(101, 67, 33, maxColorValue = 255),  # dark brown,
 
   ## ---- Other ----
   "other" = rgb(120,120,120, maxColorValue = 255)
@@ -826,17 +836,16 @@ metadata(spe)$color_vectors$col_celltype <- col_celltype
 
 ```{r colors-metaclusters}
 col_metacluster <- c(
-  "tumor" = "#238B45",        # cleaner green (better visibility)
-  "T cells" = "#E34A33",      # stronger red (matches earlier shift)
-  "granulocytes" = "#2171B5", # deeper blue
-  "MO/DC/NK" = "#41B6C4",     # clearer teal
-  "B cells" = "#88419D",      # richer purple
-  "mesenchymal" = "#8C510A",  # more distinct brown
-  "proliferating cells" = "#FFD700",# gold (kept but explicit hex)
-  "progenitors" = "#C77700",
-  "other" = "#969696"         # neutral grey (better than "grey")
+  "tumor" = "#238B45",
+  "T cells" = "#E34A33",
+  "granulocytes" = "#08306B",   # dark blue (matches rgb(8,48,107))
+  "MO/DC/NK" = "#41B6C4",
+  "B cells" = "#88419D",
+  "mesenchymal" = "#8C510A",
+  "proliferating cells" = "#FFD700",
+  "progenitors" = "#F59E0B",   
+  "other" = "#969696"
 )
-                
 metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
 
@@ -844,7 +853,7 @@ metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(R_intermediary/celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
 
 ```{r order-celltypes}
-clusternames_ordered <- read.csv(file.path(params$input, "celltype_order_raw_k30.csv"), sep=";", colClasses = c("order" = "character"))
+clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"), sep=";", colClasses = c("order" = "character"))
 codes <- setNames(paste0(clusternames_ordered$order, "_", clusternames_ordered$celltype), clusternames_ordered$celltype)
 spe$celltype_ordered <- recode(spe$celltype, !!!codes)
 
@@ -866,16 +875,16 @@ p1 <- dittoDimPlot(spe, var = "celltype_ordered",
 
 p2 <- dittoDimPlot(spe, var = "metacluster", 
              reduction.use = "UMAP", size = 0.3, labels.size=4,
-             do.label = T,
+             do.label = F,
              order = "randomize",
-             legend.show=F) +
+             legend.show=T) +
   scale_color_manual(values = metadata(spe)$color_vectors$col_metacluster) +
   theme(legend.title = element_blank()) +
   ggtitle("Metaclusters on UMAP")
 
 # Save both
 save_plot(p1, "umap-celltypes.png", width = 16, height = 8)
-save_plot(p2, "umap-metaclusters.png", width = 10, height = 8)
+save_plot(p2, "umap-metaclusters.png", width = 13, height = 8)
 
 p1
 ```
