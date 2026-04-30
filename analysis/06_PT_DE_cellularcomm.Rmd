@@ -379,14 +379,20 @@ save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width
 All panels share the same sample order (dendrogram order) and community split.
 
 ```{r fig3a-combined, fig.width=8, fig.height=15}
+# Shared inter-community gap in physical units — applied to every panel so all
+# gaps are identical regardless of the panel's base theme.
+COMM_GAP <- unit(4, "pt")
+
 # ---- Helper: remove x-axis elements (shared axis) ----
 clean_x <- function(p) {
   p + theme(
-    axis.text.x  = element_blank(),
-    axis.ticks.x = element_blank(),
-    axis.title.x = element_blank(),
-    plot.title   = element_blank(),
-    strip.text.x = element_blank()
+    axis.text.x       = element_blank(),
+    axis.ticks.x      = element_blank(),
+    axis.title.x      = element_blank(),
+    plot.title        = element_blank(),
+    strip.text.x      = element_blank(),
+    strip.background  = element_blank(),
+    panel.spacing.x   = COMM_GAP
   )
 }
 
@@ -420,56 +426,45 @@ segs$community <- factor(mapply(function(x1, x2) {
 
 segs_c <- segs[!is.na(segs$community), ]
 
-# ---- Hack: add root connection ----
-# Each community gets a horizontal arm at root height extending to the far
-# panel edge (max + 0.5 / min - 0.5), implying the two communities connect
-# at the top of the dendrogram.
-root_y_val  <- max(segs$yend)
-c1_root_seg <- segs_c[segs_c$community == 1 & abs(segs_c$yend - root_y_val) < 1e-6, ]
-c2_root_seg <- segs_c[segs_c$community == 2 & abs(segs_c$yend - root_y_val) < 1e-6, ]
+# ---- Hack: add root stubs ----
+# The cross-community root segment is filtered out. To imply that the two
+# sub-trees connect, we add a vertical stub above each community's sub-root.
+# Strategy: find the highest *horizontal* segment in each community (the
+# sub-root merge, where y == yend); get its x midpoint; draw a vertical line
+# from that height up to the overall root height h_root.
+h_root <- max(c(segs$y, segs$yend))
 
-if (nrow(c1_root_seg) > 0 && nrow(c2_root_seg) > 0) {
-  if (mean(c1_x) < mean(c2_x)) {
-    # c1 is on the left: arm extends rightward to panel edge
-    # c2 is on the right: arm extends leftward to panel edge
-    root_arms <- data.frame(
-      x    = c(c1_root_seg$x[1], min_c2 - 0.5),
-      y    = c(root_y_val,        root_y_val),
-      xend = c(max_c1 + 0.5,     c2_root_seg$x[1]),
-      yend = c(root_y_val,        root_y_val),
-      community = factor(c(1L, 2L))
-    )
-  } else {
-    # c1 is on the right: arm extends leftward to panel edge
-    # c2 is on the left:  arm extends rightward to panel edge
-    root_arms <- data.frame(
-      x    = c(min_c1 - 0.5,     c2_root_seg$x[1]),
-      y    = c(root_y_val,        root_y_val),
-      xend = c(c1_root_seg$x[1], max_c2 + 0.5),
-      yend = c(root_y_val,        root_y_val),
-      community = factor(c(1L, 2L))
-    )
-  }
-  segs_with_root <- rbind(segs_c, root_arms)
-} else {
-  segs_with_root <- segs_c
+make_root_stub <- function(comm) {
+  s     <- segs_c[segs_c$community == comm, ]
+  # horizontal segments have y == yend (within floating-point tolerance)
+  s_h   <- s[abs(s$y - s$yend) < 1e-6, ]
+  if (nrow(s_h) == 0) return(NULL)
+  sub   <- s_h[which.max(s_h$y), ]
+  x_mid <- (sub$x + sub$xend) / 2
+  data.frame(x = x_mid, y = sub$y, xend = x_mid, yend = h_root,
+             community = factor(comm))
 }
+
+root_stubs     <- rbind(make_root_stub(1), make_root_stub(2))
+segs_with_root <- rbind(segs_c, root_stubs)
 
 p_dendro <- ggplot(segs_with_root) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
   scale_x_continuous(expand = c(0, 0.5)) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
   facet_grid(. ~ community, scales = "free_x", space = "free_x",
              labeller = comm_labeller) +
   theme_minimal() +
   theme(
-    axis.text    = element_blank(),
-    axis.ticks   = element_blank(),
-    axis.title   = element_blank(),
-    plot.title   = element_blank(),
-    strip.text.x = element_text(face = "bold", size = 11),
-    panel.grid   = element_blank(),
-    plot.margin  = margin(2, 2, 0, 2)
+    axis.text       = element_blank(),
+    axis.ticks      = element_blank(),
+    axis.title      = element_blank(),
+    plot.title      = element_blank(),
+    strip.text.x    = element_text(face = "bold", size = 11),
+    strip.background = element_blank(),
+    panel.grid      = element_blank(),
+    panel.spacing.x = COMM_GAP,
+    plot.margin     = margin(2, 2, 0, 2)
   )
 
 # ---- 2. Metadata strips as geom_tile ggplots ----
@@ -494,6 +489,8 @@ meta_layers <- list(
   theme_void(),
   theme(
     strip.text.x    = element_blank(),
+    strip.background = element_blank(),
+    panel.spacing.x = COMM_GAP,
     legend.position = "right",
     legend.key.size = unit(0.35, "cm"),
     legend.text     = element_text(size = 6),
