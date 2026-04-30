@@ -404,7 +404,10 @@ c1_x <- leaf_x[leaf_comm == 1]; c2_x <- leaf_x[leaf_comm == 2]
 min_c1 <- min(c1_x); max_c1 <- max(c1_x)
 min_c2 <- min(c2_x); max_c2 <- max(c2_x)
 
-# Assign each segment to a community; cross-community root segments are excluded
+# 0.5 is the tolerance used to assign dendrogram segments to communities.
+# Leaf positions are integers (1..n), so 0.5 ensures each segment whose
+# x-range falls entirely within one community's leaf positions is assigned
+# to that community; cross-community (root) segments are excluded.
 segs$community <- factor(mapply(function(x1, x2) {
   lo <- min(x1, x2); hi <- max(x1, x2)
   if (lo >= min_c1 - 0.5 && hi <= max_c1 + 0.5) return(1L)

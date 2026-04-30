@@ -226,6 +226,9 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   # --- 8. DA test ---
   design   <- createDesignMatrix(experiment_info, cols_design = "condition")
+  # contrast c(0,1) tests second condition level vs first (baseline).
+  # logFC from testDA_voom is therefore log2(second/first); we negate it
+  # throughout so reported values represent log2(g2/g1) in our ordering.
   contrast <- createContrast(c(0, 1))
   min_samples <- if (!is.null(min_samples_frac)) round(ncol(d_counts) * min_samples_frac) else 1
 
