@@ -85,6 +85,8 @@ library(circlize)
 library(ggplot2)
 library(gridExtra)
 library(ggpubr)
+library(ggdendro)
+library(patchwork)
 ```
 </details>
 
@@ -370,6 +372,141 @@ p_all <- p_all + facet_grid(. ~ community, scales = "free_x", space = "free_x")
 p_all
 
 save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width = 12, height = 5)
+```
+
+## Combined Figure 3a (stacked panels)
+
+All panels share the same sample order (dendrogram order) and community split.
+
+```{r fig3a-combined, fig.width=14, fig.height=18}
+# ---- Helper: remove x-axis elements (shared axis) ----
+clean_x <- function(p) {
+  p + theme(
+    axis.text.x  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    plot.title   = element_blank(),
+    strip.text.x = element_blank()
+  )
+}
+
+# ---- 1. Dendrogram as ggplot, split by community ----
+ddata <- dendro_data(hc, type = "rectangle")
+segs  <- segment(ddata)
+
+# Map leaf x-positions to community
+leaf_x   <- as.integer(ddata$labels$x)
+leaf_lab <- as.character(ddata$labels$label)
+leaf_key <- sapply(strsplit(leaf_lab, "_"), function(x) paste(x[length(x)-1], x[length(x)], sep="_"))
+leaf_comm <- cellular_communities[leaf_key, "community_cluster"]
+
+c1_x <- leaf_x[leaf_comm == 1]; c2_x <- leaf_x[leaf_comm == 2]
+min_c1 <- min(c1_x); max_c1 <- max(c1_x)
+min_c2 <- min(c2_x); max_c2 <- max(c2_x)
+
+# Assign each segment to a community; cross-community root segments are excluded
+segs$community <- factor(mapply(function(x1, x2) {
+  lo <- min(x1, x2); hi <- max(x1, x2)
+  if (lo >= min_c1 - 0.5 && hi <= max_c1 + 0.5) return(1L)
+  if (lo >= min_c2 - 0.5 && hi <= max_c2 + 0.5) return(2L)
+  NA_integer_
+}, segs$x, segs$xend))
+
+segs_c <- segs[!is.na(segs$community), ]
+
+p_dendro <- ggplot(segs_c) +
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
+  scale_x_continuous(expand = c(0, 0.5)) +
+  facet_grid(. ~ community, scales = "free_x", space = "free_x") +
+  theme_minimal() +
+  theme(
+    axis.text    = element_blank(),
+    axis.ticks   = element_blank(),
+    axis.title   = element_blank(),
+    plot.title   = element_blank(),
+    strip.text.x = element_text(face = "bold"),
+    panel.grid   = element_blank(),
+    plot.margin  = margin(2, 2, 0, 2)
+  )
+
+# ---- 2. Metadata strips as geom_tile ggplots ----
+meta_df <- sample_summary[clustered_samples, c("mna", "X1p_loss", "progress", "age_diag")]
+meta_df$TUM_het   <- tumor_het[clustered_samples]
+meta_df$ME_het    <- me_het[clustered_samples]
+meta_df$sample_id <- factor(clustered_samples, levels = clustered_samples)
+meta_df$community <- factor(cellular_communities[clustered_samples, "community_cluster"])
+
+# Shared ggplot layers for each metadata strip
+meta_layers <- list(
+  geom_tile(),
+  facet_grid(. ~ community, scales = "free_x", space = "free_x"),
+  theme_void(),
+  theme(
+    strip.text.x = element_blank(),
+    legend.position = "right",
+    axis.title.y = element_text(angle = 0, vjust = 0.5, size = 7),
+    plot.margin  = margin(0, 2, 0, 2)
+  )
+)
+
+p_mna_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(mna))) +
+  meta_layers +
+  scale_fill_manual(values = col_code, name = "MYCN", na.value = "white") +
+  labs(y = "MYCN")
+
+p_1p_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(X1p_loss))) +
+  meta_layers +
+  scale_fill_manual(values = col_code, name = "1p_loss", na.value = "white") +
+  labs(y = "1p_loss")
+
+p_prog_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(progress))) +
+  meta_layers +
+  scale_fill_manual(values = col_code, name = "Prog", na.value = "white") +
+  labs(y = "Prog")
+
+p_age_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = age_diag)) +
+  meta_layers +
+  scale_fill_gradientn(
+    colors = attr(col_age_diag, "colors"),
+    values = scales::rescale(attr(col_age_diag, "breaks")),
+    na.value = "white", name = "Age", guide = "none"
+  ) +
+  labs(y = "Age")
+
+p_tumhet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = TUM_het)) +
+  meta_layers +
+  scale_fill_gradientn(
+    colors = attr(col_tumor_het, "colors"),
+    values = scales::rescale(attr(col_tumor_het, "breaks")),
+    na.value = "white", name = "TUM_het", guide = "none"
+  ) +
+  labs(y = "TUM_het")
+
+p_mehet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = ME_het)) +
+  meta_layers +
+  scale_fill_gradientn(
+    colors = attr(col_me_het, "colors"),
+    values = scales::rescale(attr(col_me_het, "breaks")),
+    na.value = "white", name = "ME_het", guide = "none"
+  ) +
+  labs(y = "ME_het")
+
+# ---- 3. Clean barplots (remove x-axis, title, and facet strips) ----
+p_tumor_c  <- clean_x(p_split)
+p_meta_c   <- clean_x(p_all)
+p_immune_c <- clean_x(p_ME)
+
+# ---- 4. Stack all panels ----
+p_fig3a <- (p_dendro /
+  p_tumor_c /
+  p_mna_m / p_1p_m / p_prog_m / p_age_m / p_tumhet_m / p_mehet_m /
+  p_meta_c /
+  p_immune_c) +
+  plot_layout(ncol = 1, heights = c(2, 4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 3, 3))
+
+p_fig3a
+
+save_plot(p_fig3a, "Fig3a_combined_stacked.png", width = 14, height = 18)
 ```
 
 ## Save SPE

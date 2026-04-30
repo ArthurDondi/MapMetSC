@@ -96,7 +96,7 @@ We will then build a base catalyst-compatible object from all diagnostic PT cell
 
 ```{r build-base-sce}
 keep_rows <- rowData(spe)$use_channel 
-keep_cols <- spe$celltype != "other" & spe$tissue == "PT" & spe$timepoint == "DE"
+keep_cols <- spe$tissue == "PT" & spe$timepoint == "DE"
 
 sce <- SingleCellExperiment(assays = list(
   counts = assay(spe, "counts")[keep_rows, keep_cols],
