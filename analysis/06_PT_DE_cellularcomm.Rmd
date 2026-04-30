@@ -181,6 +181,24 @@ cellular_communities <- as.data.frame(cutree(hc, k = 2)[levels(p$data$sample_id)
 colnames(cellular_communities) <- c("community_cluster")
 cluster_names <- setNames(order(unique(cellular_communities$community_cluster)), c(1:max(cellular_communities$community_cluster)))
 cellular_communities$community_cluster <- recode(cellular_communities$community_cluster, !!!cluster_names)
+
+# Rename rownames to fm_id_tissue format for downstream matching
+rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_communities)), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
+
+# Add tumor_community metacolumn to spe
+spe_key <- paste0(spe$fm_id, "_", spe$tissue)
+spe$tumor_community <- cellular_communities[spe_key, "community_cluster"]
+```
+
+We now display the tumor abundance barplot split by community for clearer group separation.
+
+```{r fig3a1-split, fig.width=12, fig.height=5}
+p$data$comm_key <- sapply(strsplit(as.character(p$data$sample_id), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
+p$data$community <- factor(cellular_communities[p$data$comm_key, "community_cluster"])
+p_split <- p + facet_grid(. ~ community, scales = "free_x", space = "free_x")
+p_split
+
+save_plot(p_split, "Fig3a1_PT_abundance_patients_clustered_cancer_split.png", width = 12, height = 5)
 ```
 
 ## Plot TME cellular profiles 
@@ -195,9 +213,13 @@ sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
 
 p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered)
 
+# Split barplot by community for clearer group separation
+p_ME$data$community <- factor(cellular_communities[as.character(p_ME$data$sample_id), "community_cluster"])
+p_ME <- p_ME + facet_grid(. ~ community, scales = "free_x", space = "free_x")
+
 p_ME
 
-save_plot(p_ME, "Fig3a3_PT_abundance_patients_clustered_immune.png", width = 8, height = 6)
+save_plot(p_ME, "Fig3a3_PT_abundance_patients_clustered_immune.png", width = 12, height = 5)
 ```
 
 ## Compute tumor and TME heterogeneity
@@ -276,7 +298,6 @@ save_plot(p, "Fig3a4_PT_abundance_patients_clustered_metadata.png", width = 8, h
 We then plot summary statistics of continuous and discrete metadata in boxplots and piecharts, respectively.
 
 ```{r piecharts}
-rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_communities)), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
 sample_summary[rownames(cellular_communities),"community_clusters"] <- cellular_communities$community_cluster
 
 discrete_metadata <- c("mna", "X1p_loss", "progress")
@@ -342,9 +363,19 @@ sce$cluster_id <- sce$metacluster
 metadata(sce)$cluster_codes <- data.frame(celltype = factor(sce$metacluster))
 p_all <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_metacluster)
 
+# Split barplot by community for clearer group separation
+p_all$data$community <- factor(cellular_communities[as.character(p_all$data$sample_id), "community_cluster"])
+p_all <- p_all + facet_grid(. ~ community, scales = "free_x", space = "free_x")
+
 p_all
 
-save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width = 8, height = 6)
+save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width = 12, height = 5)
+```
+
+## Save SPE
+
+```{r save-spe}
+saveRDS(spe, file.path(params$output, "spe_final_communities.rds"))
 ```
 
 ## Session Info
