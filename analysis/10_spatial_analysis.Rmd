@@ -21,6 +21,7 @@ if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
+
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
@@ -31,18 +32,22 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
-    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
-  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
-    pdf(full_path, width = width, height = height)
+    
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+    
+  } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
+    
+    # save as PNG instead of PDF if you want consistency
+    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
     draw(plot_obj)
     dev.off()
+    
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
+    
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
+  
   message("Saved: ", full_path)
 }
 
@@ -108,7 +113,7 @@ For the spatial interaction analysis, we will use the metaclusters for non-tumor
 Once the data is read into a SPE object, the folder `intensities-0px-TU` can be removed. 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$input_docker,"spe_final_clustering.rds"))
+spe <- readRDS(file.path(params$input_docker,"spe_final_communities.rds"))
 spe <- spe[,spe$tissue=="PT"]
 
 spe_neighbors <- read_steinbock(path=file.path(params$input), image_file=NULL, panel_file = NULL, intensities_folder = "intensities-0px-TU",regionprops_folder = NULL, graphs_folder="neighbors") 
@@ -268,7 +273,7 @@ set.seed(20231103)
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=brewer.pal(6, "Set3"), 
                     linkage="ward.D", distance="manhattan") 
 
-save_plot(p, "Fig4d1_spatial_neighborhood_clustering.png", width = 8, height = 4)
+save_plot(p, "Fig4d1_spatial_neighborhood_clustering.png", width = 6, height = 4)
 
 p
 ```
@@ -291,7 +296,8 @@ hc <- hclust(dist_matrix, method = "ward.D")
 
 p2 <- plot(hc)
 
-save_plot(p2, "Fig4d2_spatial_neighborhood_clustering_dendogram.png", width = 8, height = 4)
+save_plot(p2, "Fig4d2_spatial_neighborhood_clustering_dendogram.png", width = 6, height = 6)
+p2
 ```
 
 In addition, we plot the metadata of these samples in the respective order.
@@ -821,42 +827,7 @@ spe[,spe$compartment != "border" & spe$distToCells<=threshold & spe$sample_id !=
 
 Next, we will plot the differential abundance of metaclusters with respect to spatial compartment on a sample level. Let's again convert the SPE object into a catalyst-compatible object. Decide whether you want to compare `tumor` celltypes or `immune` metaclusters by setting the variable `cells`. Furthermore, select which compartments to compare, by setting `compare` to `core-border`, `core-stroma` or `border-stroma`. 
 
-```{r catalyst-comp-object3, fig.width=12, fig.height=5}
-cells <- "tumor"
-compare <- "core-border"
-
-if (cells =="immune"){
-  order <- c("T cells", "B cells", "MO/DC", "granulocytes")
-  keep_cols <- spe$metacluster=="T cells" | spe$metacluster=="B cells" | spe$metacluster=="MO/DC" | spe$metacluster=="granulocytes"
-  color <- metadata(spe)$color_vectors$col_celltype_2
-}else{
-  order <- c("marker-lo Tu","CD24hi Tu","Tu","SOX10+ Tu","LUM+ Tu","CHGA+ Tu","CXCR4+ Tu","Ki67+ Tu","bridge like Tu")
-  keep_cols <- spe$metacluster=="tumor"
-  color <- metadata(spe)$color_vectors$col_celltype_2
-}
-
-keep_cols <- keep_cols & (spe$compartment == strsplit(compare, "-")[[1]][1] | spe$compartment == strsplit(compare, "-")[[1]][2])
-keep_rows <- rowData(spe)$use_channel 
-sce <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows,keep_cols], exprs=assay(spe, "counts")[keep_rows,keep_cols]))
-
-sce$fm_id <- spe[keep_rows,keep_cols]$fm_id
-sce$compartment <- factor(spe[keep_rows,keep_cols]$compartment)
-
-#split samples into individual compartments
-sce$sample_id <- factor(paste0(sce$fm_id, "_", sce$compartment))
-sce$sample <- factor(spe[keep_rows,keep_cols]$sample)
-
-sce$condition <- sce$compartment
-
-sce$cluster_id <- factor(spe[keep_rows,keep_cols]$celltype_2, levels=order)                                                                     
-
-sce$metacluster <- factor(spe[keep_rows,keep_cols]$metacluster)
-metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows,keep_cols]$celltype_2, levels=order))
-
-# Add metadata
-metadata(sce)$experiment_info <- as.data.frame(colData(sce)) %>% group_by(sample_id, condition, sample) %>% 
-    summarise(n_cells=n(),.groups = 'drop') %>%
-    as.data.frame()
+```{r define markers}
 
 # Define cell_type_markers 
 type_markers <- c("MPO_Y89_mean", "CD44_In115_mean", "CD11b_Nd142_mean", "HLA-DR_Nd143_mean", "PRPH_Nd144_mean", "HLA-ABC_Sm147_mean", "CD20_Nd148_mean", "LUM_Sm149_mean", "CD11c_Nd150_mean",
@@ -866,144 +837,15 @@ type_markers <- c("MPO_Y89_mean", "CD44_In115_mean", "CD11b_Nd142_mean", "HLA-DR
 # Define cell_state_markers 
 state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "Ki-67_Tm169_mean", "GZMB_Yb173_mean")
 
-# Add to sce
-rowData(sce)$marker_class <- ifelse(rownames(sce) %in% type_markers, "type",
-                                    ifelse(rownames(sce) %in% state_markers, "state", 
-                                    "other"))
-
-plotAbundances(sce, k = "celltype", by = "sample", k_pal=color) 
 ```
 
-We first prepare data for DA analysis using the `diffcyt` package. 
-
-```{r prepare-data2}
-#list of samples as input to diffcyt methods
-df_list <- lapply(unique(sce$sample_id), function(x){as.data.frame(t(counts(sce[,sce$sample_id==x])))})
-names(df_list) <- unique(sce$sample_id)
-
-#experiment info
-experiment_info <- metadata(sce)$experiment_info
-experiment_info <- experiment_info[match(names(df_list),experiment_info$sample_id),]
-
-#marker info
-channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 2)
-marker_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 1)
-marker_class <-ifelse(rownames(spe)[keep_rows] %in% type_markers, "type",
-                                    ifelse(rownames(spe)[keep_rows] %in% state_markers, "state", 
-                                    "other"))
-row_data <- data.frame(cbind(channel_name, marker_name), row.names=marker_name)
-row_data$marker_class <- as.factor(marker_class)
-
-marker_info <-  row_data
-
-#prepare data into format for diffcyt pipeline 
-d_se <- prepareData(df_list, experiment_info, marker_info)
-rowData(d_se)$cluster_id <- sce[,rownames(d_se)]$cluster_id 
-metadata(d_se)$cluster_codes <- metadata(sce)$cluster_codes
-
-# Transform data
-d_se <- transformData(d_se)
-
-# Calculate counts
-d_counts <- calcCounts(d_se)
-```
-
-Subsequently, we perform the DA analysis comparing `r cells` celltype/metacluster proportions between paired compartments, i.e. from the same sample.
-
-```{r da-analysis2}
-design <- createDesignMatrix(experiment_info, cols_design = c("condition", "sample")) 
-contrast <- createContrast(c(0, 1, rep(0, length(unique(experiment_info$sample))-1))) #paired
-nrow(contrast) == ncol(design)
-
-# Test for differential abundance (DA) of clusters
-res_DA <- testDA_edgeR(d_counts,design, contrast, 
-                       min_cells=3, 
-                       min_samples=round(dim(d_counts)[2]*0.2)
-                       )
 
 
-FDR_cutoff = 0.1
-rowData(res_DA)[rowData(res_DA)$p_adj<FDR_cutoff,]
-res<- data.frame(rowData(res_DA))
-```
-
-Finally, we visualize DA results in boxplots.
-
-```{r visualize-da, fig.width=12, fig.height=4}
-p <- plotAbundances(sce, k = "celltype", by = "sample")
-
-comparisons <- c(paste0(strsplit(compare, "-")[[1]][1], "vs", strsplit(compare, "-")[[1]][2]))
-ord <- c(strsplit(compare, "-")[[1]][1], strsplit(compare, "-")[[1]][2])
-
-plot_list_fc <- list()
-
-for(i in 1:length(unique(p$data$cluster_id))){
-  cluster_name <- unique(p$data$cluster_id)[i]
-  proportions <- data.frame(p$data[p$data$cluster_id == cluster_name, c("sample_id", "condition", "Freq")])
-  
-  p_adj <- c()
-  group1 <- c()
-  group2 <- c()
-  logFC <- c()
-  
-  for(j in 1:1){
-  stats <- res
-  p_adj <- c(p_adj, round(stats[rownames(stats)==droplevels(cluster_name), "p_adj"],3))
-  logFC <- c(logFC, round(stats[rownames(stats)==droplevels(cluster_name), "logFC"],2))
-  group1 <- c(group1, unlist(strsplit(comparisons[j], "vs"))[1])
-  group2 <- c(group2, unlist(strsplit(comparisons[j], "vs"))[2])
-  }
-
-  stats_df <- data.frame(p_adj=p_adj, group1=group1, group2=group2, logFC=logFC)
-  stats_df$p_adj_signif <- stars.pval(stats_df$p_adj)
-  stats_df$p_adj_signif[stats_df$p_adj_signif==" "] <- "ns"
-  stats_df$p_fc <- paste0(stats_df$logFC, " (", stats_df$p_adj, ")", " (", stats_df$p_adj_signif, ")")
-
-  color <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]) 
-  
-  plot_list_fc[[i]] <- ggboxplot(proportions, x = "condition", y = "Freq", order=ord,
-              color = "condition", palette =c(color, color), 
-              add.params = list(size = 1.5),
-              add = "jitter", 
-              title=cluster_name, show.legend = F) +
-      stat_pvalue_manual(
-        stats_df,
-        y.position = max(proportions$Freq),
-        step.increase = 0.4,
-        label = "p_fc"
-        )  +
-      theme(aspect.ratio = 1.5, legend.position="none") +
-      scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
-}
-
-grid.arrange(grobs = plot_list_fc, ncol = 5)
-```
-
-We will plot the logFC for the comparisons between conditions in a barplot.
-
-```{r barplot-logFC}
-df <- res[, c("logFC", "p_adj")]
-df$p_adj_signif <- stars.pval(df$p_adj)
-df$p_adj_signif[df$p_adj_signif==" "] <- "ns"
-df$cluster <- rownames(df)
-
-p <- ggplot(df, aes(fill=cluster, y=logFC, x=cluster)) + 
-  ggtitle(colnames(contrasts)[i]) +
-  geom_bar(
-    stat="identity",
-    position="dodge",
-    show.legend = F) + 
-  scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  geom_text(aes(label = p_adj_signif), vjust = 0)
-
-p
-```
 
 
 ```{r}
 comparisons_list <- c("core-border", "core-stroma", "border-stroma")
-cells <- "immune"  # or "immune"
+cells <- "tumor"  # or "immune"
 
 for (compare in comparisons_list) {
 
@@ -1342,6 +1184,35 @@ save_plot(
   width = 10,
   height = 4
 )
+```
+
+
+```{r,fig.width=20, fig.height=5}
+library(dplyr)
+library(ggplot2)
+
+df_counts <- colData(spe) %>%
+  as_tibble() %>%
+  filter(tissue == "BM") %>%
+  group_by(fm_id) %>%
+  summarise(
+    n_cells = sum(metacluster == "tumor"),
+    control = first(control),
+    .groups = "drop"
+  )
+
+ggplot(df_counts, aes(x = fm_id, y = n_cells)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = n_cells), vjust = -0.3) +
+  facet_wrap(~control, scales = "free_x") +   # 🔑 key fix
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  theme_classic() +
+  labs(
+    x = "fm_id",
+    y = "Number of tumor cells (BM only)",
+    title = "Tumor cells per BM fm_id (by control)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Save R object
