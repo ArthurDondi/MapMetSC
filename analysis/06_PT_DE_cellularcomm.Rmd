@@ -501,10 +501,10 @@ meta_df$ME_het    <- me_het[clustered_samples]
 meta_df$sample_id <- factor(clustered_samples, levels = clustered_samples)
 meta_df$community <- factor(cellular_communities[clustered_samples, "community_cluster"])
 
-# Compact colorbar for continuous variables
+# Colorbar guide for continuous variables
 cbar_guide <- guide_colorbar(
-  barwidth       = unit(0.35, "cm"),
-  barheight      = unit(1.5,  "cm"),
+  barwidth       = unit(0.5,  "cm"),
+  barheight      = unit(2.5,  "cm"),
   title.position = "top",
   ticks          = FALSE
 )
@@ -520,9 +520,9 @@ meta_layers <- list(
     strip.background = element_blank(),
     panel.spacing.x = COMM_GAP,
     legend.position = "right",
-    legend.key.size = unit(0.35, "cm"),
-    legend.text     = element_text(size = 6),
-    legend.title    = element_text(size = 7, face = "bold"),
+    legend.key.size = unit(0.6, "cm"),
+    legend.text     = element_text(size = 9),
+    legend.title    = element_text(size = 10, face = "bold"),
     axis.title.y    = element_text(angle = 0, vjust = 0.5, size = 7),
     plot.margin     = margin(0, 2, 0, 2)
   )
