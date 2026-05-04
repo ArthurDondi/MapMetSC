@@ -383,6 +383,10 @@ All panels share the same sample order (dendrogram order) and community split.
 # gaps are identical regardless of the panel's base theme.
 COMM_GAP <- unit(4, "pt")
 
+# Shared discrete x-axis expansion — set explicitly on every panel so the
+# proportional widths (space = "free_x") are identical for barplots and tiles.
+X_EXPAND <- expansion(add = 0.5)
+
 # ---- Helper: remove x-axis elements (shared axis) ----
 clean_x <- function(p) {
   p + theme(
@@ -392,8 +396,10 @@ clean_x <- function(p) {
     plot.title        = element_blank(),
     strip.text.x      = element_blank(),
     strip.background  = element_blank(),
+    panel.border      = element_blank(),
     panel.spacing.x   = COMM_GAP
-  )
+  ) +
+  scale_x_discrete(expand = X_EXPAND)
 }
 
 # Community strip labeller used by the dendrogram panel
@@ -426,27 +432,48 @@ segs$community <- factor(mapply(function(x1, x2) {
 
 segs_c <- segs[!is.na(segs$community), ]
 
-# ---- Hack: add root stubs ----
-# The cross-community root segment is filtered out. To imply that the two
-# sub-trees connect, we add a vertical stub above each community's sub-root.
-# Strategy: find the highest *horizontal* segment in each community (the
-# sub-root merge, where y == yend); get its x midpoint; draw a vertical line
-# from that height up to the overall root height h_root.
-h_root <- max(c(segs$y, segs$yend))
+# ---- Root arms: connect communities with a horizontal bar ----
+# segs_c already contains, for each community, the vertical "root-drop" segment
+# that goes from h_root down to the community's highest merge node.  These pass
+# the community filter because their x coordinate lies within one community's
+# leaf range.  We must NOT add another vertical stub (that would duplicate the
+# existing line, creating a "second root").  Instead we only add a short
+# horizontal arm that extends from the root-drop's x position outward to the
+# far panel edge.  When the two panels are placed side by side the two arms
+# read as a single connected horizontal bar at h_root.
+h_root     <- max(c(segs$y, segs$yend))
+c1_is_left <- mean(c1_x) < mean(c2_x)
 
-make_root_stub <- function(comm) {
-  s     <- segs_c[segs_c$community == comm, ]
-  # horizontal segments have y == yend (within floating-point tolerance)
-  s_h   <- s[abs(s$y - s$yend) < 1e-6, ]
-  if (nrow(s_h) == 0) return(NULL)
-  sub   <- s_h[which.max(s_h$y), ]
-  x_mid <- (sub$x + sub$xend) / 2
-  data.frame(x = x_mid, y = sub$y, xend = x_mid, yend = h_root,
-             community = factor(comm))
+# Return the x coordinate of the vertical segment that reaches h_root in comm.
+get_root_drop_x <- function(comm) {
+  s_comm <- segs_c[segs_c$community == comm, ]
+  # Vertical segments: x == xend
+  s_v <- s_comm[abs(s_comm$x - s_comm$xend) < 1e-6, ]
+  if (nrow(s_v) == 0) return(NULL)
+  # The root-drop has its top endpoint at h_root
+  s_v_root <- s_v[abs(pmax(s_v$y, s_v$yend) - h_root) < 1e-6, ]
+  if (nrow(s_v_root) == 0) s_v_root <- s_v[which.max(pmax(s_v$y, s_v$yend)), ]
+  s_v_root$x[1]
 }
 
-root_stubs     <- rbind(make_root_stub(1), make_root_stub(2))
-segs_with_root <- rbind(segs_c, root_stubs)
+make_root_arm <- function(comm) {
+  x_pos   <- get_root_drop_x(comm)
+  if (is.null(x_pos)) return(NULL)
+  x_range <- if (comm == 1) c1_x else c2_x
+  is_left <- (comm == 1 && c1_is_left) || (comm == 2 && !c1_is_left)
+  if (is_left) {
+    # Panel on the left → arm extends rightward to right panel edge
+    data.frame(x = x_pos, y = h_root, xend = max(x_range) + 0.5, yend = h_root,
+               community = factor(comm))
+  } else {
+    # Panel on the right → arm extends leftward to left panel edge
+    data.frame(x = min(x_range) - 0.5, y = h_root, xend = x_pos, yend = h_root,
+               community = factor(comm))
+  }
+}
+
+root_arms      <- rbind(make_root_arm(1), make_root_arm(2))
+segs_with_root <- rbind(segs_c, root_arms)
 
 p_dendro <- ggplot(segs_with_root) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
@@ -486,6 +513,7 @@ cbar_guide <- guide_colorbar(
 meta_layers <- list(
   geom_tile(),
   facet_grid(. ~ community, scales = "free_x", space = "free_x"),
+  scale_x_discrete(expand = X_EXPAND),
   theme_void(),
   theme(
     strip.text.x    = element_blank(),
