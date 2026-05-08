@@ -845,7 +845,7 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 
 ```{r}
 comparisons_list <- c("core-border", "core-stroma", "border-stroma")
-cells <- "tumor"  # or "immune"
+cells <- "immune" #"tumor"  # or "immune"
 
 for (compare in comparisons_list) {
 
@@ -1123,7 +1123,7 @@ for (compare in comparisons_list) {
 # =========================
 # PARAMETERS
 # =========================
-cells <- "tumor"
+cells <- "mmune"
 
 if (cells == "immune") {
   order <- c("T cells", "B cells", "MO/DC", "granulocytes")
@@ -1267,6 +1267,16 @@ ggplot(df_counts, aes(x = fm_id, y = n_cells)) +
     title = "Tumor cells per BM fm_id (by control)"
   ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+p_s2 <- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"], 
+            node_color_by = "compartment", 
+            img_id = "sample_id", 
+            node_size_fix = 0.5) 
+
+save_plot(p_s2, "Fig4g3_tumor_patch.png", width = 6, height = 6)
 ```
 
 ## Save R object
