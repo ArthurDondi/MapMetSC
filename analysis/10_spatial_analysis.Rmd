@@ -845,11 +845,14 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 
 ```{r}
 comparisons_list <- c("core-border", "core-stroma", "border-stroma")
-cells <- "tumor"  # or "immune"
 
+# Initialize storage for paired DA results (used by Fig4m downstream)
+da_results_compartments <- list()
+
+for (cells in c("tumor", "immune")) {
 for (compare in comparisons_list) {
 
-  message("Running comparison: ", compare)
+  message("Running comparison: ", compare, " (", cells, ")")
 
   comps <- strsplit(compare, "-")[[1]]
 
@@ -889,7 +892,7 @@ for (compare in comparisons_list) {
   )
 
   metadata(sce)$experiment_info <- as.data.frame(colData(sce)) %>%
-    dplyr::group_by(sample_id, condition, sample) %>%
+    dplyr::group_by(sample_id, condition, sample, fm_id) %>%
     dplyr::summarise(n_cells=n(), .groups = 'drop') %>%
     as.data.frame()
 
@@ -990,7 +993,15 @@ for (compare in comparisons_list) {
   experiment_info <- experiment_info[
     match(names(df_list), experiment_info$sample_id),]
 
+  # Filter to fm_ids present in BOTH compartments (valid pairs only)
+  fm_ids_comp1 <- experiment_info$fm_id[experiment_info$condition == comps[1]]
+  fm_ids_comp2 <- experiment_info$fm_id[experiment_info$condition == comps[2]]
+  paired_fmids <- intersect(fm_ids_comp1, fm_ids_comp2)
+  experiment_info <- experiment_info[experiment_info$fm_id %in% paired_fmids, ]
+  df_list <- df_list[experiment_info$sample_id]
+
   experiment_info$condition <- factor(experiment_info$condition, levels = comps)
+  experiment_info$fm_id <- factor(experiment_info$fm_id)
 
   channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 2)
   marker_name  <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 1)
@@ -1009,11 +1020,12 @@ for (compare in comparisons_list) {
   d_se <- transformData(d_se)
   d_counts <- calcCounts(d_se)
 
-  # ---- DA analysis ----
-  design <- createDesignMatrix(experiment_info, cols_design = c("condition", "sample"))
+  # ---- DA analysis (paired within fm_id) ----
+  # Include fm_id as a fixed-effect blocking factor so comparisons are within-image
+  design <- createDesignMatrix(experiment_info, cols_design = c("condition", "fm_id"))
 
-  # logFC = comps[2] - comps[1]
-  contrast <- createContrast(c(0, 1, rep(0, length(unique(experiment_info$sample))-1)))
+  # logFC = comps[2] - comps[1]; fm_id columns follow the condition coefficient
+  contrast <- createContrast(c(0, 1, rep(0, length(levels(experiment_info$fm_id)) - 1)))
 
   res_DA <- testDA_edgeR(
     d_counts, design, contrast,
@@ -1022,6 +1034,9 @@ for (compare in comparisons_list) {
   )
 
   res <- data.frame(rowData(res_DA))
+
+  # Store paired DA results for downstream use in Fig4m
+  da_results_compartments[[paste0(cells, "_", compare)]] <- res
 
   # =========================
   # ---- BOXPLOTS ----------
@@ -1116,7 +1131,8 @@ for (compare in comparisons_list) {
     width = 12,
     height = 6
   )
-}
+} # end compare loop
+} # end cells loop
 ```
 
 ```{r compartment-boxplots-all-comparisons}
@@ -1180,16 +1196,19 @@ for (cells in cells_list) {
     stats_df <- lapply(comparison_pairs, function(pair) {
       g1 <- pair[1]
       g2 <- pair[2]
-      x <- proportions$Freq[proportions$condition == g1]
-      y <- proportions$Freq[proportions$condition == g2]
+      # Look up p-values from the paired diffcyt DA model (fm_id-blocked)
+      compare_key <- paste0(cells, "_", g1, "-", g2)
+      res_da <- da_results_compartments[[compare_key]]
 
-      p_val <- if (length(x) > 0 && length(y) > 0) {
-        suppressWarnings(wilcox.test(x, y, exact = FALSE)$p.value)
+      if (!is.null(res_da) && cluster_name %in% rownames(res_da)) {
+        p_adj_val <- res_da[cluster_name, "p_adj"]
+        logFC_val <- res_da[cluster_name, "logFC"]
       } else {
-        NA_real_
+        p_adj_val <- NA_real_
+        logFC_val <- NA_real_
       }
 
-      data.frame(group1 = g1, group2 = g2, p_raw = p_val)
+      data.frame(group1 = g1, group2 = g2, p_adj = p_adj_val, logFC = logFC_val)
     }) %>% dplyr::bind_rows()
 
     stats_df$cluster_name <- cluster_name
@@ -1198,7 +1217,7 @@ for (cells in cells_list) {
   }
 
   all_stats <- dplyr::bind_rows(plot_stats_list)
-  all_stats$p_adj <- p.adjust(all_stats$p_raw, method = "BH")
+  # p_adj comes directly from the paired diffcyt model (FDR-adjusted within each comparison run)
   all_stats$p_adj_signif <- gtools::stars.pval(all_stats$p_adj)
   all_stats$p_adj_signif[all_stats$p_adj_signif == " "] <- "ns"
   all_stats$p_adj_fmt <- ifelse(is.na(all_stats$p_adj), "NA", sprintf("%.3f", all_stats$p_adj))
