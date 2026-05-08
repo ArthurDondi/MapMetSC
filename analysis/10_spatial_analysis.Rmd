@@ -913,7 +913,7 @@ for (compare in comparisons_list) {
     dplyr::mutate(
       cluster_id = factor(cluster_id, levels = cluster_levels),
       condition = factor(condition, levels = comps),
-      Freq_pct = Freq * 100
+      Freq_pct = Freq
     )
 
   abundance_summary <- abundance_data %>%
@@ -927,7 +927,7 @@ for (compare in comparisons_list) {
     )
 
   p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_pct, fill = cluster_id)) +
-    geom_col(width = 0.75, show.legend = FALSE) +
+    geom_col(width = 0.75, alpha = 0.45, show.legend = FALSE) +
     geom_errorbar(
       aes(ymin = pmax(mean_pct - se_pct, 0), ymax = pmin(mean_pct + se_pct, 100)),
       width = 0.2
@@ -995,8 +995,8 @@ for (compare in comparisons_list) {
   channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 2)
   marker_name  <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 1)
 
-  marker_class <- ifelse(rownames(spe)[keep_rows] %in% type_markers, "type",
-                  ifelse(rownames(spe)[keep_rows] %in% state_markers, "state","other"))
+  marker_class <- ifelse(rownames(rowData(spe)[keep_rows,]) %in% type_markers, "type",
+                  ifelse(rownames(rowData(spe)[keep_rows,]) %in% state_markers, "state","other"))
 
   marker_info <- data.frame(channel_name, marker_name,
                             marker_class = factor(marker_class),
