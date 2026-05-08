@@ -193,71 +193,71 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   print(p_abund)
   save_plot(p_abund, paste0("Fig_abundance_", fig_suffix, ".png"), width = 10, height = 6)
 
-  # --- 6. Celltype abundance summaries (for celltype-level analyses) ---
+  # --- 6. Abundance summaries ---
   p_abund_bar <- NULL
   p_abund_box <- NULL
-  if (cluster_level == "celltype") {
-    abundance_data <- p_abund$data %>%
-      mutate(
-        cluster_id = factor(cluster_id, levels = levels(sce_sub$cluster_id)),
-        freq_value = Freq
-      )
+  cluster_label <- if (cluster_level == "celltype") "celltype" else "metacluster"
 
-    abundance_summary <- abundance_data %>%
-      group_by(condition, cluster_id) %>%
-      summarise(
-        mean_freq = mean(freq_value, na.rm = TRUE),
-        sd_freq = sd(freq_value, na.rm = TRUE),
-        n = n(),
-        se_freq = if_else(n > 1 & !is.na(sd_freq), sd_freq / sqrt(n), NA_real_),
-        .groups = "drop"
-      )
+  abundance_data <- p_abund$data %>%
+    mutate(
+      cluster_id = factor(cluster_id, levels = levels(sce_sub$cluster_id)),
+      freq_value = Freq
+    )
 
-    p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_freq, fill = cluster_id)) +
-      geom_col(width = 0.75, alpha = 0.45, show.legend = FALSE) +
-      geom_errorbar(
-        aes(ymin = mean_freq - se_freq, ymax = mean_freq + se_freq),
-        width = 0.2,
-        na.rm = TRUE
-      ) +
-      geom_jitter(
-        data = abundance_data,
-        aes(x = cluster_id, y = freq_value, color = cluster_id),
-        inherit.aes = FALSE,
-        width = 0.15,
-        alpha = 0.8,
-        size = 1.5,
-        show.legend = FALSE
-      ) +
-      facet_wrap(~condition, nrow = 1) +
-      scale_fill_manual(values = col_vec) +
-      scale_color_manual(values = col_vec) +
-      ylab("% abundance") +
-      xlab("celltype") +
-      theme(
-        axis.text.x = element_text(angle = 90, hjust = 1),
-        strip.background = element_blank(),
-        strip.text = element_text(face = "bold")
-      )
-    print(p_abund_bar)
-    save_plot(p_abund_bar, paste0("Fig_abundance_celltype_barplot_", fig_suffix, ".png"), width = 12, height = 6)
+  abundance_summary <- abundance_data %>%
+    group_by(condition, cluster_id) %>%
+    summarise(
+      mean_freq = mean(freq_value, na.rm = TRUE),
+      sd_freq = sd(freq_value, na.rm = TRUE),
+      n = n(),
+      se_freq = if_else(n > 1 & !is.na(sd_freq), sd_freq / sqrt(n), NA_real_),
+      .groups = "drop"
+    )
 
-    p_abund_box <- ggplot(abundance_data, aes(x = cluster_id, y = freq_value, fill = cluster_id, color = cluster_id)) +
-      geom_boxplot(outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
-      geom_jitter(width = 0.15, alpha = 0.8, size = 1.5, show.legend = FALSE) +
-      facet_wrap(~condition, nrow = 1) +
-      scale_fill_manual(values = col_vec) +
-      scale_color_manual(values = col_vec) +
-      ylab("% abundance") +
-      xlab("celltype") +
-      theme(
-        axis.text.x = element_text(angle = 90, hjust = 1),
-        strip.background = element_blank(),
-        strip.text = element_text(face = "bold")
-      )
-    print(p_abund_box)
-    save_plot(p_abund_box, paste0("Fig_abundance_celltype_boxplot_", fig_suffix, ".png"), width = 12, height = 6)
-  }
+  p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_freq, fill = cluster_id)) +
+    geom_col(width = 0.75, alpha = 0.45, show.legend = FALSE) +
+    geom_errorbar(
+      aes(ymin = mean_freq - se_freq, ymax = mean_freq + se_freq),
+      width = 0.2,
+      na.rm = TRUE
+    ) +
+    geom_jitter(
+      data = abundance_data,
+      aes(x = cluster_id, y = freq_value, color = cluster_id),
+      inherit.aes = FALSE,
+      width = 0.15,
+      alpha = 0.8,
+      size = 1.5,
+      show.legend = FALSE
+    ) +
+    facet_wrap(~condition, nrow = 1) +
+    scale_fill_manual(values = col_vec) +
+    scale_color_manual(values = col_vec) +
+    ylab("% abundance") +
+    xlab(cluster_label) +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      strip.background = element_blank(),
+      strip.text = element_text(face = "bold")
+    )
+  print(p_abund_bar)
+  save_plot(p_abund_bar, paste0("Fig_abundance_", cluster_label, "_barplot_", fig_suffix, ".png"), width = 12, height = 6)
+
+  p_abund_box <- ggplot(abundance_data, aes(x = cluster_id, y = freq_value, fill = cluster_id, color = cluster_id)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
+    geom_jitter(width = 0.15, alpha = 0.8, size = 1.5, show.legend = FALSE) +
+    facet_wrap(~condition, nrow = 1) +
+    scale_fill_manual(values = col_vec) +
+    scale_color_manual(values = col_vec) +
+    ylab("% abundance") +
+    xlab(cluster_label) +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      strip.background = element_blank(),
+      strip.text = element_text(face = "bold")
+    )
+  print(p_abund_box)
+  save_plot(p_abund_box, paste0("Fig_abundance_", cluster_label, "_boxplot_", fig_suffix, ".png"), width = 12, height = 6)
 
   # --- 7. Prepare data for diffcyt ---
   df_list <- lapply(unique(sce_sub$sample_id), function(x) {
