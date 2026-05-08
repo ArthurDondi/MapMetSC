@@ -1130,6 +1130,8 @@ comparison_pairs <- list(
 y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.10
 y_base_offset <- 0.01
 y_expand_upper <- (max(y_offset_multipliers) - 1) + 0.20
+min_annotation_step <- 0.05
+max_plot_columns <- 5
 
 for (cells in cells_list) {
 
@@ -1197,7 +1199,7 @@ for (cells in cells_list) {
 
   all_stats <- dplyr::bind_rows(plot_stats_list)
   all_stats$p_adj <- p.adjust(all_stats$p_raw, method = "BH")
-  all_stats$p_adj_signif <- stars.pval(all_stats$p_adj)
+  all_stats$p_adj_signif <- gtools::stars.pval(all_stats$p_adj)
   all_stats$p_adj_signif[all_stats$p_adj_signif == " "] <- "ns"
   all_stats$p_adj_fmt <- ifelse(is.na(all_stats$p_adj), "NA", sprintf("%.3f", all_stats$p_adj))
   all_stats$label <- paste0(all_stats$p_adj_fmt, " (", all_stats$p_adj_signif, ")")
@@ -1210,7 +1212,11 @@ for (cells in cells_list) {
 
     y_max <- max(proportions$Freq, na.rm = TRUE)
     if (!is.finite(y_max)) y_max <- 0
-    stats_df$y.position <- y_max * y_offset_multipliers[seq_len(nrow(stats_df))] + y_base_offset
+    if (y_max > 0) {
+      stats_df$y.position <- y_max * y_offset_multipliers[seq_len(nrow(stats_df))] + y_base_offset
+    } else {
+      stats_df$y.position <- seq_len(nrow(stats_df)) * min_annotation_step
+    }
 
     color_cluster <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)])
 
@@ -1235,7 +1241,7 @@ for (cells in cells_list) {
 
   p_comp <- gridExtra::grid.arrange(
     grobs = plot_list_comp,
-    ncol = ifelse(length(plot_list_comp) >= 5, 5, length(plot_list_comp))
+    ncol = min(length(plot_list_comp), max_plot_columns)
   )
 
   save_plot(
