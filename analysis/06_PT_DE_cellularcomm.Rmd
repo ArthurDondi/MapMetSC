@@ -361,14 +361,14 @@ abundance_data <- proportions$data %>%
   mutate(
     community = factor(cellular_communities[as.character(sample_id), "community_cluster"]),
     cluster_id = factor(cluster_id, levels = levels(sce$cluster_id)),
-    Freq_pct = Freq
+    freq_value = Freq
   )
 
 abundance_summary <- abundance_data %>%
   group_by(community, cluster_id) %>%
   summarise(
-    mean_pct = mean(Freq_pct),
-    sd_pct = sd(Freq_pct),
+    mean_pct = mean(freq_value),
+    sd_pct = sd(freq_value),
     n = n(),
     se_pct = if_else(n > 1 & !is.na(sd_pct), sd_pct / sqrt(n), NA_real_),
     .groups = "drop"
@@ -383,7 +383,7 @@ p_celltype_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_pct, fi
   ) +
   geom_jitter(
     data = abundance_data,
-    aes(x = cluster_id, y = Freq_pct, color = cluster_id),
+    aes(x = cluster_id, y = freq_value, color = cluster_id),
     inherit.aes = FALSE,
     width = 0.15,
     alpha = 0.8,
@@ -411,10 +411,10 @@ abundance_data <- proportions$data %>%
   mutate(
     community = factor(cellular_communities[as.character(sample_id), "community_cluster"]),
     cluster_id = factor(cluster_id, levels = levels(sce$cluster_id)),
-    Freq_pct = Freq
+    freq_value = Freq
   )
 
-p_celltype_box <- ggplot(abundance_data, aes(x = cluster_id, y = Freq_pct, fill = cluster_id, color = cluster_id)) +
+p_celltype_box <- ggplot(abundance_data, aes(x = cluster_id, y = freq_value, fill = cluster_id, color = cluster_id)) +
   geom_boxplot(outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
   geom_jitter(width = 0.15, alpha = 0.8, size = 1.5, show.legend = FALSE) +
   facet_wrap(~community, nrow = 1) +
