@@ -1119,6 +1119,140 @@ for (compare in comparisons_list) {
 }
 ```
 
+```{r compartment-boxplots-all-comparisons}
+cells_list <- c("tumor", "immune")
+comp_levels <- c("core", "border", "stroma")
+comparison_pairs <- list(
+  c("core", "border"),
+  c("core", "stroma"),
+  c("border", "stroma")
+)
+y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.10
+y_base_offset <- 0.01
+y_expand_upper <- (max(y_offset_multipliers) - 1) + 0.20
+min_annotation_step <- 0.05
+max_plot_columns <- 5
+
+for (cells in cells_list) {
+
+  if (cells == "immune") {
+    order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
+    keep_meta <- spe$metacluster %in% order
+  } else {
+    order <- c("marker-lo Tu","GD2lo Tu","CD44+ Tu","CXCR4hi Tu","Ki67hi Tu",
+               "GATA3hi Tu","early NB Tu")
+    keep_meta <- spe$metacluster == "tumor"
+  }
+
+  comp_df <- data.frame(
+    fm_id = spe$fm_id,
+    compartment = spe$compartment,
+    metacluster = spe$metacluster,
+    celltype_2 = spe$celltype_2,
+    keep = keep_meta
+  )
+
+  comp_df <- comp_df[comp_df$keep & comp_df$compartment %in% comp_levels, ]
+  comp_df$compartment <- factor(comp_df$compartment, levels = comp_levels)
+
+  sample_totals <- comp_df %>%
+    dplyr::group_by(fm_id, compartment) %>%
+    dplyr::summarise(total = dplyr::n(), .groups = "drop")
+
+  plot_data_list <- list()
+  plot_stats_list <- list()
+
+  for (cluster_name in order) {
+    cluster_counts <- comp_df %>%
+      dplyr::filter(celltype_2 == cluster_name) %>%
+      dplyr::group_by(fm_id, compartment) %>%
+      dplyr::summarise(n = dplyr::n(), .groups = "drop")
+
+    proportions <- dplyr::left_join(sample_totals, cluster_counts,
+                                    by = c("fm_id", "compartment")) %>%
+      dplyr::mutate(
+        n = dplyr::if_else(is.na(n), 0L, n),
+        Freq = 100 * n / total,
+        condition = factor(compartment, levels = comp_levels),
+        sample_id = fm_id
+      )
+
+    stats_df <- lapply(comparison_pairs, function(pair) {
+      g1 <- pair[1]
+      g2 <- pair[2]
+      x <- proportions$Freq[proportions$condition == g1]
+      y <- proportions$Freq[proportions$condition == g2]
+
+      p_val <- if (length(x) > 0 && length(y) > 0) {
+        suppressWarnings(wilcox.test(x, y, exact = FALSE)$p.value)
+      } else {
+        NA_real_
+      }
+
+      data.frame(group1 = g1, group2 = g2, p_raw = p_val)
+    }) %>% dplyr::bind_rows()
+
+    stats_df$cluster_name <- cluster_name
+    plot_data_list[[cluster_name]] <- proportions
+    plot_stats_list[[cluster_name]] <- stats_df
+  }
+
+  all_stats <- dplyr::bind_rows(plot_stats_list)
+  all_stats$p_adj <- p.adjust(all_stats$p_raw, method = "BH")
+  all_stats$p_adj_signif <- gtools::stars.pval(all_stats$p_adj)
+  all_stats$p_adj_signif[all_stats$p_adj_signif == " "] <- "ns"
+  all_stats$p_adj_fmt <- ifelse(is.na(all_stats$p_adj), "NA", sprintf("%.3f", all_stats$p_adj))
+  all_stats$label <- paste0(all_stats$p_adj_fmt, " (", all_stats$p_adj_signif, ")")
+
+  plot_list_comp <- list()
+
+  for (cluster_name in order) {
+    proportions <- plot_data_list[[cluster_name]]
+    stats_df <- all_stats[all_stats$cluster_name == cluster_name, ]
+
+    y_max <- max(proportions$Freq, na.rm = TRUE)
+    if (!is.finite(y_max)) y_max <- 0
+    if (y_max > 0) {
+      stats_df$y.position <- y_max * y_offset_multipliers[seq_len(nrow(stats_df))] + y_base_offset
+    } else {
+      stats_df$y.position <- seq_len(nrow(stats_df)) * min_annotation_step
+    }
+
+    color_cluster <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)])
+
+    plot_list_comp[[cluster_name]] <- ggboxplot(
+      proportions, x = "condition", y = "Freq", order = comp_levels,
+      color = "condition", palette = rep(color_cluster, 3),
+      add = "jitter"
+    ) +
+      stat_pvalue_manual(
+        stats_df,
+        y.position = "y.position",
+        label = "label"
+      ) +
+      ggtitle(cluster_name) +
+      scale_y_continuous(expand = expansion(mult = c(0.05, y_expand_upper))) +
+      theme(
+        aspect.ratio = 1.2,
+        legend.position = "none",
+        plot.title = element_text(margin = margin(b = 10))
+      )
+  }
+
+  p_comp <- gridExtra::grid.arrange(
+    grobs = plot_list_comp,
+    ncol = min(length(plot_list_comp), max_plot_columns)
+  )
+
+  save_plot(
+    p_comp,
+    paste0("Fig4m_boxplot_compartments_", cells, ".png"),
+    width = 12,
+    height = 8
+  )
+}
+```
+
 ```{r}
 # =========================
 # PARAMETERS
