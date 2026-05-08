@@ -907,20 +907,75 @@ for (compare in comparisons_list) {
   
   # enforce factor ordering (THIS fixes mismatch + ordering)
   sce$celltype <- factor(sce$cluster_id, levels = cluster_levels)
-  
-  # plot
-  p_abund <- plotAbundances(
-    sce,
-    k = "celltype",
-    by = "sample"
-  ) +
+
+  p_abund <- plotAbundances(sce, k = "celltype", by = "sample")
+  abundance_data <- p_abund$data %>%
+    dplyr::mutate(
+      cluster_id = factor(cluster_id, levels = cluster_levels),
+      condition = factor(condition, levels = comps),
+      Freq_pct = Freq * 100
+    )
+
+  abundance_summary <- abundance_data %>%
+    dplyr::group_by(condition, cluster_id) %>%
+    dplyr::summarise(
+      mean_pct = mean(Freq_pct),
+      sd_pct = sd(Freq_pct),
+      n = dplyr::n(),
+      se_pct = dplyr::if_else(n > 1 & !is.na(sd_pct), sd_pct / sqrt(n), 0),
+      .groups = "drop"
+    )
+
+  p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_pct, fill = cluster_id)) +
+    geom_col(width = 0.75, show.legend = FALSE) +
+    geom_errorbar(
+      aes(ymin = pmax(mean_pct - se_pct, 0), ymax = pmin(mean_pct + se_pct, 100)),
+      width = 0.2
+    ) +
+    geom_jitter(
+      data = abundance_data,
+      aes(x = cluster_id, y = Freq_pct, color = cluster_id),
+      inherit.aes = FALSE,
+      width = 0.15,
+      alpha = 0.8,
+      size = 1.5,
+      show.legend = FALSE
+    ) +
+    facet_wrap(~condition, nrow = 1) +
     scale_fill_manual(values = color) +
-    scale_color_manual(values = color)
-  
-  # save
+    scale_color_manual(values = color) +
+    ylab("% abundance") +
+    xlab("celltype") +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      strip.background = element_blank(),
+      strip.text = element_text(face = "bold")
+    )
+
   save_plot(
-    p_abund,
-    paste0("Fig4k_abundance_", compare, "_", cells, ".png"),
+    p_abund_bar,
+    paste0("Fig4k_abundance_celltype_barplot_", compare, "_", cells, ".png"),
+    width = 12,
+    height = 6
+  )
+
+  p_abund_box <- ggplot(abundance_data, aes(x = cluster_id, y = Freq_pct, fill = cluster_id, color = cluster_id)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
+    geom_jitter(width = 0.15, alpha = 0.8, size = 1.5, show.legend = FALSE) +
+    facet_wrap(~condition, nrow = 1) +
+    scale_fill_manual(values = color) +
+    scale_color_manual(values = color) +
+    ylab("% abundance") +
+    xlab("celltype") +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      strip.background = element_blank(),
+      strip.text = element_text(face = "bold")
+    )
+
+  save_plot(
+    p_abund_box,
+    paste0("Fig4k_abundance_celltype_boxplot_", compare, "_", cells, ".png"),
     width = 12,
     height = 6
   )
@@ -971,7 +1026,6 @@ for (compare in comparisons_list) {
   # =========================
   # ---- BOXPLOTS ----------
   # =========================
-  p_abund <- plotAbundances(sce, k = "celltype", by = "sample")
   ord <- comps
   plot_list_fc <- list()
 
