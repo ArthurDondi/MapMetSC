@@ -996,9 +996,10 @@ for (compare in comparisons_list) {
   # Filter to fm_ids present in BOTH compartments (valid pairs only)
   fm_ids_comp1 <- experiment_info$fm_id[experiment_info$condition == comps[1]]
   fm_ids_comp2 <- experiment_info$fm_id[experiment_info$condition == comps[2]]
-  paired_fmids <- intersect(fm_ids_comp1, fm_ids_comp2)
+  paired_fmids <- intersect(as.character(fm_ids_comp1), as.character(fm_ids_comp2))
   experiment_info <- experiment_info[experiment_info$fm_id %in% paired_fmids, ]
-  df_list <- df_list[experiment_info$sample_id]
+  # Re-match df_list to the filtered, ordered experiment_info
+  df_list <- df_list[match(as.character(experiment_info$sample_id), names(df_list))]
 
   experiment_info$condition <- factor(experiment_info$condition, levels = comps)
   experiment_info$fm_id <- factor(experiment_info$fm_id)
