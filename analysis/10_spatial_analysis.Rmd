@@ -922,14 +922,14 @@ for (compare in comparisons_list) {
       mean_pct = mean(Freq_pct),
       sd_pct = sd(Freq_pct),
       n = dplyr::n(),
-      se_pct = dplyr::if_else(n > 1, sd_pct / sqrt(n), 0),
+      se_pct = dplyr::if_else(n > 1 & !is.na(sd_pct), sd_pct / sqrt(n), 0),
       .groups = "drop"
     )
 
   p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_pct, fill = cluster_id)) +
     geom_col(width = 0.75, show.legend = FALSE) +
     geom_errorbar(
-      aes(ymin = pmax(mean_pct - se_pct, 0), ymax = mean_pct + se_pct),
+      aes(ymin = pmax(mean_pct - se_pct, 0), ymax = pmin(mean_pct + se_pct, 100)),
       width = 0.2
     ) +
     geom_jitter(
