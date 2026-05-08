@@ -999,7 +999,10 @@ for (compare in comparisons_list) {
   paired_fmids <- intersect(as.character(fm_ids_comp1), as.character(fm_ids_comp2))
   experiment_info <- experiment_info[experiment_info$fm_id %in% paired_fmids, ]
   # Re-match df_list to the filtered, ordered experiment_info
-  df_list <- df_list[match(as.character(experiment_info$sample_id), names(df_list))]
+  # (all sample_ids must be present in df_list since experiment_info was derived from it)
+  idx <- match(as.character(experiment_info$sample_id), names(df_list))
+  stopifnot(!anyNA(idx))
+  df_list <- df_list[idx]
 
   experiment_info$condition <- factor(experiment_info$condition, levels = comps)
   experiment_info$fm_id <- factor(experiment_info$fm_id)
@@ -1218,7 +1221,8 @@ for (cells in cells_list) {
   }
 
   all_stats <- dplyr::bind_rows(plot_stats_list)
-  # p_adj comes directly from the paired diffcyt model (FDR-adjusted within each comparison run)
+  # p_adj comes from the paired diffcyt model (BH-adjusted across all clusters within
+  # each individual comparison run, i.e. per comparison pair)
   all_stats$p_adj_signif <- gtools::stars.pval(all_stats$p_adj)
   all_stats$p_adj_signif[all_stats$p_adj_signif == " "] <- "ns"
   all_stats$p_adj_fmt <- ifelse(is.na(all_stats$p_adj), "NA", sprintf("%.3f", all_stats$p_adj))
