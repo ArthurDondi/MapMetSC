@@ -370,14 +370,14 @@ abundance_summary <- abundance_data %>%
     mean_pct = mean(Freq_pct),
     sd_pct = sd(Freq_pct),
     n = n(),
-    se_pct = if_else(n > 1 & !is.na(sd_pct), sd_pct / sqrt(n), 0),
+    se_pct = if_else(n > 1 & !is.na(sd_pct), sd_pct / sqrt(n), NA_real_),
     .groups = "drop"
   )
 
 p_celltype_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_pct, fill = cluster_id)) +
   geom_col(width = 0.75, alpha = 0.45, show.legend = FALSE) +
   geom_errorbar(
-    aes(ymin = pmax(mean_pct - se_pct, 0), ymax = pmin(mean_pct + se_pct, 100)),
+    aes(ymin = mean_pct - se_pct, ymax = mean_pct + se_pct),
     width = 0.2
   ) +
   geom_jitter(
