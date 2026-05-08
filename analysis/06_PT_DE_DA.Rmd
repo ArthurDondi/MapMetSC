@@ -160,12 +160,10 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   if (comparison == "mna") {
     sce_sub  <- sce_sub[, sce_sub$mna %in% c("nMNA", "MNA")]
     sce_sub$condition <- droplevels(sce_sub$mna)
-    comp_label <- "nMNAvsMNA"
     g1 <- "nMNA"; g2 <- "MNA"
   } else {
     sce_sub  <- sce_sub[, !is.na(sce_sub$tumor_community)]
     sce_sub$condition <- factor(as.character(sce_sub$tumor_community))
-    comp_label <- "community_1vs2"
     g1 <- "1"; g2 <- "2"
   }
 
@@ -195,19 +193,71 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   print(p_abund)
   save_plot(p_abund, paste0("Fig_abundance_", fig_suffix, ".png"), width = 10, height = 6)
 
-  # --- 6. Mean frequency per condition ---
-  df_norm <- p_abund$data %>%
-    group_by(cluster_id, condition) %>%
-    summarise(normalized_count = mean(Freq, na.rm = TRUE), std = sd(Freq, na.rm = TRUE),
-              .groups = 'drop')
-  df_norm$cluster_id <- factor(df_norm$cluster_id)
+  # --- 6. Celltype abundance summaries (for celltype-level analyses) ---
+  p_abund_bar <- NULL
+  p_abund_box <- NULL
+  if (cluster_level == "celltype") {
+    abundance_data <- p_abund$data %>%
+      mutate(
+        cluster_id = factor(cluster_id, levels = levels(sce_sub$cluster_id)),
+        freq_value = Freq
+      )
 
-  p_meanfreq <- ggplot(df_norm, aes(fill = cluster_id, y = normalized_count, x = condition)) +
-    geom_bar(stat = "identity", position = "dodge", show.legend = TRUE) +
-    scale_fill_manual(values = col_vec) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-  print(p_meanfreq)
-  save_plot(p_meanfreq, paste0("Fig_meanfreq_", fig_suffix, ".png"), width = 8, height = 6)
+    abundance_summary <- abundance_data %>%
+      group_by(condition, cluster_id) %>%
+      summarise(
+        mean_freq = mean(freq_value, na.rm = TRUE),
+        sd_freq = sd(freq_value, na.rm = TRUE),
+        n = n(),
+        se_freq = if_else(n > 1 & !is.na(sd_freq), sd_freq / sqrt(n), NA_real_),
+        .groups = "drop"
+      )
+
+    p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_freq, fill = cluster_id)) +
+      geom_col(width = 0.75, alpha = 0.45, show.legend = FALSE) +
+      geom_errorbar(
+        aes(ymin = mean_freq - se_freq, ymax = mean_freq + se_freq),
+        width = 0.2,
+        na.rm = TRUE
+      ) +
+      geom_jitter(
+        data = abundance_data,
+        aes(x = cluster_id, y = freq_value, color = cluster_id),
+        inherit.aes = FALSE,
+        width = 0.15,
+        alpha = 0.8,
+        size = 1.5,
+        show.legend = FALSE
+      ) +
+      facet_wrap(~condition, nrow = 1) +
+      scale_fill_manual(values = col_vec) +
+      scale_color_manual(values = col_vec) +
+      ylab("% abundance") +
+      xlab("celltype") +
+      theme(
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold")
+      )
+    print(p_abund_bar)
+    save_plot(p_abund_bar, paste0("Fig_abundance_celltype_barplot_", fig_suffix, ".png"), width = 12, height = 6)
+
+    p_abund_box <- ggplot(abundance_data, aes(x = cluster_id, y = freq_value, fill = cluster_id, color = cluster_id)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
+      geom_jitter(width = 0.15, alpha = 0.8, size = 1.5, show.legend = FALSE) +
+      facet_wrap(~condition, nrow = 1) +
+      scale_fill_manual(values = col_vec) +
+      scale_color_manual(values = col_vec) +
+      ylab("% abundance") +
+      xlab("celltype") +
+      theme(
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold")
+      )
+    print(p_abund_box)
+    save_plot(p_abund_box, paste0("Fig_abundance_celltype_boxplot_", fig_suffix, ".png"), width = 12, height = 6)
+  }
 
   # --- 7. Prepare data for diffcyt ---
   df_list <- lapply(unique(sce_sub$sample_id), function(x) {
@@ -279,25 +329,8 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   p_boxplot <- grid.arrange(grobs = plot_list_fc, ncol = 6)
   save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".png"), width = 12, height = 9)
 
-  # --- 10. logFC barplot ---
-  df_fc <- res[, c("logFC", "p_adj")]
-  # Negate logFC to show enrichment in the second group (g2 vs g1 baseline from design matrix)
-  df_fc$logFC <- -1 * df_fc$logFC
-  df_fc$p_adj_signif <- stars.pval(df_fc$p_adj)
-  df_fc$p_adj_signif[df_fc$p_adj_signif == " "] <- "ns"
-  df_fc$cluster <- rownames(df_fc)
-
-  p_fc <- ggplot(df_fc, aes(fill = cluster, y = logFC, x = cluster)) +
-    ggtitle(comp_label) +
-    geom_bar(stat = "identity", position = "dodge", show.legend = FALSE) +
-    scale_fill_manual(values = col_vec) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
-    geom_text(aes(label = p_adj_signif), vjust = 0)
-  print(p_fc)
-  save_plot(p_fc, paste0("Fig_logFC_", fig_suffix, ".png"), width = 6, height = 8)
-
-  invisible(list(res = res, p_abund = p_abund, p_meanfreq = p_meanfreq,
-                 p_boxplot = p_boxplot, p_fc = p_fc))
+  invisible(list(res = res, p_abund = p_abund, p_abund_bar = p_abund_bar,
+                 p_abund_box = p_abund_box, p_boxplot = p_boxplot))
 }
 ```
 
