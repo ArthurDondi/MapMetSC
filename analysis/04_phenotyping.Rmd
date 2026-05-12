@@ -580,7 +580,7 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   # ----------------------------
   # Axis helper
   # ----------------------------
-  axis_10k_ticks <- function(v) {
+  axis_ticks_10k_min <- function(v) {
     vmax <- max(as.numeric(v), na.rm = TRUE)
     upper <- max(10000, ceiling(vmax / 10000) * 10000)
     at <- seq(10000, upper, by = 10000)
@@ -599,32 +599,25 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   # Cluster colors
   # ----------------------------
   color_key <- paste0("col_", cluster_col)
-
-  if (is.null(metadata(spe)$color_vectors[[color_key]]) ||
-      !all(clusters %in% names(metadata(spe)$color_vectors[[color_key]]))) {
-    seed_offset <- match(cluster_col, cluster_vars)
-    if (is.na(seed_offset)) seed_offset <- 0
-    
-    metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
+  seed_offset <- match(cluster_col, cluster_vars)
+  if (is.na(seed_offset)) seed_offset <- 0
+  
+  existing_colors <- metadata(spe)$color_vectors[[color_key]]
+  
+  if (is.null(existing_colors) ||
+      !all(clusters %in% names(existing_colors)) ||
+      any(is.na(existing_colors[clusters]))) {
+    existing_colors <- generate_cluster_colors(
       cluster_levels = clusters,
       seed = color_seed_base + seed_offset
     )
+    metadata(spe)$color_vectors[[color_key]] <- existing_colors
   }
   
-  col_clusters <- metadata(spe)$color_vectors[[color_key]][clusters]
-  if (any(is.na(col_clusters))) {
-    seed_offset <- match(cluster_col, cluster_vars)
-    if (is.na(seed_offset)) seed_offset <- 0
-    
-    metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
-      cluster_levels = clusters,
-      seed = color_seed_base + seed_offset
-    )
-    col_clusters <- metadata(spe)$color_vectors[[color_key]][clusters]
-  }
+  col_clusters <- existing_colors[clusters]
   
-  pt_axis <- axis_10k_ticks(pt_count)
-  bm_axis <- axis_10k_ticks(bm_count)
+  pt_axis <- axis_ticks_10k_min(pt_count)
+  bm_axis <- axis_ticks_10k_min(bm_count)
   cluster_annotation_list <- setNames(
     list(factor(clusters, levels = clusters)),
     cluster_col
