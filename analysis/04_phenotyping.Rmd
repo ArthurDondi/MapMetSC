@@ -228,12 +228,12 @@ get_cluster_levels <- function(values) {
 }
 
 generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
-  col_vector_433 <- colors()[
+  non_gray_colors <- colors()[
     grep("gr(a|e)y", grDevices::colors(), invert = TRUE)
   ]
   
   set.seed(seed)
-  setNames(sample(col_vector_433, length(cluster_levels)), cluster_levels)
+  setNames(sample(non_gray_colors, length(cluster_levels)), cluster_levels)
 }
 
 if (is.null(metadata(spe)$color_vectors)) {
@@ -580,13 +580,13 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   # ----------------------------
   # Axis helper
   # ----------------------------
-  axis_ticks_10k_min <- function(v) {
+  create_axis_with_10k_intervals <- function(v) {
     vmax <- max(as.numeric(v), na.rm = TRUE)
-    upper <- max(10000, ceiling(vmax / 10000) * 10000)
-    at <- seq(10000, upper, by = 10000)
+    y_axis_max <- max(10000, ceiling(vmax / 10000) * 10000)
+    at <- seq(10000, y_axis_max, by = 10000)
 
     list(
-      upper = upper,
+      upper = y_axis_max,
       axis_param = list(
         at = at,
         labels = paste0(at / 1000, "k"),
@@ -616,8 +616,8 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   
   col_clusters <- existing_colors[clusters]
   
-  pt_axis <- axis_ticks_10k_min(pt_count)
-  bm_axis <- axis_ticks_10k_min(bm_count)
+  pt_axis <- create_axis_with_10k_intervals(pt_count)
+  bm_axis <- create_axis_with_10k_intervals(bm_count)
   cluster_annotation_list <- setNames(
     list(factor(clusters, levels = clusters)),
     cluster_col
