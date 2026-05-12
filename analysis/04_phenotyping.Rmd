@@ -586,9 +586,12 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
     at <- seq(10000, upper, by = 10000)
 
     list(
-      at = at,
-      labels = paste0(at / 1000, "k"),
-      gp = gpar(fontsize = 12)
+      upper = upper,
+      axis_param = list(
+        at = at,
+        labels = paste0(at / 1000, "k"),
+        gp = gpar(fontsize = 12)
+      )
     )
   }
   
@@ -613,6 +616,9 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   }
   
   col_clusters <- metadata(spe)$color_vectors[[color_key]][clusters]
+  pt_axis <- axis_10k_ticks(pt_count)
+  bm_axis <- axis_10k_ticks(bm_count)
+  cluster_anno <- setNames(list(factor(clusters, levels = clusters)), cluster_col)
   
   # ----------------------------
   # Heatmap colors
@@ -625,29 +631,29 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   # ----------------------------
   # Column annotation
   # ----------------------------
-  column_ha <- HeatmapAnnotation(
-
-    pg_clusters = factor(clusters, levels = clusters),
-
-    ncells_PT = anno_barplot(
-      as.numeric(pt_count),
-      height = barplot_height,
-      gp = gpar(fill = "brown"),
-      axis_param = axis_10k_ticks(pt_count)
-    ),
-
-    ncells_BM = anno_barplot(
-      as.numeric(bm_count),
-      height = barplot_height,
-      gp = gpar(fill = "aquamarine4"),
-      axis_param = axis_10k_ticks(bm_count)
-    ),
-
-    col = list(
-      pg_clusters = col_clusters
-    ),
-
-    show_legend = TRUE
+  column_ha <- do.call(
+    HeatmapAnnotation,
+    c(
+      cluster_anno,
+      list(
+        ncells_PT = anno_barplot(
+          as.numeric(pt_count),
+          ylim = c(0, pt_axis$upper),
+          height = barplot_height,
+          gp = gpar(fill = "brown"),
+          axis_param = pt_axis$axis_param
+        ),
+        ncells_BM = anno_barplot(
+          as.numeric(bm_count),
+          ylim = c(0, bm_axis$upper),
+          height = barplot_height,
+          gp = gpar(fill = "aquamarine4"),
+          axis_param = bm_axis$axis_param
+        ),
+        col = setNames(list(col_clusters), cluster_col),
+        show_legend = TRUE
+      )
+    )
   )
 
   # ----------------------------
