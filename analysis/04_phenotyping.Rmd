@@ -217,6 +217,7 @@ color_seed_base <- 221228
 get_cluster_levels <- function(values) {
   cluster_levels <- unique(as.character(values))
   cluster_levels <- cluster_levels[!is.na(cluster_levels)]
+  cluster_levels <- cluster_levels[nzchar(cluster_levels)]
   
   if (all(grepl("^\\d+$", cluster_levels))) {
     cluster_levels <- as.character(sort(as.integer(cluster_levels)))
@@ -229,11 +230,18 @@ get_cluster_levels <- function(values) {
 
 generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
   non_gray_colors <- colors()[
-    grep("gr(a|e)y", grDevices::colors(), invert = TRUE)
+    grep("\\bgr[ae]y", grDevices::colors(), invert = TRUE)
   ]
   
   set.seed(seed)
-  setNames(sample(non_gray_colors, length(cluster_levels)), cluster_levels)
+  setNames(
+    sample(
+      non_gray_colors,
+      length(cluster_levels),
+      replace = length(cluster_levels) > length(non_gray_colors)
+    ),
+    cluster_levels
+  )
 }
 
 if (is.null(metadata(spe)$color_vectors)) {
@@ -583,13 +591,13 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   create_axis_with_10k_intervals <- function(v) {
     vmax <- max(as.numeric(v), na.rm = TRUE)
     y_axis_max <- max(10000, ceiling(vmax / 10000) * 10000)
-    at <- seq(10000, y_axis_max, by = 10000)
+    at <- seq(0, y_axis_max, by = 10000)
 
     list(
       upper = y_axis_max,
       axis_param = list(
         at = at,
-        labels = paste0(at / 1000, "k"),
+        labels = ifelse(at == 0, "0", paste0(at / 1000, "k")),
         gp = gpar(fontsize = 12)
       )
     )
@@ -600,7 +608,9 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   # ----------------------------
   color_key <- paste0("col_", cluster_col)
   seed_offset <- match(cluster_col, cluster_vars)
-  if (is.na(seed_offset)) seed_offset <- 0
+  if (is.na(seed_offset)) {
+    seed_offset <- sum(utf8ToInt(cluster_col))
+  }
   
   existing_colors <- metadata(spe)$color_vectors[[color_key]]
   
