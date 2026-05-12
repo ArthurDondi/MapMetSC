@@ -212,19 +212,55 @@ cluster_vars <- c(
   "pg_clusters_60"
 )
 
-for (var_name in cluster_vars) {
+color_seed_base <- 221228
 
-  # Generate colors
-  col_vector_433 <- colors()[
-    grep('gr(a|e)y', grDevices::colors(), invert = TRUE)
+get_cluster_levels <- function(values) {
+  cluster_levels <- unique(as.character(values))
+  cluster_levels <- cluster_levels[!is.na(cluster_levels)]
+  cluster_levels <- cluster_levels[nzchar(cluster_levels)]
+  
+  if (all(grepl("^\\d+$", cluster_levels))) {
+    cluster_levels <- as.character(sort(as.integer(cluster_levels)))
+  } else {
+    cluster_levels <- sort(cluster_levels)
+  }
+  
+  cluster_levels
+}
+
+generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
+  non_gray_colors <- colors()[
+    grep("\\bgr[ae]y", grDevices::colors(), invert = TRUE)
   ]
-
-  cluster_levels <- unique(spe[[var_name]])
-
-  col_clusters <- setNames(
-    sample(col_vector_433, length(cluster_levels)),
+  
+  set.seed(seed)
+  setNames(
+    sample(
+      non_gray_colors,
+      length(cluster_levels),
+      replace = length(cluster_levels) > length(non_gray_colors)
+    ),
     cluster_levels
   )
+}
+
+if (is.null(metadata(spe)$color_vectors)) {
+  metadata(spe)$color_vectors <- list()
+}
+
+for (var_name in cluster_vars) {
+  cluster_levels <- get_cluster_levels(spe[[var_name]])
+  color_key <- paste0("col_", var_name)
+  
+  if (is.null(metadata(spe)$color_vectors[[color_key]]) ||
+      !all(cluster_levels %in% names(metadata(spe)$color_vectors[[color_key]]))) {
+    metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
+      cluster_levels = cluster_levels,
+      seed = color_seed_base + match(var_name, cluster_vars)
+    )
+  }
+  
+  col_clusters <- metadata(spe)$color_vectors[[color_key]][cluster_levels]
 
   # Create plot
   p <- dittoDimPlot(
@@ -467,30 +503,14 @@ cluster_vars <- c(
   "pg_clusters_60"
 )
 
-for (cluster_col in cluster_vars) {
-
-  message("Processing: ", cluster_col)
-
+plot_cluster_bubble <- function(cluster_col, save_name) {
+  barplot_height <- unit(1.4, "cm")
+  
   # ----------------------------
   # Cluster vector
   # ----------------------------
-  cluster_vec <- colData(spe)[[cluster_col]]
+  cluster_vec <- as.character(colData(spe)[[cluster_col]])
   tissue_vec  <- colData(spe)$tissue
-
-  # ----------------------------
-  # Mean morphology per cluster
-  # ----------------------------
-  mean_morph <- aggregate(
-    morph_mat_clipped,
-    list(cluster_vec),
-    mean
-  )
-
-  area_mean <- mean_morph[, "area"]
-  solidity_mean <- mean_morph[, "solidity"]
-
-  names(area_mean) <- mean_morph[, 1]
-  names(solidity_mean) <- mean_morph[, 1]
 
   # ----------------------------
   # Expression matrix
@@ -562,102 +582,91 @@ for (cluster_col in cluster_vars) {
   # ----------------------------
   # Tissue counts
   # ----------------------------
-  bm_count <- table(cluster_vec[tissue_vec == "BM"])
-  pt_count <- table(cluster_vec[tissue_vec == "PT"])
-
-  bm_count <- bm_count[clusters]
-  pt_count <- pt_count[clusters]
-
-  bm_count[is.na(bm_count)] <- 0
-  pt_count[is.na(pt_count)] <- 0
-
-  # ----------------------------
-  # Cluster colors
-  # ----------------------------
-  col_vector_433 <- colors()[
-    grep('gr(a|e)y', grDevices::colors(), invert = TRUE)
-  ]
-
-  col_clusters <- setNames(
-    sample(col_vector_433, length(clusters)),
-    clusters
-  )
-
-  # ----------------------------
-  # Morphology colors
-  # ----------------------------
-  col_mean_area <- colorRamp2(
-    c(
-      min(area_mean),
-      min(area_mean) + (max(area_mean) - min(area_mean)) / 2,
-      max(area_mean)
-    ),
-    c("blue", "white", "red")
-  )
-
-  col_mean_solidity <- colorRamp2(
-    c(
-      min(solidity_mean),
-      min(solidity_mean) + (max(solidity_mean) - min(solidity_mean)) / 2,
-      max(solidity_mean)
-    ),
-    c("blue", "white", "red")
-  )
+  bm_count <- table(factor(cluster_vec[tissue_vec == "BM"], levels = clusters))
+  pt_count <- table(factor(cluster_vec[tissue_vec == "PT"], levels = clusters))
 
   # ----------------------------
   # Axis helper
   # ----------------------------
-  axis_maxtick <- function(v) {
-
+  create_axis_with_10k_intervals <- function(v) {
     vmax <- max(as.numeric(v), na.rm = TRUE)
+    y_axis_max <- max(10000, ceiling(vmax / 10000) * 10000)
+    at <- seq(0, y_axis_max, by = 10000)
 
     list(
-      at = vmax,
-      labels = as.character(vmax),
-      gp = gpar(fontsize = 12)
+      upper = y_axis_max,
+      axis_param = list(
+        at = at,
+        labels = ifelse(at == 0, "0", paste0(at / 1000, "k")),
+        gp = gpar(fontsize = 12)
+      )
     )
   }
-
+  
   # ----------------------------
-  # Column annotation
+  # Cluster colors
   # ----------------------------
-  column_ha <- HeatmapAnnotation(
-
-    pg_clusters = clusters,
-
-    roundness = solidity_mean[clusters],
-
-    area = area_mean[clusters],
-
-    ncells_PT = anno_barplot(
-      as.numeric(pt_count),
-      height = unit(0.7, "cm"),
-      gp = gpar(fill = "brown"),
-      axis_param = axis_maxtick(pt_count)
-    ),
-
-    ncells_BM = anno_barplot(
-      as.numeric(bm_count),
-      height = unit(0.7, "cm"),
-      gp = gpar(fill = "aquamarine4"),
-      axis_param = axis_maxtick(bm_count)
-    ),
-
-    col = list(
-      pg_clusters = col_clusters,
-      roundness = col_mean_solidity,
-      area = col_mean_area
-    ),
-
-    show_legend = TRUE
+  color_key <- paste0("col_", cluster_col)
+  seed_offset <- match(cluster_col, cluster_vars)
+  if (is.na(seed_offset)) {
+    seed_offset <- sum(utf8ToInt(cluster_col))
+  }
+  
+  existing_colors <- metadata(spe)$color_vectors[[color_key]]
+  
+  if (is.null(existing_colors) ||
+      !all(clusters %in% names(existing_colors)) ||
+      any(is.na(existing_colors[clusters]))) {
+    existing_colors <- generate_cluster_colors(
+      cluster_levels = clusters,
+      seed = color_seed_base + seed_offset
+    )
+    metadata(spe)$color_vectors[[color_key]] <- existing_colors
+  }
+  
+  col_clusters <- existing_colors[clusters]
+  
+  pt_axis <- create_axis_with_10k_intervals(pt_count)
+  bm_axis <- create_axis_with_10k_intervals(bm_count)
+  cluster_annotation_list <- setNames(
+    list(factor(clusters, levels = clusters)),
+    cluster_col
   )
-
+  
   # ----------------------------
   # Heatmap colors
   # ----------------------------
   col_fun <- circlize::colorRamp2(
     c(0, 0.5, 1),
     viridis(100)[c(1, 50, 100)]
+  )
+
+  # ----------------------------
+  # Column annotation
+  # ----------------------------
+  column_ha <- do.call(
+    HeatmapAnnotation,
+    c(
+      cluster_annotation_list,
+      list(
+        ncells_PT = anno_barplot(
+          as.numeric(pt_count),
+          ylim = c(0, pt_axis$upper),
+          height = barplot_height,
+          gp = gpar(fill = "brown"),
+          axis_param = pt_axis$axis_param
+        ),
+        ncells_BM = anno_barplot(
+          as.numeric(bm_count),
+          ylim = c(0, bm_axis$upper),
+          height = barplot_height,
+          gp = gpar(fill = "aquamarine4"),
+          axis_param = bm_axis$axis_param
+        ),
+        col = setNames(list(col_clusters), cluster_col),
+        show_legend = TRUE
+      )
+    )
   )
 
   # ----------------------------
@@ -757,20 +766,22 @@ for (cluster_col in cluster_vars) {
   
   save_plot(
     hp_drawn, 
-    paste0("bubbleplot_", cluster_col, ".pdf"),
+    save_name,
     width = 16, 
     height = 14
   )
 
+  hp_drawn
+}
 
-  draw(
-    hp,
-    annotation_legend_list = lgd_list
+for (cluster_col in cluster_vars) {
+  message("Processing: ", cluster_col)
+  print(
+    plot_cluster_bubble(
+      cluster_col = cluster_col,
+      save_name = paste0("bubbleplot_", cluster_col, ".pdf")
+    )
   )
-
-  dev.off()
-
-  print(hp_drawn)
 }
 ```
 
