@@ -212,6 +212,8 @@ cluster_vars <- c(
   "pg_clusters_60"
 )
 
+color_seed_base <- 221228
+
 get_cluster_levels <- function(values) {
   cluster_levels <- unique(as.character(values))
   cluster_levels <- cluster_levels[!is.na(cluster_levels)]
@@ -225,7 +227,7 @@ get_cluster_levels <- function(values) {
   cluster_levels
 }
 
-generate_cluster_colors <- function(cluster_levels, seed = 221228) {
+generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
   col_vector_433 <- colors()[
     grep("gr(a|e)y", grDevices::colors(), invert = TRUE)
   ]
@@ -246,7 +248,7 @@ for (var_name in cluster_vars) {
       !all(cluster_levels %in% names(metadata(spe)$color_vectors[[color_key]]))) {
     metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
       cluster_levels = cluster_levels,
-      seed = 221228 + match(var_name, cluster_vars)
+      seed = color_seed_base + match(var_name, cluster_vars)
     )
   }
   
@@ -494,6 +496,7 @@ cluster_vars <- c(
 )
 
 plot_cluster_bubble <- function(cluster_col, save_name) {
+  barplot_height <- unit(1.4, "cm")
   
   # ----------------------------
   # Cluster vector
@@ -605,7 +608,7 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
     
     metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
       cluster_levels = clusters,
-      seed = 221228 + seed_offset
+      seed = color_seed_base + seed_offset
     )
   }
   
@@ -628,14 +631,14 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
 
     ncells_PT = anno_barplot(
       as.numeric(pt_count),
-      height = unit(1.4, "cm"),
+      height = barplot_height,
       gp = gpar(fill = "brown"),
       axis_param = axis_10k_ticks(pt_count)
     ),
 
     ncells_BM = anno_barplot(
       as.numeric(bm_count),
-      height = unit(1.4, "cm"),
+      height = barplot_height,
       gp = gpar(fill = "aquamarine4"),
       axis_param = axis_10k_ticks(bm_count)
     ),
