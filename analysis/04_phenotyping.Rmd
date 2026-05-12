@@ -107,8 +107,7 @@ library(cluster)
 We will first read the data that passed the [second quality control step](#qc-2) and save the count data as a matrix. Low-quality markers (low SNR in a lot of samples) as well as all IF and nuclear IMC markers will be excluded for clustering. Moreover, mean intensity will be used to represent marker expression, to average out the signals arising from lateral spillover or artifacts. As explained in [the previous chapter](#qc2-save), we are using counts measured with respect to dilated masks in downstream analysis do capture membrane signal. 
 
 ```{r read-data}
-#spe <- readRDS(file.path(params$output,"spe_qc2.rds"))
-
+spe <- readRDS(file.path(params$output,"spe_qc2.rds"))
 
 #computing matrix
 intensity_mat <- assay(spe, "counts")
@@ -174,7 +173,7 @@ p <- dittoDimPlot(spe, var = "fm_id",
   ggtitle("Sample ID on UMAP")
 
 
-save_plot(p2, "UMAP-vis-sampleID_raw_k15.png", width = 8, height = 6)
+save_plot(p2, "UMAP-vis-sampleID.png", width = 8, height = 6)
 
 p
 
@@ -187,13 +186,98 @@ p
 ```{r phenograph-clustering}
 set.seed(221228)
 
-Rphenograph_out <- Rphenoannoy(t(mat), k = 30)
-clusters <- factor(membership(Rphenograph_out[[2]]))
+k_values <- c(15, 30, 45, 60)
 
-saveRDS(clusters, file.path(params$output, "pg_clusters.rds"))
+for (k in k_values) {
 
-spe$pg_clusters <- clusters
-spe$pg_clusters_beforesubclustering <- clusters
+  # Run Phenograph
+  Rphenograph_out <- Rphenoannoy(t(mat), k = k)
+
+  # Extract clusters
+  clusters <- factor(membership(Rphenograph_out[[2]]))
+
+  # Add to SPE object
+  colData(spe)[[paste0("pg_clusters_", k)]] <- clusters
+}
+```
+
+## UMAP: Phenograph clusters
+Lets visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
+
+```{r UMAP-vis-clusters}
+cluster_vars <- c(
+  "pg_clusters_15",
+  "pg_clusters_30",
+  "pg_clusters_45",
+  "pg_clusters_60"
+)
+
+for (var_name in cluster_vars) {
+
+  # Generate colors
+  col_vector_433 <- colors()[
+    grep('gr(a|e)y', grDevices::colors(), invert = TRUE)
+  ]
+
+  cluster_levels <- unique(spe[[var_name]])
+
+  col_clusters <- setNames(
+    sample(col_vector_433, length(cluster_levels)),
+    cluster_levels
+  )
+
+  # Create plot
+  p <- dittoDimPlot(
+    spe,
+    var = var_name,
+    reduction.use = "UMAP",
+    size = 0.5,
+    do.label = TRUE,
+    legend.show = FALSE,
+    color.panel = col_clusters
+  ) +
+    theme(
+      legend.title = element_blank()
+    ) +
+    ggtitle(paste(var_name, "on UMAP"))
+    
+  # Find label layer
+  label_layer <- which(
+    sapply(
+      p$layers,
+      function(x) class(x$geom)[1]
+    ) %in% c("GeomLabelRepel", "GeomLabel")
+  )
+  
+  # Get label data (one row per cluster)
+  label_data <- layer_data(p, label_layer)
+  
+  # Match colors to labels
+  label_fills <- col_clusters[
+    as.character(label_data$label)
+  ]
+  
+  # Set label appearance
+  p$layers[[label_layer]]$aes_params$fill <- label_fills
+  p$layers[[label_layer]]$aes_params$colour <- "black"
+
+  
+  p <- p +
+    theme(
+      legend.title = element_blank()
+    ) +
+    ggtitle(paste(var_name, "on UMAP"))
+
+  # Save plot
+  save_plot(
+    p,
+    paste0("umap_", var_name, ".png"),
+    width = 8,
+    height = 6
+  )
+
+  print(p)
+}
 ```
 
 ## Subclustering of clusters 6, 18, and 31 using GMM
@@ -203,6 +287,9 @@ library(mclust)
 
 set.seed(221228)
 
+spe$pg_clusters_beforesubclustering <- spe$pg_clusters_30
+
+
 spe$pg_clusters <- spe$pg_clusters_beforesubclustering
 
 # Ensure pg_clusters is character for easy reassignment
@@ -210,16 +297,18 @@ spe$pg_clusters <- as.character(spe$pg_clusters)
 
 # Mapping: original cluster -> new subcluster label for the second component
 subcluster_map <- list(
-  "6"  = "42",
-  "18" = "43",
-  "31" = "44"
+  "7" = "36",
+  "8" = "37",
+  "14"  = "38",
+  "17" = "39"
 )
 
 # define marker sets per cluster
 marker_map <- list(
-  "6"  = c("CD3_", "CD11b"),
-  "18" = c("CD34",  "CD10", "Vimentin", "MPO", "CD15"),
-  "31" = c("S100B", "CD45")
+  "7"  = c("CD3_"),
+  "8" = c("GD2"),
+  "14" = c("CD4_", "CD3_"),
+  "17" = c("CD3_",  "CD10")
 )
 
 for (cl in names(subcluster_map)) {
@@ -260,6 +349,60 @@ for (cl in names(subcluster_map)) {
   
   comp2 <- which(gmm_fit$classification == 2)
   spe$pg_clusters[idx[comp2]] <- new_cl
+}
+```
+
+## Single-cell heatmaps for subclustered clusters (6/42, 18/43, 31/44)
+
+```{r subcluster-heatmaps}
+library(dittoSeq)
+library(ggplot2)
+library(viridis)
+
+genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
+
+# Define the pairs: original cluster and its new sibling
+subcluster_pairs <- list(
+  list(orig = "7",  new = "36"),
+  list(orig = "8", new = "37"),
+  list(orig = "14", new = "38"),
+  list(orig = "17", new = "39")
+)
+
+set.seed(221228)
+for (pair in subcluster_pairs) {
+  orig_cl <- pair$orig
+  new_cl  <- pair$new
+
+  # Cells belonging to either subcluster
+  idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
+
+  if (length(idx) == 0) next
+
+  # Sample up to 8000 cells
+  n_cells   <- min(8000, length(idx))
+  rand_idx  <- sample(idx, n_cells)
+
+  spe_cl <- spe[, rand_idx]
+
+  # Order cells by subcluster so the two groups appear side-by-side
+  cell_order <- order(spe_cl$pg_clusters)
+
+  p1 <- dittoHeatmap(
+    spe_cl[, cell_order],
+    genes          = genes_use,
+    cluster_cols   = FALSE,          # preserve subcluster ordering
+    scaled.to.max  = TRUE,
+    heatmap.colors.max.scaled = viridis(100),
+    annot.by       = "pg_clusters"   # colour bar showing subclusters
+  )
+
+  save_plot(
+    p1,
+    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".png"),
+    width  = 14,
+    height = 6
+  )
 }
 ```
 
@@ -307,81 +450,6 @@ for (cl in clusters) {
 
 ```
 
-## Single-cell heatmaps for subclustered clusters (6/42, 18/43, 31/44)
-
-```{r subcluster-heatmaps}
-library(dittoSeq)
-library(ggplot2)
-library(viridis)
-
-genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
-
-# Define the pairs: original cluster and its new sibling
-subcluster_pairs <- list(
-  list(orig = "6",  new = "42"),
-  list(orig = "18", new = "43"),
-  list(orig = "31", new = "44")
-)
-
-set.seed(221228)
-for (pair in subcluster_pairs) {
-  orig_cl <- pair$orig
-  new_cl  <- pair$new
-
-  # Cells belonging to either subcluster
-  idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
-
-  if (length(idx) == 0) next
-
-  # Sample up to 8000 cells
-  n_cells   <- min(8000, length(idx))
-  rand_idx  <- sample(idx, n_cells)
-
-  spe_cl <- spe[, rand_idx]
-
-  # Order cells by subcluster so the two groups appear side-by-side
-  cell_order <- order(spe_cl$pg_clusters)
-
-  p1 <- dittoHeatmap(
-    spe_cl[, cell_order],
-    genes          = genes_use,
-    cluster_cols   = FALSE,          # preserve subcluster ordering
-    scaled.to.max  = TRUE,
-    heatmap.colors.max.scaled = viridis(100),
-    annot.by       = "pg_clusters"   # colour bar showing subclusters
-  )
-
-  save_plot(
-    p1,
-    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".png"),
-    width  = 14,
-    height = 6
-  )
-}
-```
-
-## UMAP: Phenograph clusters
-Lets visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
-
-```{r UMAP-vis-clusters}
-col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
-col_clusters = setNames(sample(col_vector_433, length(unique(spe$pg_clusters))), unique(spe$pg_clusters))
-
-p <- dittoDimPlot(spe, var = "pg_clusters", 
-             reduction.use = "UMAP", size = 1,
-             do.label = TRUE,
-             legend.show=F) +
-  scale_color_manual(values = col_clusters) + 
-  theme(legend.title = element_blank()) +
-  ggtitle("PG clusters on UMAP")
-
-# Save ggplot
-save_plot(p, "umap_pg_clusters.png", width = 8, height = 6)
-
-p
-
-```
-
 ## Bubble plot: Mean marker expression per cluster
 Let's plot the mean marker expressions per cluster in a bubble plot.
 
@@ -392,305 +460,373 @@ library(grid)
 library(viridis)
 library(cowplot)
 
-stopifnot(exists("mat"), exists("spe"))
-
-cluster_vec <- spe$pg_clusters
-tissue_vec  <- colData(spe)$tissue
-
-message("Number of cells: ", ncol(mat))
-message("Number of markers: ", nrow(mat))
-
-mat_df <- as.data.frame(t(mat))
-
-exp_mat_ <- aggregate(
-  mat_df,
-  by = list(cluster = cluster_vec),
-  FUN = function(x) {
-    if (all(x == 0)) return(0)
-    median(log1p(x[x > 0]))
-  }
+cluster_vars <- c(
+  "pg_clusters_15",
+  "pg_clusters_30",
+  "pg_clusters_45",
+  "pg_clusters_60"
 )
 
-cluster_names <- exp_mat_$cluster
-exp_mat <- exp_mat_[, -1, drop = FALSE]
-rownames(exp_mat) <- cluster_names
-exp_mat <- t(as.matrix(exp_mat))
+for (cluster_col in cluster_vars) {
 
-rmin <- apply(exp_mat, 1, min, na.rm = TRUE)
-rmax <- apply(exp_mat, 1, max, na.rm = TRUE)
-den  <- rmax - rmin
+  message("Processing: ", cluster_col)
 
-exp_mat <- (exp_mat - rmin) / den
-exp_mat[is.nan(exp_mat)] <- 0
-exp_mat[is.infinite(exp_mat)] <- 0
+  # ----------------------------
+  # Cluster vector
+  # ----------------------------
+  cluster_vec <- colData(spe)[[cluster_col]]
+  tissue_vec  <- colData(spe)$tissue
 
-clusters <- colnames(exp_mat)
-message("Dimensions of exp_mat: ", paste(dim(exp_mat), collapse = " x "))
-
-percent_mat <- sapply(seq_len(nrow(mat)), function(i) {
-  row_vals <- mat[i, ]
-  pos <- row_vals[row_vals > 0]
-
-  if (length(pos) == 0) {
-    out <- rep(0, length(clusters))
-    names(out) <- clusters
-    return(out)
-  }
-
-  thresh <- quantile(pos, 0.2, na.rm = TRUE)
-  row_bin <- ifelse(row_vals > thresh, 1, 0)
-
-  tapply(row_bin, factor(cluster_vec, levels = clusters), mean)
-})
-
-percent_mat <- t(percent_mat)
-percent_mat <- percent_mat[, clusters, drop = FALSE]
-percent_mat[is.na(percent_mat)] <- 0
-percent_mat[percent_mat < 0.1] <- 0.1
-
-message("Dimensions percent_mat: ", paste(dim(percent_mat), collapse = " x "))
-
-bm_count <- table(cluster_vec[tissue_vec == "BM"])
-pt_count <- table(cluster_vec[tissue_vec == "PT"])
-
-bm_count <- bm_count[clusters]; bm_count[is.na(bm_count)] <- 0
-pt_count <- pt_count[clusters]; pt_count[is.na(pt_count)] <- 0
-
-max_pt <- max(pt_count, na.rm = TRUE)
-max_bm <- max(bm_count, na.rm = TRUE)
-
-mean_morph <- aggregate(morph_mat_clipped, list(spe$pg_clusters), mean)
-area_mean = mean_morph[,"area"]
-solidity_mean = mean_morph[,"solidity"]
-col_mean_area = colorRamp2(c(min(area_mean),min(area_mean)+(max(area_mean)-min(area_mean))/2, max(area_mean)), c("blue", "white", "red"))
-col_mean_solidity = colorRamp2(c(min(solidity_mean),min(solidity_mean)+(max(solidity_mean)-min(solidity_mean))/2, max(solidity_mean)), c("blue", "white", "red"))
-
-
-if (!exists("col_clusters")) {
-  col_clusters <- setNames(rainbow(length(clusters)), clusters)
-} else {
-  missing_clusters <- setdiff(clusters, names(col_clusters))
-  if (length(missing_clusters) > 0) {
-    col_clusters[missing_clusters] <- rainbow(length(missing_clusters))
-  }
-}
-
-# Barplot axis: show only the max tick (no 0 tick)
-axis_maxtick <- function(v) {
-  vmax <- max(as.numeric(v), na.rm = TRUE)
-  list(
-    at = vmax,
-    labels = as.character(vmax),
-    gp = gpar(fontsize = 12)
+  # ----------------------------
+  # Mean morphology per cluster
+  # ----------------------------
+  mean_morph <- aggregate(
+    morph_mat_clipped,
+    list(cluster_vec),
+    mean
   )
-}
 
+  area_mean <- mean_morph[, "area"]
+  solidity_mean <- mean_morph[, "solidity"]
 
-column_ha <- HeatmapAnnotation(
-  pg_clusters = clusters,
-  
-  roundness = solidity_mean,
-  
-  area = area_mean,
-  
-  ncells_PT = anno_barplot(
-    as.numeric(pt_count),
-    height = unit(0.7, "cm"),
-    gp = gpar(fill = "brown"),
-    axis_param = axis_maxtick(pt_count)
-  ),
+  names(area_mean) <- mean_morph[, 1]
+  names(solidity_mean) <- mean_morph[, 1]
 
+  # ----------------------------
+  # Expression matrix
+  # ----------------------------
+  mat_df <- as.data.frame(t(mat))
 
-  ncells_BM = anno_barplot(
-    as.numeric(bm_count),
-    height = unit(0.7, "cm"),
-    gp = gpar(fill = "aquamarine4"),
-    axis_param = axis_maxtick(bm_count)
-  ),
-
-  col = list(
-    pg_clusters = col_clusters,
-    roundness = col_mean_solidity,
-    area = col_mean_area
-  ),
-
-  show_legend = TRUE
-)
-
-col_fun <- circlize::colorRamp2(
-  c(0, 0.5, 1),
-  viridis(100)[c(1, 50, 100)]
-)
-
-cell_fun <- function(j, i, x, y, w, h, fill) {
-  grid.rect(x, y, w, h, gp = gpar(col = NA, fill = NA))
-  grid.circle(
-    x = x,
-    y = y,
-    r = percent_mat[i, j] / 2 * min(unit.c(w, h)),
-    gp = gpar(fill = col_fun(exp_mat[i, j]), col = NA)
+  exp_mat_ <- aggregate(
+    mat_df,
+    by = list(cluster = cluster_vec),
+    FUN = function(x) {
+      if (all(x == 0)) return(0)
+      median(log1p(x[x > 0]))
+    }
   )
-}
 
-lgd_list <- list(
-  Legend(
-    labels = c(0, 0.25, 0.5, 0.75, 1),
-    title = "percentage expressed",
-    graphics = lapply(c(0, 0.25, 0.5, 0.75, 1), function(r) {
-      function(x, y, w, h) grid.circle(
-        x = x, y = y,
-        r = r * unit(2, "mm"),
-        gp = gpar(fill = "black")
+  cluster_names <- exp_mat_$cluster
+
+  exp_mat <- exp_mat_[, -1, drop = FALSE]
+  rownames(exp_mat) <- cluster_names
+  exp_mat <- t(as.matrix(exp_mat))
+
+  # ----------------------------
+  # Row scaling
+  # ----------------------------
+  rmin <- apply(exp_mat, 1, min, na.rm = TRUE)
+  rmax <- apply(exp_mat, 1, max, na.rm = TRUE)
+  den  <- rmax - rmin
+
+  exp_mat <- (exp_mat - rmin) / den
+
+  exp_mat[is.nan(exp_mat)] <- 0
+  exp_mat[is.infinite(exp_mat)] <- 0
+
+  clusters <- colnames(exp_mat)
+
+  # ----------------------------
+  # Percent expressed
+  # ----------------------------
+  percent_mat <- sapply(seq_len(nrow(mat)), function(i) {
+
+    row_vals <- mat[i, ]
+    pos <- row_vals[row_vals > 0]
+
+    if (length(pos) == 0) {
+
+      out <- rep(0, length(clusters))
+      names(out) <- clusters
+      return(out)
+    }
+
+    thresh <- quantile(pos, 0.2, na.rm = TRUE)
+
+    row_bin <- ifelse(row_vals > thresh, 1, 0)
+
+    tapply(
+      row_bin,
+      factor(cluster_vec, levels = clusters),
+      mean
+    )
+  })
+
+  percent_mat <- t(percent_mat)
+
+  percent_mat <- percent_mat[, clusters, drop = FALSE]
+
+  percent_mat[is.na(percent_mat)] <- 0
+  percent_mat[percent_mat < 0.1] <- 0.1
+
+  # ----------------------------
+  # Tissue counts
+  # ----------------------------
+  bm_count <- table(cluster_vec[tissue_vec == "BM"])
+  pt_count <- table(cluster_vec[tissue_vec == "PT"])
+
+  bm_count <- bm_count[clusters]
+  pt_count <- pt_count[clusters]
+
+  bm_count[is.na(bm_count)] <- 0
+  pt_count[is.na(pt_count)] <- 0
+
+  # ----------------------------
+  # Cluster colors
+  # ----------------------------
+  col_vector_433 <- colors()[
+    grep('gr(a|e)y', grDevices::colors(), invert = TRUE)
+  ]
+
+  col_clusters <- setNames(
+    sample(col_vector_433, length(clusters)),
+    clusters
+  )
+
+  # ----------------------------
+  # Morphology colors
+  # ----------------------------
+  col_mean_area <- colorRamp2(
+    c(
+      min(area_mean),
+      min(area_mean) + (max(area_mean) - min(area_mean)) / 2,
+      max(area_mean)
+    ),
+    c("blue", "white", "red")
+  )
+
+  col_mean_solidity <- colorRamp2(
+    c(
+      min(solidity_mean),
+      min(solidity_mean) + (max(solidity_mean) - min(solidity_mean)) / 2,
+      max(solidity_mean)
+    ),
+    c("blue", "white", "red")
+  )
+
+  # ----------------------------
+  # Axis helper
+  # ----------------------------
+  axis_maxtick <- function(v) {
+
+    vmax <- max(as.numeric(v), na.rm = TRUE)
+
+    list(
+      at = vmax,
+      labels = as.character(vmax),
+      gp = gpar(fontsize = 12)
+    )
+  }
+
+  # ----------------------------
+  # Column annotation
+  # ----------------------------
+  column_ha <- HeatmapAnnotation(
+
+    pg_clusters = clusters,
+
+    roundness = solidity_mean[clusters],
+
+    area = area_mean[clusters],
+
+    ncells_PT = anno_barplot(
+      as.numeric(pt_count),
+      height = unit(0.7, "cm"),
+      gp = gpar(fill = "brown"),
+      axis_param = axis_maxtick(pt_count)
+    ),
+
+    ncells_BM = anno_barplot(
+      as.numeric(bm_count),
+      height = unit(0.7, "cm"),
+      gp = gpar(fill = "aquamarine4"),
+      axis_param = axis_maxtick(bm_count)
+    ),
+
+    col = list(
+      pg_clusters = col_clusters,
+      roundness = col_mean_solidity,
+      area = col_mean_area
+    ),
+
+    show_legend = TRUE
+  )
+
+  # ----------------------------
+  # Heatmap colors
+  # ----------------------------
+  col_fun <- circlize::colorRamp2(
+    c(0, 0.5, 1),
+    viridis(100)[c(1, 50, 100)]
+  )
+
+  # ----------------------------
+  # Bubble cell function
+  # ----------------------------
+  cell_fun <- function(j, i, x, y, w, h, fill) {
+
+    grid.rect(
+      x, y, w, h,
+      gp = gpar(col = NA, fill = NA)
+    )
+
+    grid.circle(
+      x = x,
+      y = y,
+      r = percent_mat[i, j] / 2 * min(unit.c(w, h)),
+      gp = gpar(
+        fill = col_fun(exp_mat[i, j]),
+        col = NA
       )
-    })
+    )
+  }
+
+  # ----------------------------
+  # Bubble legend
+  # ----------------------------
+  lgd_list <- list(
+
+    Legend(
+      labels = c(0, 0.25, 0.5, 0.75, 1),
+      title = "percentage expressed",
+
+      graphics = lapply(
+        c(0, 0.25, 0.5, 0.75, 1),
+        function(r) {
+
+          function(x, y, w, h)
+            grid.circle(
+              x = x,
+              y = y,
+              r = r * unit(2, "mm"),
+              gp = gpar(fill = "black")
+            )
+        }
+      )
+    )
   )
-)
 
-hp <- Heatmap(
-  exp_mat,
-  heatmap_legend_param = list(title = "expression"),
-  column_title = "Bubble plot - normalized mean expression and percent expressed",
-  top_annotation = column_ha,
-  col = col_fun,
-  rect_gp = gpar(type = "none"),
-  clustering_distance_columns = "pearson",
-  clustering_method_columns = "average",
-  row_labels = sapply(strsplit(rownames(exp_mat), "_"), "[[", 1),
-  cell_fun = cell_fun,
-  show_row_dend = FALSE,
-  column_dend_height = unit(1.5, "cm"),
-  row_names_gp = gpar(fontsize = 15),
-  column_names_gp = gpar(fontsize = 15),
-  column_names_rot = 45,
-  border = "black"
-)
+  # ----------------------------
+  # Heatmap
+  # ----------------------------
+  hp <- Heatmap(
+    exp_mat,
 
-hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
-save_plot(hp_drawn, "vis-data-bubbleplot_delete.pdf", width = 16, height = 14)
+    heatmap_legend_param = list(title = "expression"),
 
-hp_drawn
+    column_title = paste0(
+      "Bubble plot - ",
+      cluster_col
+    ),
+
+    top_annotation = column_ha,
+
+    col = col_fun,
+
+    rect_gp = gpar(type = "none"),
+
+    clustering_distance_columns = "pearson",
+
+    clustering_method_columns = "average",
+
+    row_labels = sapply(
+      strsplit(rownames(exp_mat), "_"),
+      "[[",
+      1
+    ),
+
+    cell_fun = cell_fun,
+
+    show_row_dend = FALSE,
+
+    column_dend_height = unit(1.5, "cm"),
+
+    row_names_gp = gpar(fontsize = 15),
+
+    column_names_gp = gpar(fontsize = 15),
+
+    column_names_rot = 45,
+
+    border = "black"
+  )
+
+  hp_drawn <- draw(
+    hp,
+    annotation_legend_list = lgd_list
+  )
+  
+  save_plot(
+    hp_drawn, 
+    paste0("bubbleplot_", cluster_col, ".pdf"),
+    width = 16, 
+    height = 14
+  )
+
+
+  draw(
+    hp,
+    annotation_legend_list = lgd_list
+  )
+
+  dev.off()
+
+  print(hp_drawn)
+}
 ```
+
+## Define final clustering and plot clustered heatmaps for each cluster
 
 ```{r}
+library(dittoSeq)
+library(ggplot2)
 
-library(ComplexHeatmap)
-library(circlize)
-library(grid)
-library(viridis)
 
-stopifnot(exists("mat"), exists("cluster_vec"), exists("tissue_vec"))
+# Define final clustering set
+spe$pg_clusters <- spe$pg_clusters_30
 
-message("Number of cells: ", ncol(mat))
-message("Number of markers: ", nrow(mat))
+# get cluster IDs
+clusters <- unique(colData(spe)$pg_clusters)
 
-# ----------------------------
-# 1. Prepare data
-# ----------------------------
-mat_df <- as.data.frame(t(mat))
-clusters <- sort(unique(cluster_vec))
+genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
 
-# ----------------------------
-# 2. Median expression per cluster (NO log transform)
-# ----------------------------
-med_mat <- aggregate(
-  mat_df,
-  by = list(cluster = cluster_vec),
-  FUN = function(x) median(x, na.rm = TRUE)
-)
 
-rownames(med_mat) <- med_mat$cluster
-med_mat <- med_mat[, -1, drop = FALSE]
-exp_mat <- t(as.matrix(med_mat))
-
-# ----------------------------
-# 3. PT / BM cell counts
-# ----------------------------
-pt_count <- table(cluster_vec[tissue_vec == "PT"])
-bm_count <- table(cluster_vec[tissue_vec == "BM"])
-
-pt_count <- pt_count[clusters]
-bm_count <- bm_count[clusters]
-
-pt_count[is.na(pt_count)] <- 0
-bm_count[is.na(bm_count)] <- 0
-
-# ----------------------------
-# 4. Colors (raw expression scale)
-# ----------------------------
-col_fun <- circlize::colorRamp2(
-  c(min(exp_mat, na.rm = TRUE),
-    median(exp_mat, na.rm = TRUE),
-    max(exp_mat, na.rm = TRUE)),
-  viridis(3)
-)
-
-# ----------------------------
-# 5. Cluster colors (optional, keep if you had it)
-# ----------------------------
-if (!exists("col_clusters")) {
-  col_clusters <- setNames(rainbow(length(clusters)), clusters)
-} else {
-  missing_clusters <- setdiff(clusters, names(col_clusters))
-  if (length(missing_clusters) > 0) {
-    col_clusters[missing_clusters] <- rainbow(length(missing_clusters))
-  }
+for (cl in clusters) {
+  
+  # subset cells for this cluster
+  spe_cl <- spe[, colData(spe)$pg_clusters == cl]
+  
+  # skip empty clusters (just in case)
+  if (ncol(spe_cl) == 0) next
+  
+  # sample up to 8000 cells
+  n_cells <- min(8000, ncol(spe_cl))
+  rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
+  
+  # make heatmap
+  p1 <- dittoHeatmap(
+    spe_cl[, rand_cells],
+    genes = genes_use,
+    cluster_cols = TRUE,
+    scaled.to.max = TRUE,
+    heatmap.colors.max.scaled = viridis(100)
+  )
+  
+  # save plot
+  save_plot(
+    p1,
+    paste0("heatmap_phenocluster_", cl, ".png"),
+    width = 14,
+    height = 6
+  )
 }
 
-# ----------------------------
-# 6. Annotation (PT/BM restored)
-# ----------------------------
-column_ha <- HeatmapAnnotation(
-
-  pg_clusters = clusters,
-
-  ncells_PT = anno_barplot(
-    as.numeric(pt_count),
-    gp = gpar(fill = "brown"),
-    height = unit(0.7, "cm")
-  ),
-
-  ncells_BM = anno_barplot(
-    as.numeric(bm_count),
-    gp = gpar(fill = "aquamarine4"),
-    height = unit(0.7, "cm")
-  ),
-
-  col = list(
-    pg_clusters = col_clusters
-  )
-)
-
-# ----------------------------
-# 7. Heatmap
-# ----------------------------
-ht <- Heatmap(
-  exp_mat,
-  name = "median expression",
-
-  col = col_fun,
-
-  top_annotation = column_ha,
-
-  column_title = "Cluster-level median expression (raw scale)",
-
-  cluster_rows = TRUE,
-  cluster_columns = TRUE,
-
-  row_labels = sapply(strsplit(rownames(exp_mat), "_"), "[[", 1),
-
-  row_names_gp = gpar(fontsize = 12),
-  column_names_gp = gpar(fontsize = 12),
-  column_names_rot = 45,
-
-  border = TRUE
-)
-
-draw(ht)
 ```
 
-## Writing cluster proportions for manual annotation (Excel)
+
+## Write cluster proportions for manual annotation (Excel)
 
 ```{r cluster-annotation-excel}
+
 # Ensure cluster is character
 spe$pg_clusters <- as.character(spe$pg_clusters)
 

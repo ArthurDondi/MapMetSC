@@ -15,7 +15,7 @@ params:
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/02.1_QC_1")
+plot_dir <- file.path(params$output, "plots/02_QC_1")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -170,7 +170,6 @@ Next, we will have a look at the mean marker expression per cluster in a heatmap
 
 ```{r data-visualization-2, fig.width=11, fig.height=9}
 mean <- aggregate(mat, list(clusters), mean)
-mean_t <- t(mean)
 mean_t <- t(mean[,2:ncol(mean)])
 colnames(mean_t) <- mean[,"Group.1"]
 
@@ -192,9 +191,9 @@ p <- Heatmap(mean_t,
         col=viridis(100)
         )
 
-save_plot(p1, "heatmap_clusters.png", width = 8, height = 6)
+save_plot(p, "heatmap_clusters.png", width = 8, height = 6)
 
-p1
+p
 ```
 
 We can see a cluster with DAPI expression but without IMC marker expression, representing cells that swam off (DAPI expression without IMC marker expression).
@@ -203,7 +202,7 @@ To be sure that we only exclude cells that are really not present on the IMC cha
 ```{r sanity-check}
 
 # !!! Change cluster depending on the cluster with only DAPI signal and nothing else !!!
-c <- "31"
+c <- "26"
 mat <- t(mat)
 
 data <- data.frame(sample=colnames(mat), clusters)
@@ -250,8 +249,8 @@ iridium191_plot <- plotPixels(img,
                        return_plot = TRUE)
 
 iridium193_plot <- plotPixels(img, 
-                       colour_by = "DNA2_Ir193_mean",
-                       bcg = list(DNA2_Ir193_mean = c(0, 1, 1)),
+                       colour_by = "DNA1_Ir193_mean",
+                       bcg = list(DNA1_Ir193_mean = c(0, 1, 1)),
                        legend=NULL,
                        return_plot = TRUE)
 
@@ -319,8 +318,8 @@ ir191_zoom <- plotPixels(img_zoom,
                         return_plot = TRUE)
 
 ir193_zoom <- plotPixels(img_zoom, 
-                        colour_by = "DNA2_Ir193_mean",
-                        bcg = list(DNA2_Ir193_mean = c(0,1,1)),
+                        colour_by = "DNA1_Ir193_mean",
+                        bcg = list(DNA1_Ir193_mean = c(0,1,1)),
                         legend = NULL,
                         return_plot = TRUE)
 

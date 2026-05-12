@@ -173,8 +173,8 @@ spe$patient_id <- meta$Patient_ID[match(paste(spe$fm_id, spe$tissue), paste(meta
 spe$timepoint <- meta$Timepoint[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 
 # Keeping only Diagnosis samples + BM control samples
-spe$timepoint[spe$tissue == "AD"] <- "DE"
-spe <- spe[, spe$timepoint == "DE" | spe$control == "yes"]
+# spe$timepoint[spe$tissue == "AD"] <- "DE"
+spe <- spe[, (spe$timepoint == "DE" & spe$tissue == "PT") | spe$control == "yes"]
 
 spe$stage <- meta$INSS_stage[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$progression <- meta$efs[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
@@ -200,9 +200,11 @@ Before we save the SPE object, we check the distribution of markers.
 
 tissue <- unique(spe$tissue)
 
-p1 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = 'DNA1_Ir191_mean', group.by = "tissue", assay = "counts") +
+marker <- 'DNA1_Ir191_mean'
+p1 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", assay = "counts") +
     ggtitle(paste(marker,  "- per tissue"))
-p2 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = 'DNA2_Ir193_mean', group.by = "tissue", assay = "counts") +
+marker <- 'DNA1_Ir193_mean'
+p2 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", assay = "counts") +
     ggtitle(paste(marker,  "- per tissue"))
 p <- (p1 | p2)
 
