@@ -316,131 +316,6 @@ for (var_name in cluster_vars) {
 }
 ```
 
-## Subclustering of clusters 6, 18, and 31 using GMM
-
-```{r gmm-subclustering}
-library(mclust)
-
-set.seed(221228)
-
-spe$pg_clusters_beforesubclustering <- spe$pg_clusters_30
-
-
-spe$pg_clusters <- spe$pg_clusters_beforesubclustering
-
-# Ensure pg_clusters is character for easy reassignment
-spe$pg_clusters <- as.character(spe$pg_clusters)
-
-# Mapping: original cluster -> new subcluster label for the second component
-subcluster_map <- list(
-  "7" = "36",
-  "8" = "37",
-  "14"  = "38",
-  "17" = "39"
-)
-
-# define marker sets per cluster
-marker_map <- list(
-  "7"  = c("CD3_"),
-  "8" = c("GD2"),
-  "14" = c("CD4_", "CD3_"),
-  "17" = c("CD3_",  "CD10")
-)
-
-for (cl in names(subcluster_map)) {
-  new_cl <- subcluster_map[[cl]]
-  
-  idx <- which(spe$pg_clusters == cl)
-  if (length(idx) < 4) next
-  
-  sub_mat <- t(mat[, idx])  # cells x markers
-  
-  # --- select cluster-specific markers ---
-  if (cl %in% names(marker_map)) {
-    markers <- marker_map[[cl]]
-    keep_cols <- grep(paste0("^(", paste(markers, collapse="|"), ")"), colnames(sub_mat))
-    sub_mat <- sub_mat[, keep_cols, drop = FALSE]
-  }
-  
-  print(cl)
-  print(head(sub_mat))
-  
-  # --- clean data ---
-  sub_mat <- sub_mat[complete.cases(sub_mat), , drop = FALSE]
-  sub_mat <- sub_mat[, apply(sub_mat, 2, var) > 0, drop = FALSE]
-  print(cl)
-  print(head(sub_mat))
-  
-  #if (nrow(sub_mat) < 4 || ncol(sub_mat) < 2) next
-  
-  sub_mat <- scale(sub_mat)
-  
-  # --- GMM ---
-  gmm_fit <- tryCatch(
-    Mclust(sub_mat, G = 2, verbose = FALSE),
-    error = function(e) NULL
-  )
-  
-  if (is.null(gmm_fit)) next
-  
-  comp2 <- which(gmm_fit$classification == 2)
-  spe$pg_clusters[idx[comp2]] <- new_cl
-}
-```
-
-## Single-cell heatmaps for subclustered clusters (6/42, 18/43, 31/44)
-
-```{r subcluster-heatmaps}
-library(dittoSeq)
-library(ggplot2)
-library(viridis)
-
-genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
-
-# Define the pairs: original cluster and its new sibling
-subcluster_pairs <- list(
-  list(orig = "7",  new = "36"),
-  list(orig = "8", new = "37"),
-  list(orig = "14", new = "38"),
-  list(orig = "17", new = "39")
-)
-
-set.seed(221228)
-for (pair in subcluster_pairs) {
-  orig_cl <- pair$orig
-  new_cl  <- pair$new
-
-  # Cells belonging to either subcluster
-  idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
-
-  if (length(idx) == 0) next
-
-  # Sample up to 8000 cells
-  n_cells   <- min(8000, length(idx))
-  rand_idx  <- sample(idx, n_cells)
-
-  spe_cl <- spe[, rand_idx]
-
-  # Order cells by subcluster so the two groups appear side-by-side
-  cell_order <- order(spe_cl$pg_clusters)
-
-  p1 <- dittoHeatmap(
-    spe_cl[, cell_order],
-    genes          = genes_use,
-    cluster_cols   = FALSE,          # preserve subcluster ordering
-    scaled.to.max  = TRUE,
-    heatmap.colors.max.scaled = viridis(100),
-    annot.by       = "pg_clusters"   # colour bar showing subclusters
-  )
-
-  save_plot(
-    p1,
-    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".png"),
-    width  = 14,
-    height = 6
-  )
-}
-```
 
 # For later annotation, we generate one clustered heatmap per sample
 
@@ -496,15 +371,9 @@ library(grid)
 library(viridis)
 library(cowplot)
 
-cluster_vars <- c(
-  "pg_clusters_15",
-  "pg_clusters_30",
-  "pg_clusters_45",
-  "pg_clusters_60"
-)
 
 plot_cluster_bubble <- function(cluster_col, save_name) {
-  barplot_height <- unit(1.4, "cm")
+  barplot_height <- unit(3, "cm")
   
   # ----------------------------
   # Cluster vector
@@ -588,16 +457,31 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   # ----------------------------
   # Axis helper
   # ----------------------------
-  create_axis_with_10k_intervals <- function(v) {
-    vmax <- max(as.numeric(v), na.rm = TRUE)
-    y_axis_max <- max(10000, ceiling(vmax / 10000) * 10000)
-    at <- seq(0, y_axis_max, by = 10000)
+  create_axis_with_10k_intervals <- function(v,
+                                   break_start = 50000,
+                                   break_end = 200000,
+                                   step = 10000) {
 
+    vmax <- max(as.numeric(v), na.rm = TRUE)
+  
+    # Regular ticks before break
+    lower_ticks <- seq(0, break_start, by = step)
+  
+    # Add only max value after break if needed
+    upper_ticks <- if (vmax > break_start) break_end else NULL
+  
+    at <- c(lower_ticks, upper_ticks)
+  
+    labels <- c(
+      ifelse(lower_ticks == 0, "0", paste0(lower_ticks / 1000, "k")),
+      if (!is.null(upper_ticks)) paste0(upper_ticks / 1000, "k")
+    )
+  
     list(
-      upper = y_axis_max,
+      upper = break_end,
       axis_param = list(
         at = at,
-        labels = ifelse(at == 0, "0", paste0(at / 1000, "k")),
+        labels = labels,
         gp = gpar(fontsize = 12)
       )
     )
@@ -774,6 +658,18 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   hp_drawn
 }
 
+
+```
+
+```{r}
+
+cluster_vars <- c(
+  "pg_clusters_15",
+  "pg_clusters_30",
+  "pg_clusters_45",
+  "pg_clusters_60"
+)
+
 for (cluster_col in cluster_vars) {
   message("Processing: ", cluster_col)
   print(
@@ -783,54 +679,276 @@ for (cluster_col in cluster_vars) {
     )
   )
 }
+
 ```
 
-## Define final clustering and plot clustered heatmaps for each cluster
+## Define the final clustering
+```{r define-best-clustering}
 
-```{r}
+spe$pg_clusters <-  spe$pg_clusters_30
+
+```
+
+## Subclustering of mixed clusters using GMM
+
+```{r gmm-subclustering}
+library(mclust)
+
+set.seed(221228)
+
+# Ensure pg_clusters is character for easy reassignment
+spe$pg_clusters <- as.character(spe$pg_clusters)
+
+# Mapping: original cluster -> new subcluster label for the second component
+subcluster_map <- list(
+  "7" = "36",
+  "8" = "37",
+  "14"  = "38",
+  "17" = "39"
+)
+
+# define marker sets per cluster
+marker_map <- list(
+  "7"  = c("CD3_"),
+  "8" = c("GD2"),
+  "14" = c("CD4_", "CD3_"),
+  "17" = c("CD3_",  "CD10")
+)
+
+for (cl in names(subcluster_map)) {
+  new_cl <- subcluster_map[[cl]]
+  
+  idx <- which(spe$pg_clusters == cl)
+  if (length(idx) < 4) next
+  
+  sub_mat <- t(mat[, idx])  # cells x markers
+  
+  # --- select cluster-specific markers ---
+  if (cl %in% names(marker_map)) {
+    markers <- marker_map[[cl]]
+    keep_cols <- grep(paste0("^(", paste(markers, collapse="|"), ")"), colnames(sub_mat))
+    sub_mat <- sub_mat[, keep_cols, drop = FALSE]
+  }
+  
+  print(cl)
+  print(head(sub_mat))
+  
+  # --- clean data ---
+  sub_mat <- sub_mat[complete.cases(sub_mat), , drop = FALSE]
+  sub_mat <- sub_mat[, apply(sub_mat, 2, var) > 0, drop = FALSE]
+  print(cl)
+  print(head(sub_mat))
+  
+  #if (nrow(sub_mat) < 4 || ncol(sub_mat) < 2) next
+  
+  sub_mat <- scale(sub_mat)
+  
+  # --- GMM ---
+  gmm_fit <- tryCatch(
+    Mclust(sub_mat, G = 2, verbose = FALSE),
+    error = function(e) NULL
+  )
+  
+  if (is.null(gmm_fit)) next
+  
+  comp2 <- which(gmm_fit$classification == 2)
+  spe$pg_clusters[idx[comp2]] <- new_cl
+}
+```
+
+## Single-cell heatmaps for subclustered clusters 
+
+```{r subcluster-heatmaps}
 library(dittoSeq)
 library(ggplot2)
-
-
-# Define final clustering set
-spe$pg_clusters <- spe$pg_clusters_30
-
-# get cluster IDs
-clusters <- unique(colData(spe)$pg_clusters)
+library(viridis)
 
 genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
 
+# Define the pairs: original cluster and its new sibling
+subcluster_pairs <- list(
+  list(orig = "7",  new = "36"),
+  list(orig = "8", new = "37"),
+  list(orig = "14", new = "38"),
+  list(orig = "17", new = "39")
+)
 
-for (cl in clusters) {
-  
-  # subset cells for this cluster
-  spe_cl <- spe[, colData(spe)$pg_clusters == cl]
-  
-  # skip empty clusters (just in case)
-  if (ncol(spe_cl) == 0) next
-  
-  # sample up to 8000 cells
-  n_cells <- min(8000, ncol(spe_cl))
-  rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
-  
-  # make heatmap
+set.seed(221228)
+for (pair in subcluster_pairs) {
+  orig_cl <- pair$orig
+  new_cl  <- pair$new
+
+  # Cells belonging to either subcluster
+  idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
+
+  if (length(idx) == 0) next
+
+  # Sample up to 8000 cells
+  n_cells   <- min(8000, length(idx))
+  rand_idx  <- sample(idx, n_cells)
+
+  spe_cl <- spe[, rand_idx]
+
+  # Order cells by subcluster so the two groups appear side-by-side
+  cell_order <- order(spe_cl$pg_clusters)
+
   p1 <- dittoHeatmap(
-    spe_cl[, rand_cells],
-    genes = genes_use,
-    cluster_cols = TRUE,
-    scaled.to.max = TRUE,
-    heatmap.colors.max.scaled = viridis(100)
+    spe_cl[, cell_order],
+    genes          = genes_use,
+    cluster_cols   = FALSE,          # preserve subcluster ordering
+    scaled.to.max  = TRUE,
+    heatmap.colors.max.scaled = viridis(100),
+    annot.by       = "pg_clusters"   # colour bar showing subclusters
   )
-  
-  # save plot
+
   save_plot(
     p1,
-    paste0("heatmap_phenocluster_", cl, ".png"),
-    width = 14,
+    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".png"),
+    width  = 14,
     height = 6
   )
 }
+```
 
+
+## Bubbleplot and umap after reclustering:
+```{r}
+var_name <- "pg_clusters"
+
+color_seed_base <- 221228
+
+get_cluster_levels <- function(values) {
+
+  cluster_levels <- unique(as.character(values))
+
+  cluster_levels <- cluster_levels[!is.na(cluster_levels)]
+
+  cluster_levels <- cluster_levels[nzchar(cluster_levels)]
+
+  if (all(grepl("^\\d+$", cluster_levels))) {
+
+    cluster_levels <- as.character(
+      sort(as.integer(cluster_levels))
+    )
+
+  } else {
+
+    cluster_levels <- sort(cluster_levels)
+  }
+
+  cluster_levels
+}
+
+generate_cluster_colors <- function(
+  cluster_levels,
+  seed = color_seed_base
+) {
+
+  non_gray_colors <- colors()[
+    grep("\\bgr[ae]y", grDevices::colors(), invert = TRUE)
+  ]
+
+  set.seed(seed)
+
+  setNames(
+    sample(
+      non_gray_colors,
+      length(cluster_levels),
+      replace = length(cluster_levels) > length(non_gray_colors)
+    ),
+    cluster_levels
+  )
+}
+
+if (is.null(metadata(spe)$color_vectors)) {
+
+  metadata(spe)$color_vectors <- list()
+}
+
+cluster_levels <- get_cluster_levels(
+  spe[[var_name]]
+)
+
+color_key <- paste0("col_", var_name)
+
+if (
+  is.null(metadata(spe)$color_vectors[[color_key]]) ||
+  !all(
+    cluster_levels %in%
+      names(metadata(spe)$color_vectors[[color_key]])
+  )
+) {
+
+  metadata(spe)$color_vectors[[color_key]] <-
+    generate_cluster_colors(
+      cluster_levels = cluster_levels,
+      seed = color_seed_base
+    )
+}
+
+col_clusters <-
+  metadata(spe)$color_vectors[[color_key]][cluster_levels]
+
+# ----------------------------
+# Plot
+# ----------------------------
+p <- dittoDimPlot(
+  spe,
+  var = var_name,
+  reduction.use = "UMAP",
+  size = 0.5,
+  do.label = TRUE,
+  legend.show = FALSE,
+  color.panel = col_clusters
+)
+
+# ----------------------------
+# Label layer
+# ----------------------------
+label_layer <- which(
+  sapply(
+    p$layers,
+    function(x) class(x$geom)[1]
+  ) %in% c("GeomLabelRepel", "GeomLabel")
+)
+
+label_data <- layer_data(
+  p,
+  label_layer
+)
+
+label_fills <- col_clusters[
+  as.character(label_data$label)
+]
+
+p$layers[[label_layer]]$aes_params$fill <- label_fills
+p$layers[[label_layer]]$aes_params$colour <- "black"
+
+# ----------------------------
+# Final styling
+# ----------------------------
+p <- p +
+  theme(
+    legend.title = element_blank()
+  ) +
+  ggtitle(paste(var_name, "on UMAP"))
+
+# ----------------------------
+# Save
+# ----------------------------
+save_plot(
+  p,
+  paste0("umap_", var_name, ".png"),
+  width = 8,
+  height = 6
+)
+
+p
+
+plot_cluster_bubble(
+      cluster_col = "pg_clusters",
+      save_name = paste0("bubbleplot_subclustering.pdf")
+)
 ```
 
 
@@ -899,6 +1017,51 @@ write_xlsx(
 )
 ```
 
+## Define final clustering and plot clustered heatmaps for each cluster
+
+```{r}
+library(dittoSeq)
+library(ggplot2)
+
+
+# get cluster IDs
+clusters <- unique(colData(spe)$pg_clusters)
+
+genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
+
+
+for (cl in clusters) {
+  
+  # subset cells for this cluster
+  spe_cl <- spe[, colData(spe)$pg_clusters == cl]
+  
+  # skip empty clusters (just in case)
+  if (ncol(spe_cl) == 0) next
+  
+  # sample up to 8000 cells
+  n_cells <- min(8000, ncol(spe_cl))
+  rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
+  
+  # make heatmap
+  p1 <- dittoHeatmap(
+    spe_cl[, rand_cells],
+    genes = genes_use,
+    cluster_cols = TRUE,
+    scaled.to.max = TRUE,
+    heatmap.colors.max.scaled = viridis(100)
+  )
+  
+  # save plot
+  save_plot(
+    p1,
+    paste0("heatmap_phenocluster_", cl, ".png"),
+    width = 14,
+    height = 6
+  )
+}
+
+```
+
 ```{r stop-here}
 knitr::opts_chunk$set(eval = FALSE)
 ```
@@ -909,7 +1072,7 @@ Next, we read assigned celltype and metacluster-labels for clusters from the met
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-file_path <- file.path('/home/rstudio/data/output', 'cluster_annotation_raw_k30_subclustering.xlsx')
+file_path <- file.path('/home/rstudio/data/output', 'cluster_annotation_completed.xlsx')
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)
@@ -928,54 +1091,45 @@ Finally, we assign colors to all celltypes and metaclusters.
 ```{r colors-celltypes raw_k30}
 col_celltype <- c(
 
-  ## ---- Tumor (unchanged) ----
-  "GATA3hi Tu"    = rgb(0,   90,  50, maxColorValue = 255),
-  "CXCR4hi Tu"    = rgb(120, 180, 40, maxColorValue = 255),
-  "CD44+ Tu"      = rgb(65,  208, 57, maxColorValue = 255),
-  "GD2lo Tu"      = rgb(40,  150,130, maxColorValue = 255),
-  "Ki67hi Tu"     = rgb(173, 255, 47, maxColorValue = 255),
-  "early NB Tu"   = rgb(150, 220,170, maxColorValue = 255),
-  "marker-lo Tu"  = rgb(40,  120, 70, maxColorValue = 255),
+  ## ---- Tumor ----
+  "CXCR4+ Tu"     = rgb(120, 180,  40, maxColorValue = 255),
+  "CD44+ Tu"      = rgb(65,  208,  57, maxColorValue = 255),
+  "Ki67+ Tu"      = rgb(173, 255,  47, maxColorValue = 255),
+  "early NB Tu"   = rgb(150, 220, 170, maxColorValue = 255),
+  "marker-lo Tu"  = rgb(40,  120,  70, maxColorValue = 255),
+  "bridge-like Tu" = rgb(0, 160, 110, maxColorValue = 255),
 
   ## ---- Proliferation ----
-  "Ki67+ cells"        = rgb(255, 200,   0, maxColorValue = 255),
-  "Ki67+ CXCR4+ cells" = rgb(255, 245, 160, maxColorValue = 255),
+  "Ki67+ cells" = rgb(255, 200,   0, maxColorValue = 255),
+  "CXCR4+ cells" = rgb(255, 245, 160, maxColorValue = 255),
 
   ## ---- Progenitor ----
-  "MSCs"          = rgb(255, 165,  60, maxColorValue = 255),
-  "CD34+ HSPCs"   = rgb(255,  95,   0, maxColorValue = 255),
+  "CD34+ HSPCs" = rgb(255,  95,   0, maxColorValue = 255),
 
   ## ---- T cells ----
-  ## ---- T cells (rebalanced distinct reds) ----
-  
-  "CD8+ naïve T cells"   = rgb(220, 20, 60,  maxColorValue = 255),  # crimson (clean bright red)
-  
-  "CD4+ naïve T cells"   = rgb(232, 80, 70, maxColorValue = 255),  # firebrick (deep structured red)
-  
-  "CD8+ S100B+ T cells"   = rgb(199, 21, 133, maxColorValue = 255),  # medium violet-red (pinkish red, distinct hue shift)
-    
-  "CD4+ PD1+ T cells" = rgb(123, 0, 60,  maxColorValue = 255),
-  
-  "GZMB+ T cells" = rgb(220, 90, 40, maxColorValue = 255),  # true deep red (kept warm red identity)
-  
-  "dense T cell region"  = rgb(170, 30, 120, maxColorValue = 255),   # dark crimson (slightly different tone than GZMB)
-  ## ---- Myeloid (UPDATED: clearly distinct blues) ----
-  "granulocytes"      = rgb(8, 48,107, maxColorValue = 255),    # deep navy
-  "CD14+ PDL1- MO"    = rgb(33,102,172, maxColorValue = 255),   # strong blue
-  "CD14+ PDL1+ MO"    = rgb(67,147,195, maxColorValue = 255),   # lighter sky blue
-  "monoblast-like"    = rgb(64, 180, 170, maxColorValue = 255),  # very light blue
-  "GZMB+ DC/NK"       = rgb(107,174,214, maxColorValue = 255),  # mid-light blue
-  "pDC"               = rgb(198,219,239, maxColorValue = 255),  # pale blue
+  "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),
+  "CD4+ T cells"        = rgb(232,  80,  70, maxColorValue = 255),
+  "CD3+ T cells"        = rgb(180,  30,  50, maxColorValue = 255),
+  "S100B+ T cells"      = rgb(199,  21, 133, maxColorValue = 255),
+  "GZMB+ T cells"       = rgb(220,  90,  40, maxColorValue = 255),
+  "dense T cell region" = rgb(170,  30, 120, maxColorValue = 255),
+
+  ## ---- Myeloid ----
+  "granulocytes"       = rgb(8,   48, 107, maxColorValue = 255),
+  "CD14+ MO"           = rgb(33, 102, 172, maxColorValue = 255),
+  "monoblast-like"     = rgb(64, 180, 170, maxColorValue = 255),
+  "GZMB+ DC/NK cells"  = rgb(107,174, 214, maxColorValue = 255),
 
   ## ---- B cells ----
-  "B cells" = rgb(136,86,167, maxColorValue = 255),
+  "CD20+ B cells" = rgb(136, 86, 167, maxColorValue = 255),
 
-  ## ---- Stromal (renamed) ----
-  "schwann cells"        = rgb(166,97,26, maxColorValue = 255),
-  "fibroblast/endothel" = rgb(101, 67, 33, maxColorValue = 255),  # dark brown,
+  ## ---- Stromal ----
+  "S100B+ schwann cells" = rgb(166, 97,  26, maxColorValue = 255),
+  "fibroblast/endothel"  = rgb(101, 67,  33, maxColorValue = 255),
+
 
   ## ---- Other ----
-  "other" = rgb(120,120,120, maxColorValue = 255)
+  "other" = rgb(120, 120, 120, maxColorValue = 255)
 )
 
 metadata(spe)$color_vectors$col_celltype <- col_celltype
@@ -1040,6 +1194,13 @@ p1
 p2
 ```
 
+
+```{r}
+plot_cluster_bubble(
+      cluster_col = "celltype",
+      save_name = paste0("bubbleplot_celltype2.pdf")
+)
+```
 
 ```{r bubbleplot-final-celltypes, fig.height=10, fig.width=12}
 # -----------------------------

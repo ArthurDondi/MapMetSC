@@ -1151,9 +1151,9 @@ library(cytomapper)
 library(cowplot)
 
 ## --- 1. Find ROI with most SOX10+ Tu cells ---
-roi_counts <- table(colData(spe)$sample_id[colData(spe)$celltype == "SOX10+ Tu"])
+roi_counts <- table(colData(spe)$sample_id[colData(spe)$celltype == "dense T cell region"])
 sorted_rois <- sort(roi_counts, decreasing = TRUE)
-top_roi <- names(sorted_rois[3])
+top_roi <- names(sorted_rois[1])
 
 ## --- 2. Subset object ---
 tmp <- spe[, spe$sample_id == top_roi]
@@ -1186,8 +1186,8 @@ p_gd2 <- plotPixels(
 # CD44
 p_cd44 <- plotPixels(
   img,
-  colour_by = "CD44_In115_mean",
-  bcg = list(CD44_In115_mean = c(0, 1, 1)),
+  colour_by = "CD45_Eu153_mean",
+  bcg = list(CD45_Eu153_mean = c(0, 1, 1)),
   legend = NULL,
   return_plot = TRUE
 )
@@ -1195,8 +1195,8 @@ p_cd44 <- plotPixels(
 # SOX10
 p_sox10 <- plotPixels(
   img,
-  colour_by = "SOX10_Dy162_mean",
-  bcg = list(SOX10_Dy162_mean = c(0, 1, 1)),
+  colour_by = "CD3_Sm152_mean",
+  bcg = list(CD3_Sm152_mean = c(0, 1, 1)),
   legend = NULL,
   return_plot = TRUE
 )
@@ -1227,12 +1227,133 @@ p <- plot_grid(
 )
 
 ## --- 6. Save output ---
-save_plot(p, "ROI_SOX10_overview.png", width = 12, height = 10)
+save_plot(p, "ROI_dense_tcell_overview.png", width = 12, height = 10)
 
 ## --- 7. Display plot ---
 p
 
+# Celltype
+p_celltype <- plotCells(
+  masks,
+  object = tmp,
+  cell_id = "ObjectNumber",
+  img_id = "sample_id",
+  colour_by = "celltype",
+  colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
+  missing_colour = "white",
+  return_plot = TRUE
+)
+
+
 ```
+```{r}
+
+library(cytomapper)
+library(cowplot)
+
+## --- 1. Find ROI with most SOX10+ Tu cells ---
+roi_counts <- table(colData(spe)$sample_id[colData(spe)$celltype == "bridge-like Tu"])
+sorted_rois <- sort(roi_counts, decreasing = TRUE)
+top_roi <- names(sorted_rois[1])
+
+## --- 2. Subset object ---
+tmp <- spe[, spe$sample_id == top_roi]
+
+## --- 3. Load images ---
+masks <- cytomapper::loadImages(
+  file.path(params$input, "masks", paste0(top_roi, ".tif")),
+  as.is = TRUE
+)
+
+img <- cytomapper::loadImages(
+  file.path(params$input, "img", paste0(top_roi, ".tif"))
+)
+
+mcols(masks) <- DataFrame(sample_id = names(masks))
+mcols(img) <- DataFrame(sample_id = names(img))
+
+channelNames(img) <- rownames(spe)[1:44]
+
+## --- 4. Create plots ---
+# GD2
+p_gd2 <- plotPixels(
+  img,
+  colour_by = "GD2_Gd155_mean",
+  bcg = list(GD2_Gd155_mean = c(0, 1, 1)),
+  legend = NULL,
+  return_plot = TRUE
+)
+
+# CD44
+p_cd44 <- plotPixels(
+  img,
+  colour_by = "CD45_Eu153_mean",
+  bcg = list(CD45_Eu153_mean = c(0, 1, 1)),
+  legend = NULL,
+  return_plot = TRUE
+)
+
+# SOX10
+p_sox10 <- plotPixels(
+  img,
+  colour_by = "CD3_Sm152_mean",
+  bcg = list(CD3_Sm152_mean = c(0, 1, 1)),
+  legend = NULL,
+  return_plot = TRUE
+)
+
+
+
+# Celltype
+p_celltype <- plotCells(
+  masks,
+  object = tmp,
+  cell_id = "ObjectNumber",
+  img_id = "sample_id",
+  colour_by = "celltype",
+  colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
+  missing_colour = "white",
+  legend = NULL,
+  return_plot = TRUE
+)
+
+## --- 5. Combine plots into a 2x2 grid using cowplot ---
+p <- plot_grid(
+  ggdraw(p_gd2$plot),
+  ggdraw(p_cd44$plot),
+  ggdraw(p_sox10$plot),
+  ggdraw(p_celltype$plot),
+  ncol = 2,
+  align = "hv"
+)
+
+## --- 6. Save output ---
+save_plot(p, "ROI_bridge-like_Tu_overview.png", width = 12, height = 10)
+
+## --- 7. Display plot ---
+p
+
+# Celltype
+p_celltype <- plotCells(
+  masks,
+  object = tmp,
+  cell_id = "ObjectNumber",
+  img_id = "sample_id",
+  colour_by = "celltype",
+  colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
+  missing_colour = "white",
+  return_plot = TRUE
+) +   theme(
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 16),
+    legend.key.size = unit(1.2, "cm")
+  )
+
+
+
+```
+```
+
 
 ```{r}
 

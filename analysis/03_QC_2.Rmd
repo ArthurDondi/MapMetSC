@@ -1,4 +1,4 @@
----
+ ---
 title: "Quality control - Part 2"
 author: "LazDaria"
 date: "`r Sys.Date()`"
@@ -304,7 +304,7 @@ morph_names_clipped <- c("area_clipped", "solidity_clipped", "aspect_ratio_clipp
 # Load masks
 masks <- loadImages(
   c(
-    file.path(params$input, "masks/20220525_20220223_06-070_BM_003.tif"),
+    file.path(params$input, "masks/20220517_20220309_20-154_BM_003.tif"),
     file.path(params$input, "masks/20220926_20220809_16-005_TU_001.tif")
   ),
   as.is = TRUE
@@ -313,7 +313,7 @@ masks <- loadImages(
 # Map mask files to the corresponding SPE sample IDs
 # You need to adjust this vector to match your SPE object
 mask_to_spe_ids <- c(
-  "20220525_20211224_11-027_BM_007",  # maps to first mask
+  "20220517_20220309_20-154_BM_003",  # maps to first mask
   "20220926_20220809_16-005_TU_001"   # maps to second mask
 )
 
