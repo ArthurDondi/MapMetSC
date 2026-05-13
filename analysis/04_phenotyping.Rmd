@@ -620,7 +620,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     top_ext    <- ncells_break_at * (top_frac / break_frac)
     ylim_max   <- ncells_break_at + top_ext
 
-    # Above-break bars are drawn at 90 % of the top band
+    # Above-break bars are drawn at 90% of the top band
     above_display <- ncells_break_at + top_ext * 0.9
     values_plot   <- ifelse(v_num > ncells_break_at, above_display, v_num)
 
@@ -812,10 +812,10 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   # ----------------------------
   # Break-mark decoration helper
   # ----------------------------
-  add_break_marks <- function(anno_name, info) {
+  add_break_marks <- function(anno_name, info, drawn_hp) {
     if (!info$needs_break) return(invisible(NULL))
 
-    col_ord <- column_order(hp_drawn)
+    col_ord <- column_order(drawn_hp)
     if (is.list(col_ord)) col_ord <- unlist(col_ord)
     n_tot <- info$n_total
     b_y   <- info$break_y_npc
@@ -866,17 +866,18 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
   pdf(full_path, width = 16, height = 14)
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
-  add_break_marks("ncells_PT", pt_info)
-  add_break_marks("ncells_BM", bm_info)
+  add_break_marks("ncells_PT", pt_info, hp_drawn)
+  add_break_marks("ncells_BM", bm_info, hp_drawn)
   dev.off()
   message("Saved: ", full_path)
 
   # Draw once more for the notebook / interactive display (with decorations).
-  # Return a silent marker so the caller's print() does not trigger a third,
-  # undecorated re-draw via the ComplexHeatmap show() method.
-  draw(hp, annotation_legend_list = lgd_list)
-  add_break_marks("ncells_PT", pt_info)
-  add_break_marks("ncells_BM", bm_info)
+  # Return a silent marker so the caller's print() in the cluster_vars for-loop
+  # (line 884) does not trigger a third, undecorated re-draw via the
+  # ComplexHeatmap show() method.
+  hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+  add_break_marks("ncells_PT", pt_info, hp_drawn)
+  add_break_marks("ncells_BM", bm_info, hp_drawn)
 
   invisible(structure(list(), class = "heatmap_drawn"))
 }
