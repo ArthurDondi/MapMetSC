@@ -503,6 +503,10 @@ cluster_vars <- c(
   "pg_clusters_60"
 )
 
+# Suppress the extra print() re-draw in the for-loop: the function handles
+# its own display so the returned marker object is a silent no-op when printed.
+print.heatmap_drawn <- function(x, ...) invisible(NULL)
+
 plot_cluster_bubble <- function(cluster_col, save_name,
                                 col_annotation  = NULL,
                                 ncells_break_at = 50000) {
@@ -867,11 +871,14 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   dev.off()
   message("Saved: ", full_path)
 
-  hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+  # Draw once more for the notebook / interactive display (with decorations).
+  # Return a silent marker so the caller's print() does not trigger a third,
+  # undecorated re-draw via the ComplexHeatmap show() method.
+  draw(hp, annotation_legend_list = lgd_list)
   add_break_marks("ncells_PT", pt_info)
   add_break_marks("ncells_BM", bm_info)
 
-  hp_drawn
+  invisible(structure(list(), class = "heatmap_drawn"))
 }
 
 for (cluster_col in cluster_vars) {
