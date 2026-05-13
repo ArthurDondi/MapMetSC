@@ -503,7 +503,9 @@ cluster_vars <- c(
   "pg_clusters_60"
 )
 
-plot_cluster_bubble <- function(cluster_col, save_name) {
+plot_cluster_bubble <- function(cluster_col, save_name,
+                                col_annotation  = NULL,
+                                ncells_break_at = 50000) {
   barplot_height <- unit(1.4, "cm")
   
   # ----------------------------
@@ -586,20 +588,57 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   pt_count <- table(factor(cluster_vec[tissue_vec == "PT"], levels = clusters))
 
   # ----------------------------
-  # Axis helper
+  # Barplot info helper (supports optional axis break)
   # ----------------------------
-  create_axis_with_10k_intervals <- function(v) {
-    vmax <- max(as.numeric(v), na.rm = TRUE)
-    y_axis_max <- max(10000, ceiling(vmax / 10000) * 10000)
-    at <- seq(0, y_axis_max, by = 10000)
+  make_barplot_info <- function(v) {
+    v_num   <- as.numeric(v)
+    max_val <- max(v_num, na.rm = TRUE)
+
+    if (max_val <= ncells_break_at) {
+      y_axis_max <- max(10000, ceiling(max_val / 10000) * 10000)
+      at <- seq(0, y_axis_max, by = 10000)
+      return(list(
+        values      = v_num,
+        upper       = y_axis_max,
+        axis_param  = list(
+          at     = at,
+          labels = ifelse(at == 0, "0", paste0(at / 1000, "k")),
+          gp     = gpar(fontsize = 12)
+        ),
+        needs_break = FALSE
+      ))
+    }
+
+    # Break case: compress above-break values into a small top band
+    # (top_frac of the display height is reserved for the above-break region)
+    top_frac   <- 0.18
+    break_frac <- 1 - top_frac
+    top_ext    <- ncells_break_at * (top_frac / break_frac)
+    ylim_max   <- ncells_break_at + top_ext
+
+    # Above-break bars are drawn at 90 % of the top band
+    above_display <- ncells_break_at + top_ext * 0.9
+    values_plot   <- ifelse(v_num > ncells_break_at, above_display, v_num)
+
+    at_below   <- seq(0, ncells_break_at, by = 10000)
+    at_all     <- c(at_below, above_display)
+    labels_all <- c(
+      ifelse(at_below == 0, "0", paste0(at_below / 1000, "k")),
+      paste0(round(max_val / 1000), "k")
+    )
 
     list(
-      upper = y_axis_max,
-      axis_param = list(
-        at = at,
-        labels = ifelse(at == 0, "0", paste0(at / 1000, "k")),
-        gp = gpar(fontsize = 12)
-      )
+      values           = values_plot,
+      upper            = ylim_max,
+      axis_param       = list(
+        at     = at_all,
+        labels = labels_all,
+        gp     = gpar(fontsize = 12)
+      ),
+      needs_break      = TRUE,
+      break_y_npc      = ncells_break_at / ylim_max,
+      above_break_orig = which(v_num > ncells_break_at),
+      n_total          = length(v_num)
     )
   }
   
@@ -625,9 +664,16 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
   }
   
   col_clusters <- existing_colors[clusters]
-  
-  pt_axis <- create_axis_with_10k_intervals(pt_count)
-  bm_axis <- create_axis_with_10k_intervals(bm_count)
+
+  # Use caller-supplied color vector if provided, otherwise use auto-generated
+  col_for_annot <- if (!is.null(col_annotation)) {
+    setNames(list(col_annotation), cluster_col)
+  } else {
+    setNames(list(col_clusters), cluster_col)
+  }
+
+  pt_info <- make_barplot_info(pt_count)
+  bm_info <- make_barplot_info(bm_count)
   cluster_annotation_list <- setNames(
     list(factor(clusters, levels = clusters)),
     cluster_col
@@ -650,20 +696,20 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
       cluster_annotation_list,
       list(
         ncells_PT = anno_barplot(
-          as.numeric(pt_count),
-          ylim = c(0, pt_axis$upper),
+          pt_info$values,
+          ylim = c(0, pt_info$upper),
           height = barplot_height,
           gp = gpar(fill = "brown"),
-          axis_param = pt_axis$axis_param
+          axis_param = pt_info$axis_param
         ),
         ncells_BM = anno_barplot(
-          as.numeric(bm_count),
-          ylim = c(0, bm_axis$upper),
+          bm_info$values,
+          ylim = c(0, bm_info$upper),
           height = barplot_height,
           gp = gpar(fill = "aquamarine4"),
-          axis_param = bm_axis$axis_param
+          axis_param = bm_info$axis_param
         ),
-        col = setNames(list(col_clusters), cluster_col),
+        col = col_for_annot,
         show_legend = TRUE
       )
     )
@@ -759,17 +805,71 @@ plot_cluster_bubble <- function(cluster_col, save_name) {
     border = "black"
   )
 
-  hp_drawn <- draw(
-    hp,
-    annotation_legend_list = lgd_list
-  )
-  
-  save_plot(
-    hp_drawn, 
-    save_name,
-    width = 16, 
-    height = 14
-  )
+  # ----------------------------
+  # Break-mark decoration helper
+  # ----------------------------
+  add_break_marks <- function(anno_name, info) {
+    if (!info$needs_break) return(invisible(NULL))
+
+    col_ord <- column_order(hp_drawn)
+    if (is.list(col_ord)) col_ord <- unlist(col_ord)
+    n_tot <- info$n_total
+    b_y   <- info$break_y_npc
+    gap   <- 0.04   # height of the white erasure gap (npc units)
+
+    decorate_annotation(anno_name, {
+      pushViewport(viewport(clip = "off"))
+
+      for (orig_idx in info$above_break_orig) {
+        vis <- match(orig_idx, col_ord)
+        if (is.na(vis)) next
+        xc <- (vis - 0.5) / n_tot
+        bw <- 0.8  / n_tot
+
+        # White gap to visually break the bar
+        grid.rect(
+          x = xc, y = b_y - gap / 2,
+          width = bw, height = gap,
+          just  = c("center", "bottom"),
+          default.units = "npc",
+          gp = gpar(fill = "white", col = NA)
+        )
+
+        # Zigzag lines across the bar
+        xs <- c(xc - bw/2, xc - bw/4, xc, xc + bw/4, xc + bw/2)
+        ys <- b_y + c(-gap * 0.6, gap * 0.6, -gap * 0.6, gap * 0.6, -gap * 0.6)
+        grid.polyline(
+          x = xs, y = ys,
+          default.units = "npc",
+          gp = gpar(col = "black", lwd = 1.5)
+        )
+      }
+
+      # Zigzag break mark on the y-axis (drawn to the left of the annotation)
+      grid.polyline(
+        x = unit(c(-2.5, -1.5, -2.5), "mm"),
+        y = unit(c(b_y - gap * 0.6, b_y, b_y + gap * 0.6), "npc"),
+        gp = gpar(col = "black", lwd = 1.5)
+      )
+
+      popViewport()
+    })
+  }
+
+  # ----------------------------
+  # Draw, decorate, and save
+  # ----------------------------
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
+  pdf(full_path, width = 16, height = 14)
+  hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+  add_break_marks("ncells_PT", pt_info)
+  add_break_marks("ncells_BM", bm_info)
+  dev.off()
+  message("Saved: ", full_path)
+
+  hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+  add_break_marks("ncells_PT", pt_info)
+  add_break_marks("ncells_BM", bm_info)
 
   hp_drawn
 }
