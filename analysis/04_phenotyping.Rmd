@@ -655,14 +655,14 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   if (annotation_level == "metacluster") {
     # Keep legacy behavior from the old bubbleplot block:
     # aggregate(cluster -> metacluster, FUN = max)
-    mean_metaclust <- aggregate(
+    metaclust_by_cluster <- aggregate(
       colData(spe)[[metacluster_col]],
       list(cluster = cluster_vec),
       max
     )
     meta_by_cluster <- setNames(
-      as.character(mean_metaclust$x),
-      as.character(mean_metaclust$cluster)
+      as.character(metaclust_by_cluster$x),
+      as.character(metaclust_by_cluster$cluster)
     )
     annot_values <- meta_by_cluster[clusters]
     annot_name <- "metacluster"
@@ -694,15 +694,14 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     annot_colors <- col_annotation
   }
 
-  annot_levels <- if (annotation_level == "metacluster") {
-    levels_from_colors <- names(annot_colors)
-    if (!is.null(levels_from_colors)) {
-      intersect(levels_from_colors, unique(annot_values))
-    } else {
-      unique(annot_values)
-    }
+  levels_from_colors <- names(annot_colors)
+  annot_levels <- if (!is.null(levels_from_colors)) {
+    intersect(levels_from_colors, unique(annot_values))
   } else {
-    clusters
+    unique(annot_values)
+  }
+  if (length(annot_levels) == 0) {
+    annot_levels <- unique(annot_values)
   }
 
   col_for_annot <- setNames(list(annot_colors), annot_name)
