@@ -786,10 +786,10 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
 ```{r, generating-bubbleplot}
 cluster_vars <- c(
-  "pg_clusters_15",
-  "pg_clusters_30",
-  "pg_clusters_45",
-  "pg_clusters_60"
+  "pg_clusters_k15",
+  "pg_clusters_k30",
+  "pg_clusters_k45",
+  "pg_clusters_k60"
 )
 
 for (cluster_col in cluster_vars) {
