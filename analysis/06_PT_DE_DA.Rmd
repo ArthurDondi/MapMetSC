@@ -145,13 +145,15 @@ marker_info$marker_class <- as.factor(marker_class_vec)
 # sce_base       : base SCE with all PT DE cells and full metadata
 # cell_filter    : logical vector over ncol(sce_base) selecting the cells of interest
 # cluster_level  : "celltype" or "metacluster"
-# comparison     : "mna" (MNA vs nMNA) or "tumor_community" (community 1 vs 2)
+# comparison     : "mna" (MNA vs nMNA) or "tumor_community" (selected pair of communities)
 # ord            : display order of groups on boxplot x-axis
+# selected_communities: two tumor communities to compare when comparison == "tumor_community"
 # min_samples_frac: fraction of samples to use as min_samples threshold (NULL = 1)
 # fig_suffix     : string appended to all saved filenames for this analysis
 
 run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
-                            ord, min_samples_frac = NULL, fig_suffix) {
+                            ord, selected_communities = NULL,
+                            min_samples_frac = NULL, fig_suffix) {
 
   # --- 1. Subset cells ---
   sce_sub <- sce_base[, cell_filter]
@@ -163,8 +165,23 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     g1 <- "nMNA"; g2 <- "MNA"
   } else {
     sce_sub  <- sce_sub[, !is.na(sce_sub$tumor_community)]
-    sce_sub$condition <- factor(as.character(sce_sub$tumor_community))
-    g1 <- "1"; g2 <- "2"
+    if (is.null(selected_communities) || length(selected_communities) != 2) {
+      stop("Please provide exactly two tumor communities in `selected_communities`.")
+    }
+    selected_communities <- as.character(selected_communities)
+    keep_communities <- as.character(sce_sub$tumor_community) %in% selected_communities
+    sce_sub <- sce_sub[, keep_communities]
+    tumor_community_values <- as.character(sce_sub$tumor_community)
+    present_communities <- unique(tumor_community_values)
+    missing_communities <- setdiff(selected_communities, present_communities)
+    if (length(missing_communities) > 0) {
+      stop(
+        "Selected tumor communities not present after subsetting: ",
+        paste(missing_communities, collapse = ", ")
+      )
+    }
+    sce_sub$condition <- factor(tumor_community_values, levels = selected_communities)
+    g1 <- selected_communities[1]; g2 <- selected_communities[2]
   }
 
   # --- 3. Set cluster_id and colour vector ---
@@ -340,6 +357,9 @@ We perform DA at three levels (metacluster, tumor celltype, immune celltype) and
 
 ```{r run-all-analyses, fig.width=12, fig.height=9}
 immune_metaclusters <- c("granulocytes", "T cells", "B cells", "MO/DC/NK")
+# Set the two tumor communities to compare across all tumor_community DA analyses.
+tumor_community_comparison <- c("1", "2")
+tumor_community_suffix <- paste(tumor_community_comparison, collapse = "_vs_")
 
 analysis_configs <- list(
   list(
@@ -352,13 +372,14 @@ analysis_configs <- list(
     fig_suffix      = "metacluster_mna"
   ),
   list(
-    name            = "metacluster_community",
+    name            = paste0("metacluster_community_", tumor_community_suffix),
     cell_filter     = rep(TRUE, ncol(sce)),
     cluster_level   = "metacluster",
     comparison      = "tumor_community",
-    ord             = c("1", "2"),
+    ord             = tumor_community_comparison,
+    selected_communities = tumor_community_comparison,
     min_samples_frac = NULL,
-    fig_suffix      = "metacluster_community"
+    fig_suffix      = paste0("metacluster_community_", tumor_community_suffix)
   ),
   list(
     name            = "celltype_tumor_mna",
@@ -370,13 +391,14 @@ analysis_configs <- list(
     fig_suffix      = "celltype_tumor_mna"
   ),
   list(
-    name            = "celltype_tumor_community",
+    name            = paste0("celltype_tumor_community_", tumor_community_suffix),
     cell_filter     = sce$metacluster == "tumor",
     cluster_level   = "celltype",
     comparison      = "tumor_community",
-    ord             = c("1", "2"),
+    ord             = tumor_community_comparison,
+    selected_communities = tumor_community_comparison,
     min_samples_frac = 0.2,
-    fig_suffix      = "celltype_tumor_community"
+    fig_suffix      = paste0("celltype_tumor_community_", tumor_community_suffix)
   ),
   list(
     name            = "celltype_immune_mna",
@@ -388,13 +410,14 @@ analysis_configs <- list(
     fig_suffix      = "celltype_immune_mna"
   ),
   list(
-    name            = "celltype_immune_community",
+    name            = paste0("celltype_immune_community_", tumor_community_suffix),
     cell_filter     = sce$metacluster %in% immune_metaclusters,
     cluster_level   = "celltype",
     comparison      = "tumor_community",
-    ord             = c("1", "2"),
+    ord             = tumor_community_comparison,
+    selected_communities = tumor_community_comparison,
     min_samples_frac = NULL,
-    fig_suffix      = "celltype_immune_community"
+    fig_suffix      = paste0("celltype_immune_community_", tumor_community_suffix)
   )
 )
 
@@ -407,6 +430,7 @@ for (cfg in analysis_configs) {
     cluster_level    = cfg$cluster_level,
     comparison       = cfg$comparison,
     ord              = cfg$ord,
+    selected_communities = cfg$selected_communities,
     min_samples_frac = cfg$min_samples_frac,
     fig_suffix       = cfg$fig_suffix
   )
