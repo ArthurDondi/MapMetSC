@@ -357,6 +357,7 @@ We perform DA at three levels (metacluster, tumor celltype, immune celltype) and
 
 ```{r run-all-analyses, fig.width=12, fig.height=9}
 immune_metaclusters <- c("granulocytes", "T cells", "B cells", "MO/DC/NK")
+# Set the two tumor communities to compare across all tumor_community DA analyses.
 tumor_community_comparison <- c("1", "2")
 tumor_community_suffix <- paste(tumor_community_comparison, collapse = "_vs_")
 
