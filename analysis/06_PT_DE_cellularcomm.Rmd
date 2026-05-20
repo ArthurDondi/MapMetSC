@@ -348,8 +348,8 @@ cont_df <- data.frame(cbind(het_m, het_t, age, cellular_communities),row.names=c
 cont_df$community_cluster <- factor(cont_df$community_cluster, levels = community_levels)
 # Keep a stable base palette so the first community colors stay consistent
 # even if n_communities changes between analyses.
-BASE_PALETTE_SIZE <- 8
-community_palette <- viridis(max(BASE_PALETTE_SIZE, length(community_levels)))[seq_along(community_levels)]
+base_palette_size <- 8
+community_palette <- viridis(max(base_palette_size, length(community_levels)))[seq_along(community_levels)]
 
 plot_list <- list()
 
@@ -436,7 +436,7 @@ community_ranges <- lapply(community_levels, function(comm) {
 })
 names(community_ranges) <- as.character(community_levels)
 community_ranges <- Filter(Negate(is.null), community_ranges)
-if (length(community_ranges) == 0) stop("No dendrogram leaves matched community assignments.")
+if (length(community_ranges) == 0) stop("No dendrogram leaves matched community assignments. Check that cellular_communities includes valid sample-level assignments.")
 valid_communities <- as.integer(names(community_ranges))
 # Order communities left-to-right in the dendrogram for root-arm placement.
 community_order <- as.integer(names(sort(sapply(community_ranges, `[[`, "mean"))))
