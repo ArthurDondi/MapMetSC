@@ -169,8 +169,10 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
       stop("Please provide exactly two tumor communities in `selected_communities`.")
     }
     selected_communities <- as.character(selected_communities)
-    sce_sub <- sce_sub[, as.character(sce_sub$tumor_community) %in% selected_communities]
-    present_communities <- unique(as.character(sce_sub$tumor_community))
+    tumor_community_values <- as.character(sce_sub$tumor_community)
+    sce_sub <- sce_sub[, tumor_community_values %in% selected_communities]
+    tumor_community_values <- as.character(sce_sub$tumor_community)
+    present_communities <- unique(tumor_community_values)
     missing_communities <- setdiff(selected_communities, present_communities)
     if (length(missing_communities) > 0) {
       stop(
@@ -178,7 +180,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
         paste(missing_communities, collapse = ", ")
       )
     }
-    sce_sub$condition <- factor(as.character(sce_sub$tumor_community), levels = selected_communities)
+    sce_sub$condition <- factor(tumor_community_values, levels = selected_communities)
     g1 <- selected_communities[1]; g2 <- selected_communities[2]
   }
 
