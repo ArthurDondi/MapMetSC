@@ -418,7 +418,7 @@ clean_x <- function(p) {
 }
 
 # Community strip labeller used by the dendrogram panel
-comm_labels <- setNames(paste("Community", community_levels), as.character(community_levels))
+comm_labels <- setNames(as.character(community_levels), as.character(community_levels))
 comm_labeller <- labeller(community = comm_labels)
 
 # ---- 1. Dendrogram as ggplot, split by community ----
@@ -445,8 +445,6 @@ names(community_ranges) <- as.character(community_levels)
 community_ranges <- Filter(Negate(is.null), community_ranges)
 if (length(community_ranges) == 0) stop(sprintf("No dendrogram leaves matched community assignments (leaves=%d, expected communities=%s, observed communities=%s). Check that cellular_communities includes valid sample-level assignments.", length(leaf_x), paste(community_levels, collapse = ","), paste(present_leaf_communities, collapse = ",")))
 valid_communities <- as.integer(names(community_ranges))
-# Order communities left-to-right in the dendrogram for root-arm placement.
-community_order <- as.integer(names(sort(sapply(community_ranges, `[[`, "mean"))))
 
 SEGMENT_TOLERANCE <- 0.5
 PANEL_EDGE_PADDING <- 0.5
@@ -466,15 +464,11 @@ segs$community <- factor(mapply(function(x1, x2) {
 
 segs_c <- segs[!is.na(segs$community), ]
 
-# ---- Root arms: connect communities with a horizontal bar ----
+# ---- Root arms: restore the shared top connection after faceting ----
 # segs_c already contains, for each community, the vertical "root-drop" segment
-# that goes from h_root down to the community's highest merge node.  These pass
-# the community filter because their x coordinate lies within one community's
-# leaf range.  We must NOT add another vertical stub (that would duplicate the
-# existing line, creating a "second root").  Instead we only add a short
-# horizontal arm that extends from the root-drop's x position outward to the
-# far panel edge.  When the two panels are placed side by side the two arms
-# read as a single connected horizontal bar at h_root.
+# that goes from h_root down to the community's highest merge node. We only add
+# a horizontal segment at h_root, spanning the full facet width, so the top
+# connection remains visually intact without duplicating vertical segments.
 h_root     <- max(c(segs$y, segs$yend))
 
 # Return the x coordinate of the vertical segment that reaches h_root in comm.
@@ -494,19 +488,11 @@ make_root_arm <- function(comm) {
   if (is.null(x_pos)) return(NULL)
   comm_x <- leaf_x[leaf_comm == comm]
   if (length(comm_x) == 0) return(NULL)
-  if (comm == community_order[1]) {
-    # Panel on the left → arm extends rightward to right panel edge
-    data.frame(x = x_pos, y = h_root, xend = max(comm_x) + PANEL_EDGE_PADDING, yend = h_root,
-               community = factor(comm, levels = community_levels))
-  } else if (comm == tail(community_order, 1)) {
-    # Panel on the right → arm extends leftward to left panel edge
-    data.frame(x = min(comm_x) - PANEL_EDGE_PADDING, y = h_root, xend = x_pos, yend = h_root,
-               community = factor(comm, levels = community_levels))
-  } else {
-    # Middle panels get a full-width root segment to bridge left and right neighbors.
-    data.frame(x = min(comm_x) - PANEL_EDGE_PADDING, y = h_root, xend = max(comm_x) + PANEL_EDGE_PADDING, yend = h_root,
-               community = factor(comm, levels = community_levels))
-  }
+  # Draw the top root connection across the full panel width so the shared
+  # root bar stays visually continuous after faceting by community.
+  data.frame(x = min(comm_x) - PANEL_EDGE_PADDING, y = h_root,
+             xend = max(comm_x) + PANEL_EDGE_PADDING, yend = h_root,
+             community = factor(comm, levels = community_levels))
 }
 
 root_arm_list <- Filter(Negate(is.null), lapply(valid_communities, make_root_arm))
@@ -519,12 +505,14 @@ p_dendro <- ggplot(segs_with_root) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
   facet_grid(. ~ community, scales = "free_x", space = "free_x",
              labeller = comm_labeller) +
+  labs(title = "Community") +
   theme_minimal() +
   theme(
     axis.text       = element_blank(),
     axis.ticks      = element_blank(),
     axis.title      = element_blank(),
-    plot.title      = element_blank(),
+    plot.title      = element_text(face = "bold", size = 11, hjust = 0.5),
+    plot.title.position = "plot",
     strip.text.x    = element_text(face = "bold", size = 11),
     strip.background = element_blank(),
     panel.grid      = element_blank(),
