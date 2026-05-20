@@ -287,7 +287,7 @@ p
 We generate a dendogram for the hierarchical clustering of barplots.
 
 ```{r dendrogram, fig.height=8, fig.width=7}
-#Dendogram
+#Dendrogram
 set.seed(20231103)
 wide_df <- p$data %>%
   select(-condition) %>%
@@ -349,7 +349,7 @@ p_anno
 ```{r fig4d-combined-stacked, fig.height=12, fig.width=8}
 # Build a combined stacked Figure 4d (no grouping split)
 required_objects <- c("hc", "sample_summary", "clustered_samples", "col_code", "p")
-missing_objects <- required_objects[!vapply(required_objects, exists, logical(1))]
+missing_objects <- required_objects[!vapply(required_objects, exists, logical(1), inherits = TRUE)]
 if (length(missing_objects) > 0) {
   stop(sprintf("Missing required objects for Fig4d combined plot: %s. Please run the preceding chunks `cohort-overview`, `dendrogram`, and `plot-metadata` first.", paste(missing_objects, collapse = ", ")))
 }
