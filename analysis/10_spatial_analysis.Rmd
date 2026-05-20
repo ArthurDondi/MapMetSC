@@ -349,9 +349,9 @@ p_anno
 ```{r fig4d-combined-stacked, fig.height=12, fig.width=8}
 # Build a combined stacked Figure 4d (no grouping split)
 required_objects <- c("hc", "sample_summary", "clustered_samples", "col_code", "p")
-missing_objects <- required_objects[!vapply(required_objects, function(x) exists(x, inherits = TRUE), logical(1))]
+missing_objects <- required_objects[!vapply(required_objects, function(x) exists(x, inherits = FALSE), logical(1))]
 if (length(missing_objects) > 0) {
-  stop(sprintf("Missing required objects for Fig4d combined plot: %s. Please run the preceding chunks `cohort-overview`, `dendrogram`, and `plot-metadata` first.", paste(missing_objects, collapse = ", ")))
+  stop(sprintf("Missing required objects for Fig4d combined plot: %s. Please run the preceding Figure 4d preparation chunks first.", paste(missing_objects, collapse = ", ")))
 }
 
 ddata <- dendro_data(hc, type = "rectangle")
@@ -408,7 +408,10 @@ p_abund <- p +
     plot.margin = margin(0, 2, 0, 2)
   )
 
-# Tuned to keep dendrogram readable, prioritize abundance panel, and keep metadata compact.
+# Empirically tuned panel proportions:
+# - dendrogram = 1.2 keeps branch structure readable without dominating the figure
+# - abundance = 4 prioritizes the main abundance signal (largest information density)
+# - metadata = 1.5 keeps annotation strips legible while compact
 panel_heights <- c(dendrogram = 1.2, abundance = 4, metadata = 1.5)
 p_fig4d <- (p_dendro / p_abund / p_meta) +
   plot_layout(ncol = 1, heights = panel_heights, guides = "collect")
