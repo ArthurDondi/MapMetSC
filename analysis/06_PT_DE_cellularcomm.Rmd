@@ -348,8 +348,8 @@ cont_df <- data.frame(cbind(het_m, het_t, age, cellular_communities),row.names=c
 cont_df$community_cluster <- factor(cont_df$community_cluster, levels = community_levels)
 # Keep a stable base palette so the first community colors stay consistent
 # even if n_communities changes between analyses.
-BOXPLOT_PALETTE_MIN <- 8
-community_palette <- viridis(max(BOXPLOT_PALETTE_MIN, length(community_levels)))[seq_along(community_levels)]
+BASE_PALETTE_SIZE <- 8
+community_palette <- viridis(max(BASE_PALETTE_SIZE, length(community_levels)))[seq_along(community_levels)]
 
 plot_list <- list()
 
@@ -431,9 +431,13 @@ leaf_comm <- cellular_communities[leaf_key, "community_cluster"]
 
 community_ranges <- lapply(community_levels, function(comm) {
   comm_x <- leaf_x[leaf_comm == comm]
+  if (length(comm_x) == 0) return(NULL)
   c(min = min(comm_x), max = max(comm_x), mean = mean(comm_x))
 })
 names(community_ranges) <- as.character(community_levels)
+community_ranges <- Filter(Negate(is.null), community_ranges)
+if (length(community_ranges) == 0) stop("No dendrogram leaves matched community assignments.")
+valid_communities <- as.integer(names(community_ranges))
 # Order communities left-to-right in the dendrogram for root-arm placement.
 community_order <- as.integer(names(sort(sapply(community_ranges, `[[`, "mean"))))
 
@@ -443,11 +447,11 @@ community_order <- as.integer(names(sort(sapply(community_ranges, `[[`, "mean"))
 # to that community; cross-community (root) segments are excluded.
 segs$community <- factor(mapply(function(x1, x2) {
   lo <- min(x1, x2); hi <- max(x1, x2)
-  in_comm <- vapply(community_levels, function(comm) {
+  in_comm <- vapply(valid_communities, function(comm) {
     comm_range <- community_ranges[[as.character(comm)]]
     lo >= comm_range["min"] - 0.5 && hi <= comm_range["max"] + 0.5
   }, logical(1))
-  if (sum(in_comm) == 1) return(community_levels[in_comm])
+  if (sum(in_comm) == 1) return(valid_communities[in_comm])
   NA_integer_
 }, segs$x, segs$xend), levels = community_levels)
 
@@ -496,7 +500,8 @@ make_root_arm <- function(comm) {
   }
 }
 
-root_arms <- do.call(rbind, lapply(community_levels, make_root_arm))
+root_arm_list <- Filter(Negate(is.null), lapply(valid_communities, make_root_arm))
+root_arms <- if (length(root_arm_list) == 0) NULL else do.call(rbind, root_arm_list)
 segs_with_root <- if (is.null(root_arms)) segs_c else rbind(segs_c, root_arms)
 
 p_dendro <- ggplot(segs_with_root) +
