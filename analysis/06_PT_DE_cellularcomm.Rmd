@@ -430,6 +430,11 @@ leaf_x   <- as.integer(ddata$labels$x)
 leaf_lab <- as.character(ddata$labels$label)
 leaf_key <- sapply(strsplit(leaf_lab, "_"), function(x) paste(x[length(x)-1], x[length(x)], sep="_"))
 leaf_comm <- cellular_communities[leaf_key, "community_cluster"]
+present_leaf_communities <- sort(unique(stats::na.omit(leaf_comm)))
+missing_leaf_communities <- setdiff(community_levels, present_leaf_communities)
+if (length(missing_leaf_communities) > 0) {
+  warning(sprintf("Communities without matched dendrogram leaves: %s", paste(missing_leaf_communities, collapse = ", ")))
+}
 
 community_ranges <- lapply(community_levels, function(comm) {
   comm_x <- leaf_x[leaf_comm == comm]
@@ -438,20 +443,22 @@ community_ranges <- lapply(community_levels, function(comm) {
 })
 names(community_ranges) <- as.character(community_levels)
 community_ranges <- Filter(Negate(is.null), community_ranges)
-if (length(community_ranges) == 0) stop(sprintf("No dendrogram leaves matched community assignments (leaves=%d, communities=%d). Check that cellular_communities includes valid sample-level assignments.", length(leaf_x), length(community_levels)))
+if (length(community_ranges) == 0) stop(sprintf("No dendrogram leaves matched community assignments (leaves=%d, expected communities=%s, observed communities=%s). Check that cellular_communities includes valid sample-level assignments.", length(leaf_x), paste(community_levels, collapse = ","), paste(present_leaf_communities, collapse = ",")))
 valid_communities <- as.integer(names(community_ranges))
 # Order communities left-to-right in the dendrogram for root-arm placement.
 community_order <- as.integer(names(sort(sapply(community_ranges, `[[`, "mean"))))
 
-# 0.5 is the tolerance used to assign dendrogram segments to communities.
-# Leaf positions are integers (1..n), so 0.5 ensures each segment whose
+SEGMENT_TOLERANCE <- 0.5
+PANEL_EDGE_PADDING <- 0.5
+# SEGMENT_TOLERANCE is used to assign dendrogram segments to communities.
+# Leaf positions are integers (1..n), so this ensures each segment whose
 # x-range falls entirely within one community's leaf positions is assigned
 # to that community; cross-community (root) segments are excluded.
 segs$community <- factor(mapply(function(x1, x2) {
   lo <- min(x1, x2); hi <- max(x1, x2)
   in_comm <- vapply(valid_communities, function(comm) {
     comm_range <- community_ranges[[as.character(comm)]]
-    lo >= comm_range["min"] - 0.5 && hi <= comm_range["max"] + 0.5
+    lo >= comm_range["min"] - SEGMENT_TOLERANCE && hi <= comm_range["max"] + SEGMENT_TOLERANCE
   }, logical(1))
   if (sum(in_comm) == 1) return(valid_communities[in_comm])
   NA_integer_
@@ -489,15 +496,15 @@ make_root_arm <- function(comm) {
   if (length(comm_x) == 0) return(NULL)
   if (comm == community_order[1]) {
     # Panel on the left → arm extends rightward to right panel edge
-    data.frame(x = x_pos, y = h_root, xend = max(comm_x) + 0.5, yend = h_root,
+    data.frame(x = x_pos, y = h_root, xend = max(comm_x) + PANEL_EDGE_PADDING, yend = h_root,
                community = factor(comm, levels = community_levels))
   } else if (comm == tail(community_order, 1)) {
     # Panel on the right → arm extends leftward to left panel edge
-    data.frame(x = min(comm_x) - 0.5, y = h_root, xend = x_pos, yend = h_root,
+    data.frame(x = min(comm_x) - PANEL_EDGE_PADDING, y = h_root, xend = x_pos, yend = h_root,
                community = factor(comm, levels = community_levels))
   } else {
-    # Panels between leftmost/rightmost extend fully across to bridge both sides
-    data.frame(x = min(comm_x) - 0.5, y = h_root, xend = max(comm_x) + 0.5, yend = h_root,
+    # Middle panels get a full-width root segment to bridge left and right neighbors.
+    data.frame(x = min(comm_x) - PANEL_EDGE_PADDING, y = h_root, xend = max(comm_x) + PANEL_EDGE_PADDING, yend = h_root,
                community = factor(comm, levels = community_levels))
   }
 }
@@ -508,7 +515,7 @@ segs_with_root <- if (is.null(root_arms)) segs_c else rbind(segs_c, root_arms)
 
 p_dendro <- ggplot(segs_with_root) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
-  scale_x_continuous(expand = c(0, 0.5)) +
+  scale_x_continuous(expand = c(0, PANEL_EDGE_PADDING)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
   facet_grid(. ~ community, scales = "free_x", space = "free_x",
              labeller = comm_labeller) +
