@@ -346,7 +346,7 @@ age <- sample_summary$age_diag
 
 cont_df <- data.frame(cbind(het_m, het_t, age, cellular_communities),row.names=clustered_samples)
 cont_df$community_cluster <- factor(cont_df$community_cluster, levels = community_levels)
-community_palette <- viridis(8)[seq_along(community_levels)]
+community_palette <- viridis(max(8, length(community_levels)))[seq_along(community_levels)]
 
 plot_list <- list()
 
