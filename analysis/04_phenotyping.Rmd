@@ -797,7 +797,8 @@ for (cluster_col in cluster_vars) {
   print(
     plot_cluster_bubble(
       cluster_col = cluster_col,
-      save_name = paste0("bubbleplot_", cluster_col, ".pdf")
+      save_name = paste0("bubbleplot_", cluster_col, ".pdf"),
+      ncells_break_at = 100000
     )
   )
 }
@@ -1343,6 +1344,7 @@ save_plot(p_celltype, "ROI_dense_tcell_overview_celltype.png", width = 12, heigh
 ```{r save-objects}
 
 saveRDS(spe, file.path(params$output, "spe_final_clustering.rds"))
+
 ```
 
 ## Session Info
