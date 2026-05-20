@@ -203,7 +203,7 @@ spe <- aggregateNeighbors(spe,
 
 set.seed(220705)
 
-cn_1 <- kmeans(spe$aggregatedNeighbors, centers = 6)
+cn_1 <- kmeans(spe$aggregatedNeighbors, centers = 8)
 spe$cn_celltypes_2 <- as.factor(cn_1$cluster)
 
 p_spatial <- plotSpatial(spe, 
@@ -251,6 +251,8 @@ sce$mna <- factor(spe$MYCN_amp)
 mna <- recode(sce$mna, `1` = 'MNA', `2` = 'het', `0` = 'nMNA', `9` = 'unknown')
 sce$mna <- as.factor(mna)
 
+sce$tumor_community <- factor(spe$tumor_community)
+
 sce$patient <- factor(spe$patient_id)
 sce$fm_id <- spe$fm_id
 
@@ -270,8 +272,11 @@ Next, we will generate a barplot showing the proportion of cells assigned to eac
 ```{r cohort-overview}
 set.seed(20231103)
 
+distance <- "manhattan"
+linkage <- "complete"
+
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=brewer.pal(6, "Set3"), 
-                    linkage="ward.D", distance="manhattan") 
+                    linkage = linkage, distance= distance) 
 
 save_plot(p, "Fig4d1_spatial_neighborhood_clustering.png", width = 6, height = 4)
 
@@ -291,8 +296,8 @@ wide_df <- data.frame(wide_df)
 rownames(wide_df) <- wide_df$sample_id
 wide_df <- wide_df %>% select(-sample_id)
 
-dist_matrix <- dist(wide_df, method = "manhattan")
-hc <- hclust(dist_matrix, method = "ward.D")
+dist_matrix <- dist(wide_df, method = distance)
+hc <- hclust(dist_matrix, method = linkage)
 
 p2 <- plot(hc)
 
@@ -311,6 +316,7 @@ sample_summary <- as.data.frame(colData(sce)) %>%
   group_by(sample_id) %>%
   summarize(mna = first(mna), 
             progress=first(progress),
+            tumor_community=first(tumor_community),
   )
 
 sample_summary <- as.data.frame(sample_summary)
@@ -324,13 +330,15 @@ col_code <- c("MNA"=rgb(202,0,32, maxColorValue = 255),
               "nMNA"=rgb(5,113,176, maxColorValue = 255),
               "unknown"="white",
               "Prog"=rgb(202,0,32, maxColorValue = 255),
-              "NoProg"=rgb(5,113,176, maxColorValue = 255)
+              "NoProg"=rgb(5,113,176, maxColorValue = 255),
+              "1"="blue","2"="red","3"="green"
               )
 
 
 # Plot metadata
 p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
-  columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) 
+  columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
+  columnAnnotation(progression=sample_summary$tumor_community, col=list(patientgroup=col_code))
 
 save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.png", width = 8, height = 4)
 
