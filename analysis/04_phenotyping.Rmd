@@ -316,6 +316,33 @@ for (var_name in cluster_vars) {
 }
 ```
 
+# UMAPs for each marker
+```{r UMAP-all-markers, fig.width=24, fig.height=32}
+excluded_markers <- "mean-80|PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3"
+max_cells_for_umap <- 20000
+
+marker_vars <- rownames(spe)[
+  !grepl(excluded_markers, rownames(spe))
+]
+
+set.seed(221228)
+marker_umap_ncells <- min(max_cells_for_umap, ncol(spe))
+marker_umap_idx <- sample(seq_len(ncol(spe)), marker_umap_ncells)
+spe_umap_markers <- spe[, marker_umap_idx]
+
+p_markers <- multi_dittoDimPlot(
+  spe_umap_markers,
+  vars = marker_vars,
+  reduction.use = "UMAP",
+  size = 0.5,
+  ncol = 5,
+  color.panel = viridis(100, direction = -1)
+)
+
+save_plot(p_markers, "UMAP-all-markers.png", width = 24, height = 32)
+p_markers
+```
+
 # For later annotation, we generate one clustered heatmap per sample
 
 ```{r}
