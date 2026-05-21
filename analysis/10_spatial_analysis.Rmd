@@ -637,7 +637,7 @@ save_plot(p_s2, "Fig4g2_tumor_patch.png", width = 6, height = 6)
 
 Then we determine the frequency of cells within the patch belonging to a metacluster per sample with respect to progression status of the respective patient.
 
-```{r patch-freq, fig.width=14, fig.height=7}
+```{r patch-freq-mycn, fig.width=14, fig.height=7}
 variable <- "MYCN_amp"
 plot_list <- list()
 celltypes <- unique(spe$metacluster)
@@ -708,7 +708,7 @@ p_box
 
 ```
 
-```{r patch-freq, fig.width=14, fig.height=7}
+```{r patch-freq-comm, fig.width=14, fig.height=7}
 variable <- "tumor_community"
 plot_list <- list()
 celltypes <- unique(spe$metacluster)
@@ -926,9 +926,9 @@ plot_list[["100"]]
 
 ### DA analysis in spatial compartments
 
-Next, we will plot the differential abundance of metaclusters with respect to spatial compartment on a sample level. Let's again convert the SPE object into a catalyst-compatible object. Decide whether you want to compare `tumor` celltypes or `immune` metaclusters by setting the variable `cells`. Furthermore, select which compartments to compare, by setting `compare` to `core-border`, `core-stroma` or `border-stroma`. 
+Next, we will plot the differential abundance of metaclusters with respect to spatial compartment on a sample level. We analyse both tumor celltypes and immune metaclusters, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing.
 
-```{r define markers}
+```{r define-markers}
 
 # Define cell_type_markers 
 type_markers <- c("MPO_Y89_mean", "CD44_In115_mean", "CD11b_Nd142_mean", "HLA-DR_Nd143_mean", "PRPH_Nd144_mean", "HLA-ABC_Sm147_mean", "CD20_Nd148_mean", "LUM_Sm149_mean", "CD11c_Nd150_mean",
@@ -940,319 +940,120 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 
 ```
 
-
-
-
-
-```{r}
-comparisons_list <- c("core-border", "core-stroma", "border-stroma")
-cells <- "immune" #"tumor"  # or "immune"
-
-for (compare in comparisons_list) {
-
-  message("Running comparison: ", compare)
-
-  comps <- strsplit(compare, "-")[[1]]
-
-  # ---- Setup ----
-  if (cells =="immune"){
-    order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
-    keep_cols <- spe$metacluster %in% order
-    color <- metadata(spe)$color_vectors$col_celltype_2
-  } else {
-    order <- c("marker-lo Tu","GD2lo Tu","CD44+ Tu","CXCR4hi Tu","Ki67hi Tu",
-               "GATA3hi Tu","early NB Tu")
-    keep_cols <- spe$metacluster == "tumor"
-    color <- metadata(spe)$color_vectors$col_celltype_2
-  }
-
-  keep_cols <- keep_cols & (spe$compartment %in% comps)
-  keep_rows <- rowData(spe)$use_channel 
-
-  sce <- SingleCellExperiment(
-    assays = list(
-      counts = assay(spe, "counts")[keep_rows, keep_cols],
-      exprs  = assay(spe, "counts")[keep_rows, keep_cols]
-    )
-  )
-
-  # ---- Metadata ----
-  sce$fm_id <- spe[keep_rows,keep_cols]$fm_id
-  sce$compartment <- factor(spe[keep_rows,keep_cols]$compartment, levels = comps)
-  sce$sample_id <- factor(paste0(sce$fm_id, "_", sce$compartment))
-  sce$sample <- factor(spe[keep_rows,keep_cols]$sample)
-  sce$condition <- factor(sce$compartment, levels = comps)
-  sce$cluster_id <- factor(spe[keep_rows,keep_cols]$celltype_2, levels=order)
-  sce$metacluster <- factor(spe[keep_rows,keep_cols]$metacluster)
-
-  metadata(sce)$cluster_codes <- data.frame(
-    celltype = factor(spe[keep_rows,keep_cols]$celltype_2, levels=order)
-  )
-
-  metadata(sce)$experiment_info <- as.data.frame(colData(sce)) %>%
-    dplyr::group_by(sample_id, condition, sample) %>%
-    dplyr::summarise(n_cells=n(), .groups = 'drop') %>%
-    as.data.frame()
-
-  # =========================
-  # ---- ABUNDANCE PLOT ----
-  # =========================
-  
-  color <- metadata(spe)$color_vectors$col_celltype_2
-  
-  # IMPORTANT: get the real cluster order used in sce
-  cluster_levels <- levels(factor(sce$cluster_id))
-  
-  # align color vector to cluster levels
-  color <- color[cluster_levels]
-  
-  # enforce factor ordering (THIS fixes mismatch + ordering)
-  sce$celltype <- factor(sce$cluster_id, levels = cluster_levels)
-
-  p_abund <- plotAbundances(sce, k = "celltype", by = "sample")
-  abundance_data <- p_abund$data %>%
-    dplyr::mutate(
-      cluster_id = factor(cluster_id, levels = cluster_levels),
-      condition = factor(condition, levels = comps),
-      Freq_pct = Freq
-    )
-
-  abundance_summary <- abundance_data %>%
-    dplyr::group_by(condition, cluster_id) %>%
-    dplyr::summarise(
-      mean_pct = mean(Freq_pct),
-      sd_pct = sd(Freq_pct),
-      n = dplyr::n(),
-      se_pct = dplyr::if_else(n > 1 & !is.na(sd_pct), sd_pct / sqrt(n), 0),
-      .groups = "drop"
-    )
-
-  p_abund_bar <- ggplot(abundance_summary, aes(x = cluster_id, y = mean_pct, fill = cluster_id)) +
-    geom_col(width = 0.75, alpha = 0.45, show.legend = FALSE) +
-    geom_errorbar(
-      aes(ymin = pmax(mean_pct - se_pct, 0), ymax = pmin(mean_pct + se_pct, 100)),
-      width = 0.2
-    ) +
-    geom_jitter(
-      data = abundance_data,
-      aes(x = cluster_id, y = Freq_pct, color = cluster_id),
-      inherit.aes = FALSE,
-      width = 0.15,
-      alpha = 0.8,
-      size = 1.5,
-      show.legend = FALSE
-    ) +
-    facet_wrap(~condition, nrow = 1) +
-    scale_fill_manual(values = color) +
-    scale_color_manual(values = color) +
-    ylab("% abundance") +
-    xlab("celltype") +
-    theme(
-      axis.text.x = element_text(angle = 90, hjust = 1),
-      strip.background = element_blank(),
-      strip.text = element_text(face = "bold")
-    )
-
-  save_plot(
-    p_abund_bar,
-    paste0("Fig4k_abundance_celltype_barplot_", compare, "_", cells, ".png"),
-    width = 12,
-    height = 6
-  )
-
-  p_abund_box <- ggplot(abundance_data, aes(x = cluster_id, y = Freq_pct, fill = cluster_id, color = cluster_id)) +
-    geom_boxplot(outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
-    geom_jitter(width = 0.15, alpha = 0.8, size = 1.5, show.legend = FALSE) +
-    facet_wrap(~condition, nrow = 1) +
-    scale_fill_manual(values = color) +
-    scale_color_manual(values = color) +
-    ylab("% abundance") +
-    xlab("celltype") +
-    theme(
-      axis.text.x = element_text(angle = 90, hjust = 1),
-      strip.background = element_blank(),
-      strip.text = element_text(face = "bold")
-    )
-
-  save_plot(
-    p_abund_box,
-    paste0("Fig4k_abundance_celltype_boxplot_", compare, "_", cells, ".png"),
-    width = 12,
-    height = 6
-  )
-
-  # ---- diffcyt prep ----
-  df_list <- lapply(unique(sce$sample_id), function(x){
-    as.data.frame(t(counts(sce[,sce$sample_id==x])))
-  })
-  names(df_list) <- unique(sce$sample_id)
-
-  experiment_info <- metadata(sce)$experiment_info
-  experiment_info <- experiment_info[
-    match(names(df_list), experiment_info$sample_id),]
-
-  experiment_info$condition <- factor(experiment_info$condition, levels = comps)
-
-  channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 2)
-  marker_name  <- sapply(strsplit(rownames(rowData(spe)[keep_rows,]), "_"), "[[", 1)
-
-  marker_class <- ifelse(rownames(rowData(spe)[keep_rows,]) %in% type_markers, "type",
-                  ifelse(rownames(rowData(spe)[keep_rows,]) %in% state_markers, "state","other"))
-
-  marker_info <- data.frame(channel_name, marker_name,
-                            marker_class = factor(marker_class),
-                            row.names = marker_name)
-
-  d_se <- prepareData(df_list, experiment_info, marker_info)
-  rowData(d_se)$cluster_id <- sce[,rownames(d_se)]$cluster_id
-  metadata(d_se)$cluster_codes <- metadata(sce)$cluster_codes
-
-  d_se <- transformData(d_se)
-  d_counts <- calcCounts(d_se)
-
-  # ---- DA analysis ----
-  design <- createDesignMatrix(experiment_info, cols_design = c("condition", "sample"))
-
-  # logFC = comps[2] - comps[1]
-  contrast <- createContrast(c(0, 1, rep(0, length(unique(experiment_info$sample))-1)))
-
-  res_DA <- testDA_edgeR(
-    d_counts, design, contrast,
-    min_cells = 3,
-    min_samples = round(dim(d_counts)[2]*0.2)
-  )
-
-  res <- data.frame(rowData(res_DA))
-
-  # =========================
-  # ---- BOXPLOTS ----------
-  # =========================
-  ord <- comps
-  plot_list_fc <- list()
-
-  for(i in seq_along(unique(p_abund$data$cluster_id))){
-    cluster_name <- unique(p_abund$data$cluster_id)[i]
-
-    proportions <- data.frame(
-      p_abund$data[p_abund$data$cluster_id == cluster_name,
-                   c("sample_id", "condition", "Freq")]
-    )
-
-    p_adj <- round(res[rownames(res)==cluster_name, "p_adj"], 3)
-    logFC <- round(res[rownames(res)==cluster_name, "logFC"], 2)
-
-    stats_df <- data.frame(
-      p_adj = p_adj,
-      group1 = comps[1],
-      group2 = comps[2],
-      logFC = logFC
-    )
-
-    stats_df$p_adj_signif <- stars.pval(stats_df$p_adj)
-    stats_df$p_adj_signif[stats_df$p_adj_signif==" "] <- "ns"
-    stats_df$p_fc <- paste0(stats_df$logFC, " (", stats_df$p_adj, ") (", stats_df$p_adj_signif, ")")
-
-    color_cluster <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]) 
-
-    plot_list_fc[[i]] <- ggboxplot(
-      proportions, x="condition", y="Freq", order=ord,
-      color="condition", palette=c(color_cluster, color_cluster),
-      add="jitter"
-    ) +
-      stat_pvalue_manual(
-        stats_df,
-        y.position = max(proportions$Freq) * 1.1,
-        label="p_fc"
-      ) +
-      ggtitle(cluster_name) +
-      scale_y_continuous(expand = expansion(mult = c(0.05, 0.25))) +
-      theme(
-        aspect.ratio = 1.5,
-        legend.position = "none",
-        plot.title = element_text(margin = margin(b = 10))
-      )
-  }
-
-  p_box <- gridExtra::grid.arrange(grobs = plot_list_fc, ncol = 5)
-
-  save_plot(
-    p_box,
-    paste0("Fig4k_boxplot_", compare, "_", cells, ".png"),
-    width = 12,
-    height = 8
-  )
-
-  # =========================
-  # ---- BARPLOT ----------
-  # =========================
-  df <- res[, c("logFC", "p_adj")]
-  df$p_adj_signif <- stars.pval(df$p_adj)
-  df$p_adj_signif[df$p_adj_signif==" "] <- "ns"
-  df$cluster <- rownames(df)
-
-  direction_label <- paste0(comps[2], " vs ", comps[1])
-
-  ymax <- max(df$logFC, na.rm = TRUE)
-  ymin <- min(df$logFC, na.rm = TRUE)
-
-  p_bar <- ggplot(df, aes(fill = cluster, y = logFC, x = cluster)) + 
-    geom_bar(stat = "identity", show.legend = FALSE) + 
-    scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2) +
-    theme(
-      axis.text.x = element_text(angle = 90, hjust = 1),
-      plot.title = element_text(hjust = 0.5)
-    ) +
-    geom_text(aes(label = p_adj_signif), vjust = 0) +
-    geom_hline(yintercept = 0) +
-    ylab("logFC") +
-    ggtitle(paste0("Differential abundance (", direction_label, ")")) +
-    annotate("text", x = 1, y = ymax*0.9, 
-             label = paste0(comps[2], " enriched"), hjust = 0) +
-    annotate("text", x = 1, y = ymin*0.9, 
-             label = paste0(comps[1], " enriched"), hjust = 0)
-
-  save_plot(
-    p_bar,
-    paste0("Fig4k_barplot_", compare, "_", cells, ".png"),
-    width = 12,
-    height = 6
-  )
-}
+```{r cluster-order-colors}
+# Canonical cluster orders used consistently throughout compartment analyses
+tumor_order  <- c("marker-lo Tu", "GD2lo Tu", "CD44+ Tu", "CXCR4hi Tu",
+                  "Ki67hi Tu", "GATA3hi Tu", "early NB Tu")
+immune_order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
 ```
 
+
+
+
+
+
 ```{r compartment-boxplots-all-comparisons}
-cells_list <- c("tumor", "immune")
-comp_levels <- c("core", "border", "stroma")
-comparison_pairs <- list(
-  c("core", "border"),
-  c("core", "stroma"),
-  c("border", "stroma")
-)
+# Runs diffcyt (testDA_edgeR) for every compartment pair × cell type,
+# then draws combined boxplots with logFC + BH-adjusted p-value labels.
+
+cells_list       <- c("tumor", "immune")
+comp_levels      <- c("core", "border", "stroma")
+comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
+
 y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.10
-y_base_offset <- 0.01
-y_expand_upper <- (max(y_offset_multipliers) - 1) + 0.20
-min_annotation_step <- 0.05
-max_plot_columns <- 5
+y_base_offset        <- 0.01
+y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.20
+min_annotation_step  <- 0.05
+max_plot_columns     <- 5
+
+keep_rows <- rowData(spe)$use_channel
+
+# helper to build marker_info from the global marker vectors
+.make_marker_info <- function(spe, keep_rows) {
+  channel_name <- sapply(strsplit(rownames(rowData(spe)[keep_rows, ]), "_"), "[[", 2)
+  marker_name  <- sapply(strsplit(rownames(rowData(spe)[keep_rows, ]), "_"), "[[", 1)
+  marker_class <- ifelse(rownames(rowData(spe)[keep_rows, ]) %in% type_markers, "type",
+                  ifelse(rownames(rowData(spe)[keep_rows, ]) %in% state_markers, "state", "other"))
+  data.frame(channel_name, marker_name,
+             marker_class = factor(marker_class),
+             row.names = marker_name)
+}
+
+marker_info_da <- .make_marker_info(spe, keep_rows)
 
 for (cells in cells_list) {
 
-  if (cells == "immune") {
-    order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
-    keep_meta <- spe$metacluster %in% order
-  } else {
-    order <- c("marker-lo Tu","GD2lo Tu","CD44+ Tu","CXCR4+ Tu","Ki67+ Tu",
-               "bridge-like Tu","early NB Tu")
-    keep_meta <- spe$metacluster == "tumor"
+  order     <- if (cells == "immune") immune_order else tumor_order
+  keep_meta <- if (cells == "immune") spe$metacluster %in% immune_order else spe$metacluster == "tumor"
+
+  # ------------------------------------------------------------------
+  # 1. Precompute diffcyt DA results for every compartment pair
+  # ------------------------------------------------------------------
+  diffcyt_results <- list()
+
+  for (pair in comparison_pairs) {
+    comps     <- pair
+    key       <- paste(comps, collapse = "-")
+    keep_cols <- keep_meta & spe$compartment %in% comps
+
+    if (sum(keep_cols) < 10) { diffcyt_results[[key]] <- NULL; next }
+
+    sce_da <- SingleCellExperiment(
+      assays = list(
+        counts = assay(spe, "counts")[keep_rows, keep_cols],
+        exprs  = assay(spe, "counts")[keep_rows, keep_cols]
+      )
+    )
+    sce_da$fm_id       <- spe[keep_rows, keep_cols]$fm_id
+    sce_da$sample      <- factor(spe[keep_rows, keep_cols]$sample)
+    sce_da$compartment <- factor(spe[keep_rows, keep_cols]$compartment, levels = comps)
+    sce_da$sample_id   <- factor(paste0(sce_da$fm_id, "_", sce_da$compartment))
+    sce_da$condition   <- factor(sce_da$compartment, levels = comps)
+    sce_da$cluster_id  <- factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+
+    metadata(sce_da)$cluster_codes   <- data.frame(
+      celltype = factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+    )
+    metadata(sce_da)$experiment_info <- as.data.frame(colData(sce_da)) %>%
+      dplyr::group_by(sample_id, condition, sample) %>%
+      dplyr::summarise(n_cells = dplyr::n(), .groups = "drop") %>%
+      as.data.frame()
+
+    exp_info           <- metadata(sce_da)$experiment_info
+    exp_info           <- exp_info[match(unique(sce_da$sample_id), exp_info$sample_id), ]
+    exp_info$condition <- factor(exp_info$condition, levels = comps)
+
+    df_list_da <- lapply(unique(sce_da$sample_id), function(x)
+      as.data.frame(t(counts(sce_da[, sce_da$sample_id == x]))))
+    names(df_list_da) <- unique(sce_da$sample_id)
+
+    d_se_da <- prepareData(df_list_da, exp_info, marker_info_da)
+    rowData(d_se_da)$cluster_id     <- sce_da[, rownames(d_se_da)]$cluster_id
+    metadata(d_se_da)$cluster_codes <- metadata(sce_da)$cluster_codes
+    d_se_da     <- transformData(d_se_da)
+    d_counts_da <- calcCounts(d_se_da)
+
+    design_da   <- createDesignMatrix(exp_info, cols_design = c("condition", "sample"))
+    contrast_da <- createContrast(c(0, 1, rep(0, length(unique(exp_info$sample)) - 1)))
+
+    res_DA_da <- tryCatch(
+      testDA_edgeR(d_counts_da, design_da, contrast_da,
+                   min_cells = 3,
+                   min_samples = round(ncol(d_counts_da) * 0.2)),
+      error = function(e) { message("diffcyt failed for ", key, ": ", e$message); NULL }
+    )
+    diffcyt_results[[key]] <- if (!is.null(res_DA_da)) data.frame(rowData(res_DA_da)) else NULL
   }
 
+  # ------------------------------------------------------------------
+  # 2. Sample-level proportions (% within compartment) for plotting
+  # ------------------------------------------------------------------
   comp_df <- data.frame(
-    fm_id = spe$fm_id,
+    fm_id       = spe$fm_id,
     compartment = spe$compartment,
-    metacluster = spe$metacluster,
-    celltype_2 = spe$celltype_2,
-    keep = keep_meta
+    celltype_2  = spe$celltype_2,
+    keep        = keep_meta
   )
-
   comp_df <- comp_df[comp_df$keep & comp_df$compartment %in% comp_levels, ]
   comp_df$compartment <- factor(comp_df$compartment, levels = comp_levels)
 
@@ -1261,222 +1062,414 @@ for (cells in cells_list) {
     dplyr::summarise(total = dplyr::n(), .groups = "drop")
 
   plot_data_list <- list()
-  plot_stats_list <- list()
-
   for (cluster_name in order) {
     cluster_counts <- comp_df %>%
       dplyr::filter(celltype_2 == cluster_name) %>%
       dplyr::group_by(fm_id, compartment) %>%
       dplyr::summarise(n = dplyr::n(), .groups = "drop")
 
-    proportions <- dplyr::left_join(sample_totals, cluster_counts,
-                                    by = c("fm_id", "compartment")) %>%
+    plot_data_list[[cluster_name]] <- dplyr::left_join(
+      sample_totals, cluster_counts, by = c("fm_id", "compartment")
+    ) %>%
       dplyr::mutate(
-        n = dplyr::if_else(is.na(n), 0L, n),
-        Freq = 100 * n / total,
+        n         = dplyr::if_else(is.na(n), 0L, n),
+        Freq      = 100 * n / total,
         condition = factor(compartment, levels = comp_levels),
         sample_id = fm_id
       )
-
-    stats_df <- lapply(comparison_pairs, function(pair) {
-      g1 <- pair[1]
-      g2 <- pair[2]
-      x <- proportions$Freq[proportions$condition == g1]
-      y <- proportions$Freq[proportions$condition == g2]
-
-      p_val <- if (length(x) > 0 && length(y) > 0) {
-        suppressWarnings(wilcox.test(x, y, exact = FALSE)$p.value)
-      } else {
-        NA_real_
-      }
-
-      data.frame(group1 = g1, group2 = g2, p_raw = p_val)
-    }) %>% dplyr::bind_rows()
-
-    stats_df$cluster_name <- cluster_name
-    plot_data_list[[cluster_name]] <- proportions
-    plot_stats_list[[cluster_name]] <- stats_df
   }
 
-  all_stats <- dplyr::bind_rows(plot_stats_list)
-  all_stats$p_adj <- p.adjust(all_stats$p_raw, method = "BH")
-  all_stats$p_adj_signif <- gtools::stars.pval(all_stats$p_adj)
-  all_stats$p_adj_signif[all_stats$p_adj_signif == " "] <- "ns"
-  all_stats$p_adj_fmt <- ifelse(is.na(all_stats$p_adj), "NA", sprintf("%.3f", all_stats$p_adj))
-  all_stats$label <- paste0(all_stats$p_adj_fmt, " (", all_stats$p_adj_signif, ")")
+  # ------------------------------------------------------------------
+  # 3. Collate diffcyt stats for all pairs into one table
+  # ------------------------------------------------------------------
+  all_stats_list <- list()
+  for (cluster_name in order) {
+    for (pair in comparison_pairs) {
+      key      <- paste(pair, collapse = "-")
+      res_pair <- diffcyt_results[[key]]
+      if (!is.null(res_pair) && cluster_name %in% rownames(res_pair)) {
+        p_adj <- res_pair[cluster_name, "p_adj"]
+        logFC <- res_pair[cluster_name, "logFC"]
+      } else {
+        p_adj <- NA_real_; logFC <- NA_real_
+      }
+      p_signif <- if (!is.na(p_adj)) gtools::stars.pval(p_adj) else "NA"
+      if (p_signif == " ") p_signif <- "ns"
+      all_stats_list <- c(all_stats_list, list(data.frame(
+        cluster_name = cluster_name,
+        group1       = pair[1],
+        group2       = pair[2],
+        p_adj        = p_adj,
+        logFC        = round(logFC, 2),
+        label        = paste0(round(logFC, 2), " (",
+                              if (!is.na(p_adj)) sprintf("%.3f", p_adj) else "NA",
+                              " ", p_signif, ")")
+      )))
+    }
+  }
+  all_stats <- dplyr::bind_rows(all_stats_list)
 
+  # ------------------------------------------------------------------
+  # 4. Boxplots with diffcyt annotation
+  # ------------------------------------------------------------------
   plot_list_comp <- list()
-
   for (cluster_name in order) {
     proportions <- plot_data_list[[cluster_name]]
-    stats_df <- all_stats[all_stats$cluster_name == cluster_name, ]
+    stats_df    <- all_stats[all_stats$cluster_name == cluster_name, ]
 
     y_max <- max(proportions$Freq, na.rm = TRUE)
     if (!is.finite(y_max)) y_max <- 0
-    if (y_max > 0) {
-      stats_df$y.position <- y_max * y_offset_multipliers[seq_len(nrow(stats_df))] + y_base_offset
-    } else {
-      stats_df$y.position <- seq_len(nrow(stats_df)) * min_annotation_step
-    }
+    stats_df$y.position <- if (y_max > 0)
+      y_max * y_offset_multipliers[seq_len(nrow(stats_df))] + y_base_offset
+    else
+      seq_len(nrow(stats_df)) * min_annotation_step
 
-    color_cluster <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)])
+    color_cluster <- unname(
+      metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
+    )
 
     plot_list_comp[[cluster_name]] <- ggboxplot(
       proportions, x = "condition", y = "Freq", order = comp_levels,
       color = "condition", palette = rep(color_cluster, 3),
       add = "jitter"
     ) +
-      stat_pvalue_manual(
-        stats_df,
-        y.position = "y.position",
-        label = "label"
-      ) +
+      stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
       ggtitle(cluster_name) +
       scale_y_continuous(expand = expansion(mult = c(0.05, y_expand_upper))) +
-      theme(
-        aspect.ratio = 1.2,
-        legend.position = "none",
-        plot.title = element_text(margin = margin(b = 10))
-      )
+      theme(aspect.ratio = 1.2, legend.position = "none",
+            plot.title = element_text(margin = margin(b = 10)))
   }
 
   p_comp <- gridExtra::grid.arrange(
     grobs = plot_list_comp,
-    ncol = min(length(plot_list_comp), max_plot_columns)
+    ncol  = min(length(plot_list_comp), max_plot_columns)
   )
 
-  save_plot(
-    p_comp,
-    paste0("Fig4m_boxplot_compartments_", cells, ".png"),
-    width = 12,
-    height = 8
-  )
+  save_plot(p_comp,
+            paste0("Fig4m_boxplot_compartments_", cells, ".png"),
+            width = 12, height = 8)
 }
 ```
 
-```{r}
-# =========================
-# PARAMETERS
-# =========================
-cells <- "mmune"
+```{r composition-stacked-bars}
+# Stacked-bar charts showing cell-type composition per compartment,
+# with total n displayed on top of each bar.
 
-if (cells == "immune") {
-  order <- c("T cells", "B cells", "MO/DC", "granulocytes")
-  keep_meta <- spe$metacluster %in% order
-} else {
-  order <- c("marker-lo Tu","GD2lo Tu","CD44+ Tu","CXCR4hi Tu","Ki67hi Tu",
-               "GATA3hi Tu","early NB Tu")
-  keep_meta <- spe$metacluster == "tumor"
-}
+comp_levels <- c("core", "border", "stroma")
 
-# =========================
-# BUILD CELL TABLE
-# =========================
-df <- data.frame(
-  sample     = spe$sample,
-  condition  = spe$compartment,
-  cluster_id = spe$celltype_2,
-  keep       = keep_meta
-)
+for (cells in c("tumor", "immune")) {
 
-df <- df[df$keep, ]
+  order     <- if (cells == "immune") immune_order else tumor_order
+  keep_meta <- if (cells == "immune") spe$metacluster %in% immune_order else spe$metacluster == "tumor"
 
-# =========================
-# COUNT CELLS
-# =========================
-df_counts <- df %>%
-  dplyr::group_by(condition, sample, cluster_id) %>%
-  dplyr::summarise(n = dplyr::n(), .groups = "drop")
+  df_bar <- data.frame(
+    compartment = spe$compartment,
+    cluster_id  = spe$celltype_2,
+    keep        = keep_meta
+  )
+  df_bar <- df_bar[df_bar$keep & df_bar$compartment %in% comp_levels, ]
 
-# ensure full structure (prevents missing slices)
-df_counts <- tidyr::complete(
-  df_counts,
-  sample, condition, cluster_id,
-  fill = list(n = 0)
-)
+  # totals per compartment (for the top-of-bar label)
+  totals <- df_bar %>%
+    dplyr::group_by(compartment) %>%
+    dplyr::summarise(N = dplyr::n(), .groups = "drop")
 
-# =========================
-# GLOBAL NORMALIZATION (PER CONDITION)
-# =========================
-df_normalized <- df_counts %>%
-  dplyr::group_by(condition, cluster_id) %>%
-  dplyr::summarise(
-    n = sum(n),
-    .groups = "drop"
-  ) %>%
-  dplyr::group_by(condition) %>%
-  dplyr::mutate(
-    normalized_count = n / sum(n)
-  ) %>%
-  dplyr::ungroup()
-
-# =========================
-# FACTORS
-# =========================
-df_normalized$cluster_id <- factor(df_normalized$cluster_id, levels = order)
-df_normalized$condition  <- factor(df_normalized$condition,
-                                   levels = c("core", "border", "stroma"))
-
-# =========================
-# COLORS (SAFE ALIGNMENT)
-# =========================
-color_vector <- metadata(spe)$color_vectors$col_celltype_2
-color_vector <- color_vector[order]
-
-stopifnot(all(!is.na(color_vector)))
-
-# =========================
-# LABELS (CONSISTENT n + %)
-# =========================
-df_normalized <- df_normalized %>%
-  dplyr::group_by(condition) %>%
-  dplyr::mutate(
-    label = ifelse(
-      normalized_count > 0,
-      paste0(n, "\n(", round(normalized_count * 100, 1), "%)"),
-      ""
+  df_prop <- df_bar %>%
+    dplyr::group_by(compartment, cluster_id) %>%
+    dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
+    dplyr::group_by(compartment) %>%
+    dplyr::mutate(pct = 100 * n / sum(n)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      compartment = factor(compartment, levels = comp_levels),
+      cluster_id  = factor(cluster_id,  levels = order)
     )
-  ) %>%
-  dplyr::ungroup()
 
-# =========================
-# PLOT
-# =========================
-p_pie <- ggplot(df_normalized,
-       aes(x = "", y = normalized_count, fill = cluster_id)) +
+  color_vec <- metadata(spe)$color_vectors$col_celltype_2[order]
 
-  geom_bar(stat = "identity", width = 1, color = "white") +
+  p_stack <- ggplot(df_prop, aes(x = compartment, y = pct, fill = cluster_id)) +
+    geom_bar(stat = "identity", width = 0.7) +
+    geom_text(
+      data = totals %>% dplyr::mutate(compartment = factor(compartment, levels = comp_levels)),
+      aes(x = compartment, y = 103, label = paste0("n=", N)),
+      inherit.aes = FALSE,
+      vjust = 0, size = 3.5
+    ) +
+    scale_fill_manual(values = color_vec, drop = FALSE, name = "Cell type") +
+    scale_y_continuous(limits = c(0, 115), breaks = seq(0, 100, 25),
+                       expand = expansion(mult = c(0, 0))) +
+    labs(title = paste0("Compartment composition (", cells, ")"),
+         x = "Compartment", y = "% cells") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+          legend.key.size = unit(0.4, "cm"))
 
-  geom_text(
-    aes(label = label),
-    position = position_stack(vjust = 0.5),
-    size = 3
-  ) +
+  save_plot(p_stack,
+            paste0("Fig4_suppl_stackedbar_compartments_", cells, ".png"),
+            width = 6, height = 5)
+  print(p_stack)
+}
+```
 
-  scale_fill_manual(values = color_vector, drop = FALSE) +
-  coord_polar("y", start = 0) +
-  facet_grid(. ~ condition) +
-  theme_void() +
-  ggtitle("Cell type composition across compartments") +
+### MYCN-stratified compartment DA
 
-  theme(
-    plot.background = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "white", color = NA)
+Here we repeat the compartment DA analysis (diffcyt) separately within MNA and nMNA samples (het samples are excluded). We then additionally compare core-compartment proportions between MNA and nMNA using a paired Wilcoxon test (BH-corrected).
+
+```{r mycn-stratified-compartment-da}
+comp_levels      <- c("core", "border", "stroma")
+comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
+mycn_levels      <- c("nMNA", "MNA")   # het excluded
+
+y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.10
+y_base_offset        <- 0.01
+y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.20
+min_annotation_step  <- 0.05
+max_plot_columns     <- 5
+
+keep_rows <- rowData(spe)$use_channel
+
+for (cells in c("tumor", "immune")) {
+
+  order     <- if (cells == "immune") immune_order else tumor_order
+  keep_meta <- if (cells == "immune") spe$metacluster %in% immune_order else spe$metacluster == "tumor"
+
+  # ----------------------------------------------------------------
+  # A. Per-MYCN-group compartment DA (diffcyt)
+  # ----------------------------------------------------------------
+  for (mna_grp in mycn_levels) {
+    mna_code  <- if (mna_grp == "MNA") 1L else 0L
+    keep_mna  <- spe$MYCN_amp == mna_code
+
+    diffcyt_res_mna <- list()
+    for (pair in comparison_pairs) {
+      comps     <- pair
+      key       <- paste(comps, collapse = "-")
+      keep_cols <- keep_meta & keep_mna & spe$compartment %in% comps
+
+      if (sum(keep_cols) < 10) { diffcyt_res_mna[[key]] <- NULL; next }
+
+      sce_m <- SingleCellExperiment(
+        assays = list(
+          counts = assay(spe, "counts")[keep_rows, keep_cols],
+          exprs  = assay(spe, "counts")[keep_rows, keep_cols]
+        )
+      )
+      sce_m$fm_id       <- spe[keep_rows, keep_cols]$fm_id
+      sce_m$sample      <- factor(spe[keep_rows, keep_cols]$sample)
+      sce_m$compartment <- factor(spe[keep_rows, keep_cols]$compartment, levels = comps)
+      sce_m$sample_id   <- factor(paste0(sce_m$fm_id, "_", sce_m$compartment))
+      sce_m$condition   <- factor(sce_m$compartment, levels = comps)
+      sce_m$cluster_id  <- factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+
+      metadata(sce_m)$cluster_codes   <- data.frame(
+        celltype = factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+      )
+      metadata(sce_m)$experiment_info <- as.data.frame(colData(sce_m)) %>%
+        dplyr::group_by(sample_id, condition, sample) %>%
+        dplyr::summarise(n_cells = dplyr::n(), .groups = "drop") %>%
+        as.data.frame()
+
+      exp_info_m           <- metadata(sce_m)$experiment_info
+      exp_info_m           <- exp_info_m[match(unique(sce_m$sample_id), exp_info_m$sample_id), ]
+      exp_info_m$condition <- factor(exp_info_m$condition, levels = comps)
+
+      df_list_m <- lapply(unique(sce_m$sample_id), function(x)
+        as.data.frame(t(counts(sce_m[, sce_m$sample_id == x]))))
+      names(df_list_m) <- unique(sce_m$sample_id)
+
+      d_se_m <- prepareData(df_list_m, exp_info_m, marker_info_da)
+      rowData(d_se_m)$cluster_id     <- sce_m[, rownames(d_se_m)]$cluster_id
+      metadata(d_se_m)$cluster_codes <- metadata(sce_m)$cluster_codes
+      d_se_m     <- transformData(d_se_m)
+      d_counts_m <- calcCounts(d_se_m)
+
+      design_m   <- createDesignMatrix(exp_info_m, cols_design = c("condition", "sample"))
+      contrast_m <- createContrast(c(0, 1, rep(0, length(unique(exp_info_m$sample)) - 1)))
+
+      res_m <- tryCatch(
+        testDA_edgeR(d_counts_m, design_m, contrast_m,
+                     min_cells = 3,
+                     min_samples = round(ncol(d_counts_m) * 0.2)),
+        error = function(e) { message("diffcyt failed: ", e$message); NULL }
+      )
+      diffcyt_res_mna[[key]] <- if (!is.null(res_m)) data.frame(rowData(res_m)) else NULL
+    }
+
+    # sample-level proportions
+    comp_df_m <- data.frame(
+      fm_id       = spe$fm_id,
+      compartment = spe$compartment,
+      celltype_2  = spe$celltype_2,
+      keep        = keep_meta & keep_mna
+    )
+    comp_df_m <- comp_df_m[comp_df_m$keep & comp_df_m$compartment %in% comp_levels, ]
+    comp_df_m$compartment <- factor(comp_df_m$compartment, levels = comp_levels)
+
+    sample_totals_m <- comp_df_m %>%
+      dplyr::group_by(fm_id, compartment) %>%
+      dplyr::summarise(total = dplyr::n(), .groups = "drop")
+
+    plot_data_m <- list()
+    for (cluster_name in order) {
+      cc <- comp_df_m %>%
+        dplyr::filter(celltype_2 == cluster_name) %>%
+        dplyr::group_by(fm_id, compartment) %>%
+        dplyr::summarise(n = dplyr::n(), .groups = "drop")
+      plot_data_m[[cluster_name]] <- dplyr::left_join(
+        sample_totals_m, cc, by = c("fm_id", "compartment")
+      ) %>% dplyr::mutate(
+        n = dplyr::if_else(is.na(n), 0L, n),
+        Freq = 100 * n / total,
+        condition = factor(compartment, levels = comp_levels),
+        sample_id = fm_id
+      )
+    }
+
+    # stats from diffcyt
+    stats_m_list <- list()
+    for (cluster_name in order) {
+      for (pair in comparison_pairs) {
+        key      <- paste(pair, collapse = "-")
+        res_pair <- diffcyt_res_mna[[key]]
+        if (!is.null(res_pair) && cluster_name %in% rownames(res_pair)) {
+          p_adj <- res_pair[cluster_name, "p_adj"]
+          logFC <- res_pair[cluster_name, "logFC"]
+        } else { p_adj <- NA_real_; logFC <- NA_real_ }
+        p_signif <- if (!is.na(p_adj)) gtools::stars.pval(p_adj) else "NA"
+        if (p_signif == " ") p_signif <- "ns"
+        stats_m_list <- c(stats_m_list, list(data.frame(
+          cluster_name = cluster_name,
+          group1 = pair[1], group2 = pair[2],
+          p_adj = p_adj, logFC = round(logFC, 2),
+          label = paste0(round(logFC, 2), " (",
+                         if (!is.na(p_adj)) sprintf("%.3f", p_adj) else "NA",
+                         " ", p_signif, ")")
+        )))
+      }
+    }
+    all_stats_m <- dplyr::bind_rows(stats_m_list)
+
+    plot_list_m <- list()
+    for (cluster_name in order) {
+      proportions_m <- plot_data_m[[cluster_name]]
+      stats_df_m    <- all_stats_m[all_stats_m$cluster_name == cluster_name, ]
+      y_max_m <- max(proportions_m$Freq, na.rm = TRUE)
+      if (!is.finite(y_max_m)) y_max_m <- 0
+      stats_df_m$y.position <- if (y_max_m > 0)
+        y_max_m * y_offset_multipliers[seq_len(nrow(stats_df_m))] + y_base_offset
+      else seq_len(nrow(stats_df_m)) * min_annotation_step
+
+      color_cluster <- unname(
+        metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
+      )
+      plot_list_m[[cluster_name]] <- ggboxplot(
+        proportions_m, x = "condition", y = "Freq", order = comp_levels,
+        color = "condition", palette = rep(color_cluster, 3), add = "jitter"
+      ) +
+        stat_pvalue_manual(stats_df_m, y.position = "y.position", label = "label") +
+        ggtitle(cluster_name) +
+        scale_y_continuous(expand = expansion(mult = c(0.05, y_expand_upper))) +
+        theme(aspect.ratio = 1.2, legend.position = "none",
+              plot.title = element_text(margin = margin(b = 10)))
+    }
+
+    p_m <- gridExtra::grid.arrange(
+      grobs = plot_list_m,
+      ncol  = min(length(plot_list_m), max_plot_columns)
+    )
+    save_plot(p_m,
+              paste0("Fig4n_boxplot_compartments_", mna_grp, "_", cells, ".png"),
+              width = 12, height = 8)
+  }
+
+  # ----------------------------------------------------------------
+  # B. Core-compartment: MNA vs nMNA (Wilcoxon, BH correction)
+  # ----------------------------------------------------------------
+  core_df <- data.frame(
+    fm_id      = spe$fm_id,
+    compartment = spe$compartment,
+    celltype_2  = spe$celltype_2,
+    MYCN_amp    = spe$MYCN_amp,
+    keep        = keep_meta
   )
+  core_df <- core_df[core_df$keep &
+                       core_df$compartment == "core" &
+                       core_df$MYCN_amp %in% c(0L, 1L), ]
 
-# =========================
-# SAVE
-# =========================
-save_plot(
-  p_pie,
-  paste0("Fig4_suppl_piecharts_core-border-stroma_", cells, ".png"),
-  width = 10,
-  height = 4
-)
+  core_totals <- core_df %>%
+    dplyr::group_by(fm_id, MYCN_amp) %>%
+    dplyr::summarise(total = dplyr::n(), .groups = "drop")
+
+  core_props_list  <- list()
+  core_pval_list   <- list()
+
+  for (cluster_name in order) {
+    cc <- core_df %>%
+      dplyr::filter(celltype_2 == cluster_name) %>%
+      dplyr::group_by(fm_id, MYCN_amp) %>%
+      dplyr::summarise(n = dplyr::n(), .groups = "drop")
+
+    props_core <- dplyr::left_join(core_totals, cc, by = c("fm_id", "MYCN_amp")) %>%
+      dplyr::mutate(
+        n         = dplyr::if_else(is.na(n), 0L, n),
+        Freq      = 100 * n / total,
+        condition = factor(dplyr::recode(as.character(MYCN_amp), `0` = "nMNA", `1` = "MNA"),
+                           levels = mycn_levels)
+      )
+
+    x_mna  <- props_core$Freq[props_core$condition == "MNA"]
+    x_nmna <- props_core$Freq[props_core$condition == "nMNA"]
+    p_val  <- if (length(x_mna) > 1 && length(x_nmna) > 1)
+                suppressWarnings(wilcox.test(x_mna, x_nmna, exact = FALSE)$p.value)
+              else NA_real_
+
+    core_props_list[[cluster_name]] <- props_core
+    core_pval_list[[cluster_name]]  <- data.frame(cluster_name = cluster_name, p_raw = p_val)
+  }
+
+  core_stats <- dplyr::bind_rows(core_pval_list)
+  core_stats$p_adj        <- p.adjust(core_stats$p_raw, method = "BH")
+  core_stats$p_adj_signif <- gtools::stars.pval(core_stats$p_adj)
+  core_stats$p_adj_signif[core_stats$p_adj_signif == " "] <- "ns"
+
+  plot_list_core <- list()
+  for (cluster_name in order) {
+    props_core <- core_props_list[[cluster_name]]
+    s          <- core_stats[core_stats$cluster_name == cluster_name, ]
+    y_max_c    <- max(props_core$Freq, na.rm = TRUE)
+    if (!is.finite(y_max_c)) y_max_c <- 0
+
+    stats_manual <- data.frame(
+      group1     = "nMNA", group2 = "MNA",
+      label      = paste0(sprintf("%.3f", s$p_adj), " (", s$p_adj_signif, ")"),
+      y.position = max(y_max_c * 1.15, min_annotation_step)
+    )
+    color_cluster <- unname(
+      metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
+    )
+    plot_list_core[[cluster_name]] <- ggboxplot(
+      props_core, x = "condition", y = "Freq", order = mycn_levels,
+      color = "condition", palette = rep(color_cluster, 2), add = "jitter"
+    ) +
+      stat_pvalue_manual(stats_manual, y.position = "y.position", label = "label") +
+      ggtitle(cluster_name) +
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.20))) +
+      theme(aspect.ratio = 1.5, legend.position = "none",
+            plot.title = element_text(margin = margin(b = 10)))
+  }
+
+  p_core <- gridExtra::grid.arrange(
+    grobs = plot_list_core,
+    ncol  = min(length(plot_list_core), max_plot_columns)
+  )
+  save_plot(p_core,
+            paste0("Fig4n_core_MNA_vs_nMNA_", cells, ".png"),
+            width = 12, height = 6)
+}
 ```
 
 
-```{r,fig.width=20, fig.height=5}
+```{r bm-tumor-cell-counts, fig.width=20, fig.height=5}
 library(dplyr)
 library(ggplot2)
 
