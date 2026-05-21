@@ -204,7 +204,9 @@ spe <- aggregateNeighbors(spe,
 
 set.seed(220705)
 
-cn_1 <- kmeans(spe$aggregatedNeighbors, centers = 8)
+n_neighborhoods <- 6
+
+cn_1 <- kmeans(spe$aggregatedNeighbors, centers = n_neighborhoods)
 spe$cn_celltypes_2 <- as.factor(cn_1$cluster)
 
 p_spatial <- plotSpatial(spe, 
@@ -276,7 +278,7 @@ set.seed(20231103)
 distance <- "manhattan"
 linkage <- "complete"
 
-p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=brewer.pal(6, "Set3"), 
+p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=brewer.pal(n_neighborhoods, "Set3"), 
                     linkage = linkage, distance= distance) 
 
 save_plot(p, "Fig4d1_spatial_neighborhood_clustering.png", width = 6, height = 4)
@@ -339,7 +341,7 @@ col_code <- c("MNA"=rgb(202,0,32, maxColorValue = 255),
 # Plot metadata
 p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
-  columnAnnotation(progression=sample_summary$tumor_community, col=list(patientgroup=col_code))
+  columnAnnotation(patient_group=sample_summary$tumor_community, col=list(patientgroup=col_code))
 
 save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.png", width = 8, height = 4)
 
@@ -347,12 +349,6 @@ p_anno
 ```
 
 ```{r fig4d-combined-stacked, fig.height=12, fig.width=8}
-# Build a combined stacked Figure 4d (no grouping split)
-required_objects <- c("hc", "sample_summary", "clustered_samples", "col_code", "p")
-missing_objects <- required_objects[!vapply(required_objects, function(x) exists(x, inherits = FALSE), logical(1))]
-if (length(missing_objects) > 0) {
-  stop(sprintf("Missing required objects for Fig4d combined plot: %s. Please run the preceding Figure 4d preparation chunks first.", paste(missing_objects, collapse = ", ")))
-}
 
 ddata <- dendro_data(hc, type = "rectangle")
 segs <- segment(ddata)
@@ -546,7 +542,7 @@ for(i in 1:length(unique(p$data$cluster_id))){
   stats_df$p_adj_signif[stats_df$p_adj_signif==" "] <- "ns"
   stats_df$p_fc <- paste0(stats_df$logFC, " (", stats_df$p_adj, ")", " (", stats_df$p_adj_signif, ")")
   
-  color <- brewer.pal(6, "Set3")[cluster_name]
+  color <- brewer.pal(n_neighborhoods, "Set3")[cluster_name]
   
   plot_list_fc[[i]] <- ggboxplot(proportions, x = "condition", y = "Freq", order=c("nMNA", "MNA"),
               color = "condition", palette =c(color, color), 
@@ -637,28 +633,7 @@ save_plot(p_s2, "Fig4g2_tumor_patch.png", width = 6, height = 6)
 
 (p_s1 | p_s2)
 ```
-```{r}
-p <-plotSpatial(spe[,spe$sample_id == "20220927_20220810_05-009_TU_002"], 
-            node_color_by = "GD2_Gd155_mean",
-            assay_type = "counts",
-            node_size_by = "area",
-            img_id = "sample_id") +    scale_size_continuous(range = c(1, 10)) + theme(legend.position = "none")
 
-p2 <- plotSpatial(spe[,spe$sample_id == "20220927_20220810_05-009_TU_002"], 
-            node_color_by = "celltype", 
-            assay_type = "counts",
-            node_size_by = "area",
-            img_id = "sample_id") 
-
-
-p + coord_cartesian(xlim = c(1000, 1500), ylim = c(0, 1000))
-```
-```{r}
-p2 +  scale_color_manual(values = c(
-    "marker-lo Tu" = "red",
-    "other" = "grey80"
-  )) + theme(legend.position = "none") #+ coord_cartesian(xlim = c(1000, 1500), ylim = c(0, 1000))
-```
 
 Then we determine the frequency of cells within the patch belonging to a metacluster per sample with respect to progression status of the respective patient.
 
@@ -734,7 +709,7 @@ p_box
 ```
 
 ```{r patch-freq, fig.width=14, fig.height=7}
-variable <- "progression"
+variable <- "tumor_community"
 plot_list <- list()
 celltypes <- unique(spe$metacluster)
 
@@ -900,11 +875,53 @@ p_dist
 Based on the calculated distance for each cell, three compartments - tumor core, tumor/stroma border and stroma - can be defined using a distance threshold. Image `20221018_20220906_03-018_TU_001` lacks tumor patches, therefore all cells are defined as `stroma` for this image.
 
 ```{r spatial-compartments}
-threshold <- 100
+thresholds <- seq(100, 300, by = 50)
 
-spe$compartment <- "stroma"
-spe[, abs(spe$distToCells) <= threshold & spe$sample_id != "20221018_20220906_03-018_TU_001"]$compartment <- "border"
-spe[,spe$compartment != "border" & spe$distToCells<=threshold & spe$sample_id != "20221018_20220906_03-018_TU_001"]$compartment <- "core"
+plot_list <- list()
+
+for (th in thresholds) {
+
+  # reset compartment
+  spe$compartment <- "stroma"
+
+  # border
+  spe[
+    ,
+    abs(spe$distToCells) <= th &
+      spe$sample_id != "20221018_20220906_03-018_TU_001"
+  ]$compartment <- "border"
+
+  # core
+  spe[
+    ,
+    spe$compartment != "border" &
+      spe$distToCells <= th &
+      spe$sample_id != "20221018_20220906_03-018_TU_001"
+  ]$compartment <- "core"
+
+  # plot
+  p_s2 <- plotSpatial(
+    spe[, spe$sample_id == "20220926_20220809_16-006_TU_003"],
+    node_color_by = "compartment",
+    img_id = "sample_id",
+    node_size_fix = 0.5
+  ) +
+    ggtitle(paste("Threshold =", th))
+
+  # save
+  save_plot(
+    p_s2,
+    paste0("Fig4g3_tumor_patch_", th, ".png"),
+    width = 6,
+    height = 6
+  )
+
+  # store
+  plot_list[[as.character(th)]] <- p_s2
+}
+
+# show one example
+plot_list[["100"]]
 ```
 
 ### DA analysis in spatial compartments
@@ -1223,8 +1240,8 @@ for (cells in cells_list) {
     order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
     keep_meta <- spe$metacluster %in% order
   } else {
-    order <- c("marker-lo Tu","GD2lo Tu","CD44+ Tu","CXCR4hi Tu","Ki67hi Tu",
-               "GATA3hi Tu","early NB Tu")
+    order <- c("marker-lo Tu","GD2lo Tu","CD44+ Tu","CXCR4+ Tu","Ki67+ Tu",
+               "bridge-like Tu","early NB Tu")
     keep_meta <- spe$metacluster == "tumor"
   }
 
@@ -1487,15 +1504,6 @@ ggplot(df_counts, aes(x = fm_id, y = n_cells)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-
-```{r}
-p_s2 <- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"], 
-            node_color_by = "compartment", 
-            img_id = "sample_id", 
-            node_size_fix = 0.5) 
-
-save_plot(p_s2, "Fig4g3_tumor_patch.png", width = 6, height = 6)
-```
 
 ## Save R object
 
