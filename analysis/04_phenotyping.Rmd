@@ -318,15 +318,15 @@ for (var_name in cluster_vars) {
 
 # UMAPs for each marker
 ```{r UMAP-all-markers, fig.width=24, fig.height=32}
+excluded_markers <- "mean-80|PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3"
+max_cells_for_umap <- 20000
+
 marker_vars <- rownames(spe)[
-  !grepl(
-    "mean-80|PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3",
-    rownames(spe)
-  )
+  !grepl(excluded_markers, rownames(spe))
 ]
 
 set.seed(221228)
-marker_umap_ncells <- min(20000, ncol(spe))
+marker_umap_ncells <- min(max_cells_for_umap, ncol(spe))
 marker_umap_idx <- sample(seq_len(ncol(spe)), marker_umap_ncells)
 spe_umap_markers <- spe[, marker_umap_idx]
 
