@@ -399,8 +399,9 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     mat_df,
     by = list(cluster = cluster_vec),
     FUN = function(x) {
-      if (all(x == 0)) return(0)
-      median(log1p(x[x > 0]))
+      pos_vals <- x[x > 0]
+      if (length(pos_vals) == 0) return(0)
+      median(log1p(pos_vals))
     }
   )
 
@@ -808,8 +809,9 @@ plot_cluster_zscore_heatmap <- function(cluster_col, save_name,
     mat_df,
     by = list(cluster = cluster_vec),
     FUN = function(x) {
-      if (all(x == 0)) return(0)
-      median(log1p(x[x > 0]))
+      pos_vals <- x[x > 0]
+      if (length(pos_vals) == 0) return(0)
+      median(log1p(pos_vals))
     }
   )
 
@@ -1131,7 +1133,7 @@ for (cluster_col in cluster_vars) {
 ```
 
 ## Define final clustering set
-```{r}
+```{r pg-clusters-zscore-heatmap}
 spe$pg_clusters <- spe$pg_clusters_k30
 ```
 
@@ -1261,7 +1263,7 @@ for (pair in subcluster_pairs) {
 }
 ```
 
-```{r}
+```{r celltype-zscore-heatmap}
 
 plot_cluster_bubble(
       cluster_col = "pg_clusters",
