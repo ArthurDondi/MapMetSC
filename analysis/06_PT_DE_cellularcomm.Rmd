@@ -464,39 +464,39 @@ segs$community <- factor(mapply(function(x1, x2) {
 
 segs_c <- segs[!is.na(segs$community), ]
 
-# ---- Root arms: restore the shared top connection after faceting ----
-# segs_c already contains, for each community, the vertical "root-drop" segment
-# that goes from h_root down to the community's highest merge node. We only add
-# a horizontal segment at h_root, spanning the full facet width, so the top
-# connection remains visually intact without duplicating vertical segments.
-h_root     <- max(c(segs$y, segs$yend))
+# ---- Normalize x-coordinates to community-local positions ----
+# The barplots use discrete x (1..n_c per community panel), but dendro_data()
+# assigns global x-positions (1..N across all samples). Subtracting each
+# community's minimum leaf position minus 1 maps leaves to 1..n_c locally,
+# aligning dendrogram leaves with barplot columns in every facet.
+comm_levels_chr <- as.character(community_levels)
+comm_min_x <- vapply(community_levels, function(comm) {
+  cx <- leaf_x[leaf_comm == comm]
+  if (length(cx) == 0L) NA_integer_ else min(cx) - 1L
+}, integer(1))
+names(comm_min_x) <- comm_levels_chr
+offset_vec  <- comm_min_x[as.character(segs_c$community)]
+segs_c$x    <- segs_c$x    - offset_vec
+segs_c$xend <- segs_c$xend - offset_vec
 
-# Return the x coordinate of the vertical segment that reaches h_root in comm.
-get_root_drop_x <- function(comm) {
-  s_comm <- segs_c[segs_c$community == comm, ]
-  # Vertical segments: x == xend
-  s_v <- s_comm[abs(s_comm$x - s_comm$xend) < 1e-6, ]
-  if (nrow(s_v) == 0) return(NULL)
-  # The root-drop has its top endpoint at h_root
-  s_v_root <- s_v[abs(pmax(s_v$y, s_v$yend) - h_root) < 1e-6, ]
-  if (nrow(s_v_root) == 0) s_v_root <- s_v[which.max(pmax(s_v$y, s_v$yend)), ]
-  s_v_root$x[1]
-}
-
+# ---- Root arms: one horizontal cap per community at its natural top ----
+# Drawing each cap at the community's own maximum merge height (not the global
+# h_root) correctly reflects the hierarchy: groups that merge early show a
+# lower cap than the group that forms the last split at h_root.
 make_root_arm <- function(comm) {
-  x_pos   <- get_root_drop_x(comm)
-  if (is.null(x_pos)) return(NULL)
-  comm_x <- leaf_x[leaf_comm == comm]
-  if (length(comm_x) == 0) return(NULL)
-  # Draw the top root connection across the full panel width so the shared
-  # root bar stays visually continuous after faceting by community.
-  data.frame(x = min(comm_x) - PANEL_EDGE_PADDING, y = h_root,
-             xend = max(comm_x) + PANEL_EDGE_PADDING, yend = h_root,
+  s_comm <- segs_c[segs_c$community == comm, ]
+  if (nrow(s_comm) == 0) return(NULL)
+  h_comm <- max(c(s_comm$y, s_comm$yend))   # actual top of this community's subtree
+  n_c    <- sum(leaf_comm == comm)           # number of leaves (= local x range)
+  data.frame(x    = 1 - PANEL_EDGE_PADDING,
+             y    = h_comm,
+             xend = n_c + PANEL_EDGE_PADDING,
+             yend = h_comm,
              community = factor(comm, levels = community_levels))
 }
 
-root_arm_list <- Filter(Negate(is.null), lapply(valid_communities, make_root_arm))
-root_arms <- if (length(root_arm_list) == 0) NULL else do.call(rbind, root_arm_list)
+root_arm_list  <- Filter(Negate(is.null), lapply(valid_communities, make_root_arm))
+root_arms      <- if (length(root_arm_list) == 0) NULL else do.call(rbind, root_arm_list)
 segs_with_root <- if (is.null(root_arms)) segs_c else rbind(segs_c, root_arms)
 
 p_dendro <- ggplot(segs_with_root) +
