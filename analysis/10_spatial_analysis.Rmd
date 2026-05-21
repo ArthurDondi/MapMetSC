@@ -96,6 +96,7 @@ library(ggridges)
 library(forcats)
 library(pheatmap)
 library(tidyverse)
+library(ggdendro)
 ```
 </details>
 
@@ -285,8 +286,8 @@ p
 
 We generate a dendogram for the hierarchical clustering of barplots.
 
-```{r dendogram, fig.height=8, fig.width=7}
-#Dendogram
+```{r dendrogram, fig.height=8, fig.width=7}
+#Dendrogram
 set.seed(20231103)
 wide_df <- p$data %>%
   select(-condition) %>%
@@ -343,6 +344,81 @@ p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_cod
 save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.png", width = 8, height = 4)
 
 p_anno
+```
+
+```{r fig4d-combined-stacked, fig.height=12, fig.width=8}
+# Build a combined stacked Figure 4d (no grouping split)
+required_objects <- c("hc", "sample_summary", "clustered_samples", "col_code", "p")
+missing_objects <- required_objects[!vapply(required_objects, function(x) exists(x, inherits = FALSE), logical(1))]
+if (length(missing_objects) > 0) {
+  stop(sprintf("Missing required objects for Fig4d combined plot: %s. Please run the preceding Figure 4d preparation chunks first.", paste(missing_objects, collapse = ", ")))
+}
+
+ddata <- dendro_data(hc, type = "rectangle")
+segs <- segment(ddata)
+
+p_dendro <- ggplot(segs) +
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
+  scale_x_continuous(expand = expansion(add = 0.5)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(face = "bold", size = 11, hjust = 0.5),
+    plot.margin = margin(2, 2, 0, 2)
+  ) +
+  labs(title = "Sample clustering")
+
+meta_df <- sample_summary[clustered_samples, c("mna", "progress", "tumor_community")]
+meta_df$sample_id <- factor(rownames(meta_df), levels = clustered_samples)
+
+meta_long <- meta_df %>%
+  pivot_longer(cols = c(mna, progress, tumor_community), names_to = "annotation", values_to = "value") %>%
+  mutate(
+    annotation = factor(annotation, levels = c("mna", "progress", "tumor_community"),
+                        labels = c("MYCN", "Progression", "Tumor community"))
+  )
+
+p_meta <- ggplot(meta_long, aes(x = sample_id, y = annotation, fill = as.character(value))) +
+  geom_tile() +
+  scale_fill_manual(values = col_code, na.value = "white") +
+  scale_x_discrete(expand = expansion(add = 0.5)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "right",
+    legend.key.size = unit(0.5, "cm"),
+    panel.grid = element_blank(),
+    plot.margin = margin(0, 2, 2, 2)
+  )
+
+p_abund <- p +
+  scale_x_discrete(expand = expansion(add = 0.5)) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    plot.title = element_blank(),
+    plot.margin = margin(0, 2, 0, 2)
+  )
+
+# Empirically tuned panel proportions:
+# - dendrogram = 1.2 keeps branch structure readable without dominating the figure
+# - abundance = 4 prioritizes the main abundance signal (largest information density)
+# - metadata = 1.5 keeps annotation strips legible while compact
+panel_heights <- c(dendrogram = 1.2, abundance = 4, metadata = 1.5)
+p_fig4d <- (p_dendro / p_abund / p_meta) +
+  plot_layout(ncol = 1, heights = panel_heights, guides = "collect")
+
+p_fig4d
+
+save_plot(p_fig4d, "Fig4d_combined_stacked.png", width = 8, height = 12)
 ```
 
 We then compare the abundance of cellular communities between nMNA and MNA samples.
