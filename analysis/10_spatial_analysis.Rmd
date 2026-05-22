@@ -879,9 +879,11 @@ Based on the calculated distance for each cell, three compartments - tumor core,
 thresholds <- seq(100, 300, by = 50)
 panel_sample_id_1 <- "20220926_20220809_16-006_TU_003"
 panel_sample_id_2 <- "20221018_20220906_03-018_TU_004"
+# sanitize sample IDs for file-safe output tags
 sanitize_sample_tag <- function(x) gsub("[^A-Za-z0-9]+", "_", x)
 panel_sample_tag_1 <- sanitize_sample_tag(panel_sample_id_1)
 panel_sample_tag_2 <- sanitize_sample_tag(panel_sample_id_2)
+y_axis_upper_expand <- 0.1
 
 plot_list_img1 <- list()
 plot_list_img2 <- list()
@@ -1032,7 +1034,7 @@ immune_plot <- ggplot(
     y = "Cell count"
   ) +
   theme_classic() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+  scale_y_continuous(expand = expansion(mult = c(0, y_axis_upper_expand)))
 
 save_plot(
     immune_plot,
@@ -1068,7 +1070,7 @@ tumor_plot <- ggplot(
     y = "Cell count"
   ) +
   theme_classic() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+  scale_y_continuous(expand = expansion(mult = c(0, y_axis_upper_expand)))
 
 save_plot(
     tumor_plot,
