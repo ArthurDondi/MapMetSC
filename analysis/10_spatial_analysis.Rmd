@@ -878,7 +878,9 @@ Based on the calculated distance for each cell, three compartments - tumor core,
 ```{r spatial-compartments}
 thresholds <- seq(100, 300, by = 50)
 
-plot_list <- list()
+plot_list_img1 <- list()
+plot_list_img2 <- list()
+results_list <- list()
 
 for (th in thresholds) {
 
@@ -910,7 +912,7 @@ for (th in thresholds) {
     img_id = "sample_id",
     node_size_fix = 0.5
   ) +
-    ggtitle(paste("Threshold =", th))
+    ggtitle(paste("Border size =", th))
 
   save_plot(
     p_s2,
@@ -925,7 +927,7 @@ for (th in thresholds) {
     img_id = "sample_id",
     node_size_fix = 0.5
   ) +
-    ggtitle(paste("Threshold =", th))
+    ggtitle(paste("Border size =", th))
 
   save_plot(
     p_s3,
@@ -934,7 +936,8 @@ for (th in thresholds) {
     height = 6
   )
 
-  plot_list[[as.character(th)]] <- p_s2
+  plot_list_img1[[as.character(th)]] <- p_s2
+  plot_list_img2[[as.character(th)]] <- p_s3
   
   # -----------------------------
   # IMMUNE COUNTS
@@ -970,6 +973,29 @@ for (th in thresholds) {
 # combine all
 results_df <- bind_rows(results_list)
 
+panel_img1 <- wrap_plots(plot_list_img1, ncol = length(thresholds)) +
+  plot_annotation(title = "20220926_20220809_16-006_TU_003")
+
+save_plot(
+  panel_img1,
+  "Fig4g3_tumor_patch_panel_all_thresholds.png",
+  width = 30,
+  height = 6
+)
+
+panel_img2 <- wrap_plots(plot_list_img2, ncol = length(thresholds)) +
+  plot_annotation(title = "20221018_20220906_03-018_TU_004")
+
+save_plot(
+  panel_img2,
+  "Fig4g3_tumor_patch2_panel_all_thresholds.png",
+  width = 30,
+  height = 6
+)
+
+panel_img1
+panel_img2
+
 # order compartments
 results_df$compartment <- factor(
   results_df$compartment,
@@ -989,12 +1015,19 @@ immune_plot <- ggplot(
   )
 ) +
   geom_bar(stat = "identity", position = "dodge") +
+  geom_text(
+    aes(label = count),
+    position = position_dodge(width = 0.9),
+    vjust = -0.25,
+    size = 3
+  ) +
   labs(
     title = "Immune cell counts by compartment",
-    x = "Threshold",
+    x = "Border size",
     y = "Cell count"
   ) +
-  theme_classic()
+  theme_classic() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
 
 save_plot(
     immune_plot,
@@ -1018,12 +1051,19 @@ tumor_plot <- ggplot(
   )
 ) +
   geom_bar(stat = "identity", position = "dodge") +
+  geom_text(
+    aes(label = count),
+    position = position_dodge(width = 0.9),
+    vjust = -0.25,
+    size = 3
+  ) +
   labs(
     title = "Tumor cell counts by compartment",
-    x = "Threshold",
+    x = "Border size",
     y = "Cell count"
   ) +
-  theme_classic()
+  theme_classic() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
 
 save_plot(
     tumor_plot,
