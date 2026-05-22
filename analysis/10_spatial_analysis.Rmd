@@ -942,8 +942,8 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 
 ```{r cluster-order-colors}
 # Canonical cluster orders used consistently throughout compartment analyses
-tumor_order  <- c("marker-lo Tu", "GD2lo Tu", "CD44+ Tu", "CXCR4hi Tu",
-                  "Ki67hi Tu", "GATA3hi Tu", "early NB Tu")
+tumor_order  <- c("marker-lo Tu", "GD2lo Tu", "CD44+ Tu", "CXCR4+ Tu",
+                  "Ki67+ Tu", "bridge-like Tu", "early NB Tu")
 immune_order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
 ```
 
@@ -1383,33 +1383,36 @@ for (cells in c("tumor", "immune")) {
   }
 
   # ----------------------------------------------------------------
-  # B. Core-compartment: MNA vs nMNA (Wilcoxon, BH correction)
+  # B. Per-compartment: MNA vs nMNA (Wilcoxon, BH correction)
+  #    Runs separately for core, border, and stroma.
   # ----------------------------------------------------------------
-  core_df <- data.frame(
-    fm_id      = spe$fm_id,
+  for (comp_b in comp_levels) {
+
+  comp_b_df <- data.frame(
+    fm_id       = spe$fm_id,
     compartment = spe$compartment,
     celltype_2  = spe$celltype_2,
     MYCN_amp    = spe$MYCN_amp,
     keep        = keep_meta
   )
-  core_df <- core_df[core_df$keep &
-                       core_df$compartment == "core" &
-                       core_df$MYCN_amp %in% c(0L, 1L), ]
+  comp_b_df <- comp_b_df[comp_b_df$keep &
+                           comp_b_df$compartment == comp_b &
+                           comp_b_df$MYCN_amp %in% c(0L, 1L), ]
 
-  core_totals <- core_df %>%
+  comp_b_totals <- comp_b_df %>%
     dplyr::group_by(fm_id, MYCN_amp) %>%
     dplyr::summarise(total = dplyr::n(), .groups = "drop")
 
-  core_props_list  <- list()
-  core_pval_list   <- list()
+  comp_b_props_list <- list()
+  comp_b_pval_list  <- list()
 
   for (cluster_name in order) {
-    cc <- core_df %>%
+    cc <- comp_b_df %>%
       dplyr::filter(celltype_2 == cluster_name) %>%
       dplyr::group_by(fm_id, MYCN_amp) %>%
       dplyr::summarise(n = dplyr::n(), .groups = "drop")
 
-    props_core <- dplyr::left_join(core_totals, cc, by = c("fm_id", "MYCN_amp")) %>%
+    props_b <- dplyr::left_join(comp_b_totals, cc, by = c("fm_id", "MYCN_amp")) %>%
       dplyr::mutate(
         n         = dplyr::if_else(is.na(n), 0L, n),
         Freq      = 100 * n / total,
@@ -1417,54 +1420,56 @@ for (cells in c("tumor", "immune")) {
                            levels = mycn_levels)
       )
 
-    x_mna  <- props_core$Freq[props_core$condition == "MNA"]
-    x_nmna <- props_core$Freq[props_core$condition == "nMNA"]
+    x_mna  <- props_b$Freq[props_b$condition == "MNA"]
+    x_nmna <- props_b$Freq[props_b$condition == "nMNA"]
     p_val  <- if (length(x_mna) > 1 && length(x_nmna) > 1)
                 suppressWarnings(wilcox.test(x_mna, x_nmna, exact = FALSE)$p.value)
               else NA_real_
 
-    core_props_list[[cluster_name]] <- props_core
-    core_pval_list[[cluster_name]]  <- data.frame(cluster_name = cluster_name, p_raw = p_val)
+    comp_b_props_list[[cluster_name]] <- props_b
+    comp_b_pval_list[[cluster_name]]  <- data.frame(cluster_name = cluster_name, p_raw = p_val)
   }
 
-  core_stats <- dplyr::bind_rows(core_pval_list)
-  core_stats$p_adj        <- p.adjust(core_stats$p_raw, method = "BH")
-  core_stats$p_adj_signif <- gtools::stars.pval(core_stats$p_adj)
-  core_stats$p_adj_signif[core_stats$p_adj_signif == " "] <- "ns"
+  comp_b_stats <- dplyr::bind_rows(comp_b_pval_list)
+  comp_b_stats$p_adj        <- p.adjust(comp_b_stats$p_raw, method = "BH")
+  comp_b_stats$p_adj_signif <- gtools::stars.pval(comp_b_stats$p_adj)
+  comp_b_stats$p_adj_signif[comp_b_stats$p_adj_signif == " "] <- "ns"
 
-  plot_list_core <- list()
+  plot_list_b <- list()
   for (cluster_name in order) {
-    props_core <- core_props_list[[cluster_name]]
-    s          <- core_stats[core_stats$cluster_name == cluster_name, ]
-    y_max_c    <- max(props_core$Freq, na.rm = TRUE)
-    if (!is.finite(y_max_c)) y_max_c <- 0
+    props_b <- comp_b_props_list[[cluster_name]]
+    s       <- comp_b_stats[comp_b_stats$cluster_name == cluster_name, ]
+    y_max_b <- max(props_b$Freq, na.rm = TRUE)
+    if (!is.finite(y_max_b)) y_max_b <- 0
 
-    stats_manual <- data.frame(
+    stats_manual_b <- data.frame(
       group1     = "nMNA", group2 = "MNA",
       label      = paste0(sprintf("%.3f", s$p_adj), " (", s$p_adj_signif, ")"),
-      y.position = max(y_max_c * 1.15, min_annotation_step)
+      y.position = max(y_max_b * 1.15, min_annotation_step)
     )
     color_cluster <- unname(
       metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
     )
-    plot_list_core[[cluster_name]] <- ggboxplot(
-      props_core, x = "condition", y = "Freq", order = mycn_levels,
+    plot_list_b[[cluster_name]] <- ggboxplot(
+      props_b, x = "condition", y = "Freq", order = mycn_levels,
       color = "condition", palette = rep(color_cluster, 2), add = "jitter"
     ) +
-      stat_pvalue_manual(stats_manual, y.position = "y.position", label = "label") +
+      stat_pvalue_manual(stats_manual_b, y.position = "y.position", label = "label") +
       ggtitle(cluster_name) +
       scale_y_continuous(expand = expansion(mult = c(0.05, 0.20))) +
       theme(aspect.ratio = 1.5, legend.position = "none",
             plot.title = element_text(margin = margin(b = 10)))
   }
 
-  p_core <- gridExtra::grid.arrange(
-    grobs = plot_list_core,
-    ncol  = min(length(plot_list_core), max_plot_columns)
+  p_b <- gridExtra::grid.arrange(
+    grobs = plot_list_b,
+    ncol  = min(length(plot_list_b), max_plot_columns)
   )
-  save_plot(p_core,
-            paste0("Fig4n_core_MNA_vs_nMNA_", cells, ".png"),
+  save_plot(p_b,
+            paste0("Fig4n_", comp_b, "_MNA_vs_nMNA_", cells, ".png"),
             width = 12, height = 6)
+
+  } # end compartment loop (section B)
 }
 ```
 
