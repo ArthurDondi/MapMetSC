@@ -1214,7 +1214,7 @@ for (cells in c("tumor", "immune")) {
 
 ### MYCN-stratified compartment DA
 
-Here we repeat the compartment DA analysis (diffcyt) separately within MNA and nMNA samples (het samples are excluded). We additionally test whether the compartment-transition shift (core→border, core→stroma) differs between MNA and nMNA using a Binomial GLMM with a condition × compartment interaction, overall baseline abundance as a covariate, and a per-patient random intercept (BH-corrected).
+Here we repeat the compartment DA analysis (diffcyt) separately within MNA and nMNA samples (het samples are excluded). We additionally test whether the MNA vs nMNA difference differs across compartments using a Binomial GLMM with a condition × compartment interaction, overall baseline abundance as a covariate, and a per-patient random intercept (BH-corrected). The model fits all three compartments simultaneously; the interaction terms test whether the MNA vs nMNA difference at border or stroma deviates from the reference compartment (core). Compartment main effects (shifts between compartments within the nMNA reference group) are included in the model but not reported separately here.
 
 ```{r mycn-stratified-compartment-da}
 comp_levels      <- c("core", "border", "stroma")
@@ -1451,6 +1451,8 @@ for (cells in c("tumor", "immune")) {
           cbind(n, total - n) ~ MYCN_amp * compartment + baseline_prop + (1 | fm_id),
           data    = dat_ct,
           family  = binomial,
+          # bobyqa is a derivative-free optimizer that is more robust to
+          # near-boundary variance estimates common in small GLMMs
           control = lme4::glmerControl(optimizer = "bobyqa")
         )
       ),
@@ -1462,7 +1464,10 @@ for (cells in c("tumor", "immune")) {
 
     if (!is.null(fit)) {
       coefs    <- summary(fit)$coefficients
-      # Main MNA effect (at core, the reference compartment)
+      # Extract the MNA vs nMNA main effect (at core, the reference compartment)
+      # and the interaction terms (whether that difference changes at border/stroma).
+      # Compartment main effects (differences across compartments within nMNA)
+      # are part of the fitted model but are not separately reported here.
       main_row <- grep("^MYCN_ampMNA$", rownames(coefs))
       # Interaction: MNA × (border or stroma vs core)
       int_rows <- grep("MYCN_ampMNA:compartment", rownames(coefs))
