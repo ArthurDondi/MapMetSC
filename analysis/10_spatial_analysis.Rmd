@@ -879,8 +879,9 @@ Based on the calculated distance for each cell, three compartments - tumor core,
 thresholds <- seq(100, 300, by = 50)
 panel_sample_id_1 <- "20220926_20220809_16-006_TU_003"
 panel_sample_id_2 <- "20221018_20220906_03-018_TU_004"
-panel_sample_tag_1 <- gsub("[^A-Za-z0-9]+", "_", panel_sample_id_1)
-panel_sample_tag_2 <- gsub("[^A-Za-z0-9]+", "_", panel_sample_id_2)
+sanitize_sample_tag <- function(x) gsub("[^A-Za-z0-9]+", "_", x)
+panel_sample_tag_1 <- sanitize_sample_tag(panel_sample_id_1)
+panel_sample_tag_2 <- sanitize_sample_tag(panel_sample_id_2)
 
 plot_list_img1 <- list()
 plot_list_img2 <- list()
@@ -992,7 +993,7 @@ panel_img2 <- wrap_plots(plot_list_img2, ncol = length(thresholds)) +
 
 save_plot(
   panel_img2,
-  paste0("Fig4g3_tumor_patch2_panel_all_thresholds_", panel_sample_tag_2, ".png"),
+  paste0("Fig4g3_tumor_patch_panel_all_thresholds_", panel_sample_tag_2, ".png"),
   width = 30,
   height = 6
 )
