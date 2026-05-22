@@ -97,6 +97,7 @@ library(forcats)
 library(pheatmap)
 library(tidyverse)
 library(ggdendro)
+library(lme4)
 ```
 </details>
 
@@ -960,9 +961,9 @@ cells_list       <- c("tumor", "immune")
 comp_levels      <- c("core", "border", "stroma")
 comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
 
-y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.10
+y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.20
 y_base_offset        <- 0.01
-y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.20
+y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.25
 min_annotation_step  <- 0.05
 max_plot_columns     <- 5
 
@@ -1213,16 +1214,16 @@ for (cells in c("tumor", "immune")) {
 
 ### MYCN-stratified compartment DA
 
-Here we repeat the compartment DA analysis (diffcyt) separately within MNA and nMNA samples (het samples are excluded). We then additionally compare core-compartment proportions between MNA and nMNA using a paired Wilcoxon test (BH-corrected).
+Here we repeat the compartment DA analysis (diffcyt) separately within MNA and nMNA samples (het samples are excluded). We additionally test whether the MNA vs nMNA difference differs across compartments using a Binomial GLMM with a condition × compartment interaction, overall baseline abundance as a covariate, and a per-patient random intercept (BH-corrected). The model fits all three compartments simultaneously; the interaction terms test whether the MNA vs nMNA difference at border or stroma deviates from the reference compartment (core). Compartment main effects (shifts between compartments within the nMNA reference group) are included in the model but not reported separately here.
 
 ```{r mycn-stratified-compartment-da}
 comp_levels      <- c("core", "border", "stroma")
 comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
 mycn_levels      <- c("nMNA", "MNA")   # het excluded
 
-y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.10
+y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.20
 y_base_offset        <- 0.01
-y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.20
+y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.25
 min_annotation_step  <- 0.05
 max_plot_columns     <- 5
 
@@ -1383,93 +1384,193 @@ for (cells in c("tumor", "immune")) {
   }
 
   # ----------------------------------------------------------------
-  # B. Per-compartment: MNA vs nMNA (Wilcoxon, BH correction)
-  #    Runs separately for core, border, and stroma.
+  # B. Condition × compartment interaction: Binomial GLMM
+  #    For each cell type, fit:
+  #      cbind(n, total-n) ~ MYCN_amp * compartment + baseline_prop + (1|fm_id)
+  #    The main MYCN_amp effect captures MNA vs nMNA in the reference
+  #    compartment (core); interaction terms capture whether that difference
+  #    changes at border/stroma, controlling for each patient's overall
+  #    baseline abundance of the cell type.  BH-correction across all
+  #    tests per cell type.
   # ----------------------------------------------------------------
-  for (comp_b in comp_levels) {
-
-  comp_b_df <- data.frame(
+  glmm_input <- data.frame(
     fm_id       = spe$fm_id,
     compartment = spe$compartment,
     celltype_2  = spe$celltype_2,
     MYCN_amp    = spe$MYCN_amp,
     keep        = keep_meta
   )
-  comp_b_df <- comp_b_df[comp_b_df$keep &
-                           comp_b_df$compartment == comp_b &
-                           comp_b_df$MYCN_amp %in% c(0L, 1L), ]
+  glmm_input <- glmm_input[glmm_input$keep &
+                              glmm_input$compartment %in% comp_levels &
+                              glmm_input$MYCN_amp %in% c(0L, 1L), ]
 
-  comp_b_totals <- comp_b_df %>%
-    dplyr::group_by(fm_id, MYCN_amp) %>%
+  glmm_totals <- glmm_input %>%
+    dplyr::group_by(fm_id, compartment) %>%
     dplyr::summarise(total = dplyr::n(), .groups = "drop")
 
-  comp_b_props_list <- list()
-  comp_b_pval_list  <- list()
+  glmm_total_all <- glmm_input %>%
+    dplyr::group_by(fm_id) %>%
+    dplyr::summarise(total_all = dplyr::n(), .groups = "drop")
+
+  sample_mycn <- glmm_input %>%
+    dplyr::select(fm_id, MYCN_amp) %>%
+    dplyr::distinct()
+
+  glmm_results_list <- list()
 
   for (cluster_name in order) {
-    cc <- comp_b_df %>%
+    ct_counts <- glmm_input %>%
       dplyr::filter(celltype_2 == cluster_name) %>%
-      dplyr::group_by(fm_id, MYCN_amp) %>%
+      dplyr::group_by(fm_id, compartment) %>%
       dplyr::summarise(n = dplyr::n(), .groups = "drop")
 
-    props_b <- dplyr::left_join(comp_b_totals, cc, by = c("fm_id", "MYCN_amp")) %>%
+    ct_baseline <- glmm_input %>%
+      dplyr::filter(celltype_2 == cluster_name) %>%
+      dplyr::group_by(fm_id) %>%
+      dplyr::summarise(n_all = dplyr::n(), .groups = "drop") %>%
+      dplyr::left_join(glmm_total_all, by = "fm_id") %>%
+      dplyr::mutate(baseline_prop = n_all / total_all) %>%
+      dplyr::select(fm_id, baseline_prop)
+
+    dat_ct <- dplyr::left_join(glmm_totals, ct_counts,
+                               by = c("fm_id", "compartment")) %>%
+      dplyr::mutate(n = dplyr::if_else(is.na(n), 0L, n)) %>%
+      dplyr::left_join(sample_mycn, by = "fm_id") %>%
+      dplyr::left_join(ct_baseline,  by = "fm_id") %>%
       dplyr::mutate(
-        n         = dplyr::if_else(is.na(n), 0L, n),
-        Freq      = 100 * n / total,
-        condition = factor(dplyr::recode(as.character(MYCN_amp), `0` = "nMNA", `1` = "MNA"),
-                           levels = mycn_levels)
+        compartment   = factor(compartment, levels = comp_levels),
+        MYCN_amp      = factor(
+          dplyr::recode(as.character(MYCN_amp), `0` = "nMNA", `1` = "MNA"),
+          levels = mycn_levels),
+        baseline_prop = dplyr::if_else(is.na(baseline_prop), 0, baseline_prop)
       )
 
-    x_mna  <- props_b$Freq[props_b$condition == "MNA"]
-    x_nmna <- props_b$Freq[props_b$condition == "nMNA"]
-    p_val  <- if (length(x_mna) > 1 && length(x_nmna) > 1)
-                suppressWarnings(wilcox.test(x_mna, x_nmna, exact = FALSE)$p.value)
-              else NA_real_
+    fit <- tryCatch(
+      suppressWarnings(
+        lme4::glmer(
+          cbind(n, total - n) ~ MYCN_amp * compartment + baseline_prop + (1 | fm_id),
+          data    = dat_ct,
+          family  = binomial,
+          # bobyqa is a derivative-free optimizer that is more robust to
+          # near-boundary variance estimates common in small GLMMs
+          control = lme4::glmerControl(optimizer = "bobyqa")
+        )
+      ),
+      error = function(e) {
+        message("GLMM failed for ", cluster_name, ": ", e$message)
+        NULL
+      }
+    )
 
-    comp_b_props_list[[cluster_name]] <- props_b
-    comp_b_pval_list[[cluster_name]]  <- data.frame(cluster_name = cluster_name, p_raw = p_val)
+    if (!is.null(fit)) {
+      coefs    <- summary(fit)$coefficients
+      # Extract the MNA vs nMNA main effect (at core, the reference compartment)
+      # and the interaction terms (whether that difference changes at border/stroma).
+      # Compartment main effects (differences across compartments within nMNA)
+      # are part of the fitted model but are not separately reported here.
+      main_row <- grep("^MYCN_ampMNA$", rownames(coefs))
+      # Interaction: MNA × (border or stroma vs core)
+      int_rows <- grep("MYCN_ampMNA:compartment", rownames(coefs))
+
+      if (length(main_row) > 0) {
+        glmm_results_list <- c(glmm_results_list, list(data.frame(
+          cluster_name = cluster_name,
+          compartment  = comp_levels[1],
+          estimate     = coefs[main_row, "Estimate"],
+          p_raw        = coefs[main_row, "Pr(>|z|)"],
+          test_type    = "main effect (MNA vs nMNA in core)",
+          stringsAsFactors = FALSE
+        )))
+      }
+      for (ir in int_rows) {
+        comp_name <- gsub("MYCN_ampMNA:compartment", "", rownames(coefs)[ir])
+        glmm_results_list <- c(glmm_results_list, list(data.frame(
+          cluster_name = cluster_name,
+          compartment  = comp_name,
+          estimate     = coefs[ir, "Estimate"],
+          p_raw        = coefs[ir, "Pr(>|z|)"],
+          test_type    = paste0("interaction (MNA effect change at ", comp_name, " vs core)"),
+          stringsAsFactors = FALSE
+        )))
+      }
+    }
   }
 
-  comp_b_stats <- dplyr::bind_rows(comp_b_pval_list)
-  comp_b_stats$p_adj        <- p.adjust(comp_b_stats$p_raw, method = "BH")
-  comp_b_stats$p_adj_signif <- gtools::stars.pval(comp_b_stats$p_adj)
-  comp_b_stats$p_adj_signif[comp_b_stats$p_adj_signif == " "] <- "ns"
+  if (length(glmm_results_list) > 0) {
+    glmm_stats <- dplyr::bind_rows(glmm_results_list)
+    glmm_stats$p_adj    <- p.adjust(glmm_stats$p_raw, method = "BH")
+    glmm_stats$p_signif <- gtools::stars.pval(glmm_stats$p_adj)
+    glmm_stats$p_signif[glmm_stats$p_signif == " "] <- "ns"
 
-  plot_list_b <- list()
-  for (cluster_name in order) {
-    props_b <- comp_b_props_list[[cluster_name]]
-    s       <- comp_b_stats[comp_b_stats$cluster_name == cluster_name, ]
-    y_max_b <- max(props_b$Freq, na.rm = TRUE)
-    if (!is.finite(y_max_b)) y_max_b <- 0
+    # Per-compartment boxplots: MNA vs nMNA, annotated with GLMM p-values.
+    # For core: main effect p-value.
+    # For border/stroma: interaction p-value (change in MNA effect vs core).
+    for (comp_b in comp_levels) {
+      comp_b_input <- glmm_input[glmm_input$compartment == comp_b, ]
 
-    stats_manual_b <- data.frame(
-      group1     = "nMNA", group2 = "MNA",
-      label      = paste0(sprintf("%.3f", s$p_adj), " (", s$p_adj_signif, ")"),
-      y.position = max(y_max_b * 1.15, min_annotation_step)
-    )
-    color_cluster <- unname(
-      metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
-    )
-    plot_list_b[[cluster_name]] <- ggboxplot(
-      props_b, x = "condition", y = "Freq", order = mycn_levels,
-      color = "condition", palette = rep(color_cluster, 2), add = "jitter"
-    ) +
-      stat_pvalue_manual(stats_manual_b, y.position = "y.position", label = "label") +
-      ggtitle(cluster_name) +
-      scale_y_continuous(expand = expansion(mult = c(0.05, 0.20))) +
-      theme(aspect.ratio = 1.5, legend.position = "none",
-            plot.title = element_text(margin = margin(b = 10)))
-  }
+      comp_b_totals <- comp_b_input %>%
+        dplyr::group_by(fm_id, MYCN_amp) %>%
+        dplyr::summarise(total = dplyr::n(), .groups = "drop")
 
-  p_b <- gridExtra::grid.arrange(
-    grobs = plot_list_b,
-    ncol  = min(length(plot_list_b), max_plot_columns)
-  )
-  save_plot(p_b,
-            paste0("Fig4n_", comp_b, "_MNA_vs_nMNA_", cells, ".png"),
-            width = 12, height = 6)
+      comp_b_props_list <- list()
+      for (cluster_name in order) {
+        cc <- comp_b_input %>%
+          dplyr::filter(celltype_2 == cluster_name) %>%
+          dplyr::group_by(fm_id, MYCN_amp) %>%
+          dplyr::summarise(n = dplyr::n(), .groups = "drop")
 
-  } # end compartment loop (section B)
+        comp_b_props_list[[cluster_name]] <-
+          dplyr::left_join(comp_b_totals, cc, by = c("fm_id", "MYCN_amp")) %>%
+          dplyr::mutate(
+            n         = dplyr::if_else(is.na(n), 0L, n),
+            Freq      = 100 * n / total,
+            condition = factor(
+              dplyr::recode(as.character(MYCN_amp), `0` = "nMNA", `1` = "MNA"),
+              levels = mycn_levels)
+          )
+      }
+
+      plot_list_b <- list()
+      for (cluster_name in order) {
+        props_b <- comp_b_props_list[[cluster_name]]
+        s       <- glmm_stats[glmm_stats$cluster_name == cluster_name &
+                                glmm_stats$compartment  == comp_b, ]
+        y_max_b <- max(props_b$Freq, na.rm = TRUE)
+        if (!is.finite(y_max_b)) y_max_b <- 0
+
+        p_label <- if (nrow(s) > 0)
+          paste0(if (comp_b == comp_levels[1]) "GLMM: " else "GLMM int: ",
+                 sprintf("%.3f", s$p_adj), " (", s$p_signif, ")")
+        else "NA"
+
+        stats_manual_b <- data.frame(
+          group1     = "nMNA", group2 = "MNA",
+          label      = p_label,
+          y.position = max(y_max_b * 1.15, min_annotation_step)
+        )
+        color_cluster <- unname(
+          metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
+        )
+        plot_list_b[[cluster_name]] <- ggboxplot(
+          props_b, x = "condition", y = "Freq", order = mycn_levels,
+          color = "condition", palette = rep(color_cluster, 2), add = "jitter"
+        ) +
+          stat_pvalue_manual(stats_manual_b, y.position = "y.position", label = "label") +
+          ggtitle(cluster_name) +
+          scale_y_continuous(expand = expansion(mult = c(0.05, 0.20))) +
+          theme(aspect.ratio = 1.5, legend.position = "none",
+                plot.title = element_text(margin = margin(b = 10)))
+      }
+
+      p_b <- gridExtra::grid.arrange(
+        grobs = plot_list_b,
+        ncol  = min(length(plot_list_b), max_plot_columns)
+      )
+      save_plot(p_b,
+                paste0("Fig4n_", comp_b, "_MNA_vs_nMNA_GLMM_", cells, ".png"),
+                width = 12, height = 6)
+    }
+  } # end GLMM section B
 }
 ```
 
