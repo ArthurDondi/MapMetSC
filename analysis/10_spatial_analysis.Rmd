@@ -900,7 +900,10 @@ for (th in thresholds) {
       spe$sample_id != "20221018_20220906_03-018_TU_001"
   ]$compartment <- "core"
 
-  # plot
+  # -----------------------------
+  # PLOTS
+  # -----------------------------
+
   p_s2 <- plotSpatial(
     spe[, spe$sample_id == "20220926_20220809_16-006_TU_003"],
     node_color_by = "compartment",
@@ -909,7 +912,6 @@ for (th in thresholds) {
   ) +
     ggtitle(paste("Threshold =", th))
 
-  # save
   save_plot(
     p_s2,
     paste0("Fig4g3_tumor_patch_", th, ".png"),
@@ -917,13 +919,122 @@ for (th in thresholds) {
     height = 6
   )
 
-  # store
+  p_s3 <- plotSpatial(
+    spe[, spe$sample_id == "20221018_20220906_03-018_TU_004"],
+    node_color_by = "compartment",
+    img_id = "sample_id",
+    node_size_fix = 0.5
+  ) +
+    ggtitle(paste("Threshold =", th))
+
+  save_plot(
+    p_s3,
+    paste0("Fig4g3_tumor_patch2_", th, ".png"),
+    width = 6,
+    height = 6
+  )
+
   plot_list[[as.character(th)]] <- p_s2
+  
+  # -----------------------------
+  # IMMUNE COUNTS
+  # -----------------------------
+  
+  immune_df <- as.data.frame(
+    table(spe$compartment[spe$celltype_3 == "immune"])
+  )
+
+  colnames(immune_df) <- c("compartment", "count")
+
+  immune_df$threshold <- th
+  immune_df$cell_class <- "immune"
+
+  # -----------------------------
+  # TUMOR COUNTS
+  # -----------------------------
+
+  tumor_df <- as.data.frame(
+    table(spe$compartment[spe$metacluster == "tumor"])
+  )
+
+  colnames(tumor_df) <- c("compartment", "count")
+
+  tumor_df$threshold <- th
+  tumor_df$cell_class <- "tumor"
+
+  # store
+  results_list[[paste0("immune_", th)]] <- immune_df
+  results_list[[paste0("tumor_", th)]] <- tumor_df
 }
 
-# show one example
-plot_list[["100"]]
+# combine all
+results_df <- bind_rows(results_list)
+
+# order compartments
+results_df$compartment <- factor(
+  results_df$compartment,
+  levels = c("core", "border", "stroma")
+)
+
+# -----------------------------
+# IMMUNE PLOT
+# -----------------------------
+
+immune_plot <- ggplot(
+  results_df %>% filter(cell_class == "immune"),
+  aes(
+    x = factor(threshold),
+    y = count,
+    fill = compartment
+  )
+) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Immune cell counts by compartment",
+    x = "Threshold",
+    y = "Cell count"
+  ) +
+  theme_classic()
+
+save_plot(
+    immune_plot,
+    paste0("Fig4g3_tumor_bordersize_immune_barplot.png"),
+    width = 6,
+    height = 6
+  )
+
+immune_plot
+
+# -----------------------------
+# TUMOR PLOT
+# -----------------------------
+
+tumor_plot <- ggplot(
+  results_df %>% filter(cell_class == "tumor"),
+  aes(
+    x = factor(threshold),
+    y = count,
+    fill = compartment
+  )
+) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Tumor cell counts by compartment",
+    x = "Threshold",
+    y = "Cell count"
+  ) +
+  theme_classic()
+
+save_plot(
+    tumor_plot,
+    paste0("Fig4g3_tumor_bordersize_tumor_barplot.png"),
+    width = 6,
+    height = 6
+  )
+
+tumor_plot
 ```
+
 
 ### DA analysis in spatial compartments
 
