@@ -877,6 +877,8 @@ Based on the calculated distance for each cell, three compartments - tumor core,
 
 ```{r spatial-compartments}
 thresholds <- seq(100, 300, by = 50)
+sample_id_1 <- "20220926_20220809_16-006_TU_003"
+sample_id_2 <- "20221018_20220906_03-018_TU_004"
 
 plot_list_img1 <- list()
 plot_list_img2 <- list()
@@ -907,7 +909,7 @@ for (th in thresholds) {
   # -----------------------------
 
   p_s2 <- plotSpatial(
-    spe[, spe$sample_id == "20220926_20220809_16-006_TU_003"],
+    spe[, spe$sample_id == sample_id_1],
     node_color_by = "compartment",
     img_id = "sample_id",
     node_size_fix = 0.5
@@ -922,7 +924,7 @@ for (th in thresholds) {
   )
 
   p_s3 <- plotSpatial(
-    spe[, spe$sample_id == "20221018_20220906_03-018_TU_004"],
+    spe[, spe$sample_id == sample_id_2],
     node_color_by = "compartment",
     img_id = "sample_id",
     node_size_fix = 0.5
@@ -974,7 +976,7 @@ for (th in thresholds) {
 results_df <- bind_rows(results_list)
 
 panel_img1 <- wrap_plots(plot_list_img1, ncol = length(thresholds)) +
-  plot_annotation(title = "20220926_20220809_16-006_TU_003")
+  plot_annotation(title = sample_id_1)
 
 save_plot(
   panel_img1,
@@ -984,7 +986,7 @@ save_plot(
 )
 
 panel_img2 <- wrap_plots(plot_list_img2, ncol = length(thresholds)) +
-  plot_annotation(title = "20221018_20220906_03-018_TU_004")
+  plot_annotation(title = sample_id_2)
 
 save_plot(
   panel_img2,
