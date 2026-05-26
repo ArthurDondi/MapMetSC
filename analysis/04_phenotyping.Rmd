@@ -922,7 +922,7 @@ for (pair in subcluster_pairs) {
 }
 ```
 
-```{r pg-clusters-bubbleplot}
+```{r pg-clusters-final-bubbleplot}
 
 plot_cluster_bubble(
       cluster_col = "pg_clusters",
