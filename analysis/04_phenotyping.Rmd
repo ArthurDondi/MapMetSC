@@ -769,10 +769,6 @@ for (var_name in cluster_vars) {
   p$layers[[label_layer]]$aes_params$fill <- label_fills
   p$layers[[label_layer]]$aes_params$colour <- "black"
 
-  p <- p +
-    theme(legend.title = element_blank()) +
-    ggtitle(paste(var_name, "on UMAP"))
-
   save_plot(
     p,
     paste0("umap_", var_name, ".png"),
