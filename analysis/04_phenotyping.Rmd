@@ -677,7 +677,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
 ```
 
-```{r phenograph-umap-dotplot}
+```{r phenograph-umap-bubbleplot}
 set.seed(221228)
 
 k_values <- c(15, 30, 45, 60)
