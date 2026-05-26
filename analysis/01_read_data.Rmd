@@ -79,6 +79,7 @@ library(dittoSeq)
 library(readxl)
 library(writexl)
 library(dplyr)
+library(patchwork)
 ```
 </details>
 
@@ -140,7 +141,7 @@ When then read sample and patient-specific metadata from the metadata file provi
 
 ```{r read-metadata}
 
-file_path <- file.path(params$input, 'Supplementary_Tables/20240808_Suppl_Table1.xlsx')
+file_path <- file.path(params$input, 'Supplementary_Tables/20260526_Suppl_Table1.xlsx')
 sample_spec_metadata <- read_excel(file_path, sheet = "sample_spec_metadata")
 patient_spec_clinical <- read_excel(file_path, sheet = "patient_spec_clinical")
 patient_spec_genetic <- read_excel(file_path, sheet = "patient_spec_genetic")
@@ -172,9 +173,12 @@ spe$control <- meta$control[match(paste(spe$fm_id, spe$tissue), paste(meta$Sampl
 spe$patient_id <- meta$Patient_ID[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$timepoint <- meta$Timepoint[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 
-# Keeping only Diagnosis samples + BM control samples
+# Keeping only primary tumor (PT) diagnosis (DE) samples + bone marrow (BM) control samples
 # spe$timepoint[spe$tissue == "AD"] <- "DE"
 spe <- spe[, (spe$timepoint == "DE" & spe$tissue == "PT") | spe$control == "yes"]
+
+# Removing Patient_018 (after investigation, it's not a PT sample but a lymph node sample):
+spe <- spe[, spe$patient_id != "Patient_018"]
 
 spe$stage <- meta$INSS_stage[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$progression <- meta$efs[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
