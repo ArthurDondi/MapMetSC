@@ -792,7 +792,7 @@ for (cluster_col in cluster_vars) {
 ```
 
 ## Define final clustering set
-```{r pg-clusters}
+```{r define-final-pg-clusters}
 spe$pg_clusters <- spe$pg_clusters_k30
 ```
 
@@ -922,7 +922,7 @@ for (pair in subcluster_pairs) {
 }
 ```
 
-```{r celltype-bubbleplot}
+```{r pg-clusters-bubbleplot}
 
 plot_cluster_bubble(
       cluster_col = "pg_clusters",
