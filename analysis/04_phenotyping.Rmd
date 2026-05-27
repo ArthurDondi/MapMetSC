@@ -208,50 +208,6 @@ save_plot(p_markers, "UMAP-all-markers.png", width = 24, height = 32)
 p_markers
 ```
 
-# For later annotation, we generate one clustered heatmap per sample
-
-```{r}
-library(dittoSeq)
-library(ggplot2)
-
-# get cluster IDs
-clusters <- unique(colData(spe)$pg_clusters)
-
-genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
-
-
-for (cl in clusters) {
-  
-  # subset cells for this cluster
-  spe_cl <- spe[, colData(spe)$pg_clusters == cl]
-  
-  # skip empty clusters (just in case)
-  if (ncol(spe_cl) == 0) next
-  
-  # sample up to 8000 cells
-  n_cells <- min(8000, ncol(spe_cl))
-  rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
-  
-  # make heatmap
-  p1 <- dittoHeatmap(
-    spe_cl[, rand_cells],
-    genes = genes_use,
-    cluster_cols = TRUE,
-    scaled.to.max = TRUE,
-    heatmap.colors.max.scaled = viridis(100)
-  )
-  
-  # save plot
-  save_plot(
-    p1,
-    paste0("heatmap_phenocluster_", cl, ".png"),
-    width = 14,
-    height = 6
-  )
-}
-
-```
-
 ## Bubble plot: Mean marker expression per cluster
 Let's plot the mean marker expressions per cluster in a bubble plot.
 
@@ -793,7 +749,7 @@ for (cluster_col in cluster_vars) {
 
 ## Define final clustering set
 ```{r define-final-pg-clusters}
-spe$pg_clusters <- spe$pg_clusters_k30
+spe$pg_clusters <- spe$pg_clusters_k45
 ```
 
 ## Subclustering of mixed clusters using GMM
@@ -813,17 +769,17 @@ spe$pg_clusters <- as.character(spe$pg_clusters)
 
 # Mapping: original cluster -> new subcluster label for the second component
 subcluster_map <- list(
+  "6" = "35",
   "7" = "36",
   "8" = "37",
-  "14"  = "38",
-  "17" = "39"
+  "17" = "38"
 )
 
 # define marker sets per cluster
 marker_map <- list(
-  "7"  = c("CD3_"),
-  "8" = c("GD2_"),
-  "14" = c("CD4_", "CD3_"),
+  "6"  = c("CD3_"),
+  "7"  = c("GD2"),
+  "8"  = c("CD4_"),
   "17" = c("CD3_",  "CD10")
 )
 
@@ -879,11 +835,12 @@ genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H
 
 # Define the pairs: original cluster and its new sibling
 subcluster_pairs <- list(
+  list(orig = "6",  new = "35"),
   list(orig = "7",  new = "36"),
-  list(orig = "8", new = "37"),
-  list(orig = "14", new = "38"),
-  list(orig = "17", new = "39")
+  list(orig = "8",  new = "37"),
+  list(orig = "17", new = "38")
 )
+
 
 set.seed(221228)
 for (pair in subcluster_pairs) {
@@ -1042,9 +999,6 @@ write_xlsx(
 )
 ```
 
-```{r stop-here}
-knitr::opts_chunk$set(eval = FALSE)
-```
 
 ## Annotation and merging of clusters
 
@@ -1074,7 +1028,7 @@ col_celltype <- c(
   ## ---- Tumor ----
   "CXCR4+ Tu"     = rgb(120, 180,  40, maxColorValue = 255),
   "CD44+ Tu"      = rgb(65,  208,  57, maxColorValue = 255),
-  "GD2lo Tu"      = rgb(40,  150,130, maxColorValue = 255),
+  "GD2- Tu"      = rgb(40,  150,130, maxColorValue = 255),
   "Ki67+ Tu"      = rgb(173, 255,  47, maxColorValue = 255),
   "early NB Tu"   = rgb(150, 220, 170, maxColorValue = 255),
   "marker-lo Tu"  = rgb(40,  120,  70, maxColorValue = 255),
@@ -1091,14 +1045,14 @@ col_celltype <- c(
   "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),
   "CD4+ T cells"        = rgb(232,  80,  70, maxColorValue = 255),
   "CD3+ T cells"        = rgb(180,  30,  50, maxColorValue = 255),
-  "S100B+ T cells"      = rgb(199,  21, 133, maxColorValue = 255),
-  "GZMB+ T cells"       = rgb(220,  90,  40, maxColorValue = 255),
+  "CD8+ S100B+ T cells"      = rgb(199,  21, 133, maxColorValue = 255),
+  "CD8+ GZMB+ T cells"       = rgb(220,  90,  40, maxColorValue = 255),
   "dense T cell region" = rgb(170,  30, 120, maxColorValue = 255),
 
   ## ---- Myeloid ----
   "granulocytes"       = rgb(8,   48, 107, maxColorValue = 255),
   "CD14+ MO"           = rgb(33, 102, 172, maxColorValue = 255),
-  "monoblast-like"     = rgb(64, 180, 170, maxColorValue = 255),
+  "myeloid"     = rgb(64, 180, 170, maxColorValue = 255),
   "GZMB+ DC/NK cells"  = rgb(107,174, 214, maxColorValue = 255),
 
   ## ---- B cells ----
@@ -1155,6 +1109,12 @@ p1 <- dittoDimPlot(spe, var = "celltype_ordered",
   theme(legend.title = element_blank()) +
   ggtitle("Celltypes on UMAP")
 
+save_plot(p1, "umap-celltypes.png", width = 16, height = 8)
+
+p1
+```
+
+```{r vis-metacluster}
 p2 <- dittoDimPlot(spe, var = "metacluster", 
              reduction.use = "UMAP", size = 0.3, labels.size=4,
              do.label = F,
@@ -1164,14 +1124,8 @@ p2 <- dittoDimPlot(spe, var = "metacluster",
   theme(legend.title = element_blank()) +
   ggtitle("Metaclusters on UMAP")
 
-# Save both
-save_plot(p1, "umap-celltypes.png", width = 16, height = 8)
-
-p1
-```
-
-```{r vis-metacluster}
 save_plot(p2, "umap-metaclusters.png", width = 13, height = 8)
+
 p2
 ```
 
@@ -1181,7 +1135,8 @@ p2
 plot_cluster_bubble(
   cluster_col = "celltype",
   save_name = "bubbleplot-celltypes.pdf",
-  annotation_level = "metacluster"
+  annotation_level = "metacluster",
+  ncells_break_at = 60000,
 )
 
 ```
@@ -1246,86 +1201,6 @@ for (cl in clusters) {
   # ggsave(full_path, plot = p1, width = 14, height = 6, dpi = 300)
 }
 ```
-
-
-## Visual inspection of dense T cell region
-```{r}
-
-library(cytomapper)
-library(cowplot)
-
-## --- 1. Find ROI with most cells annoated as dense T cell region ---
-roi_counts <- table(colData(spe)$sample_id[colData(spe)$celltype == "dense T cell region"])
-sorted_rois <- sort(roi_counts, decreasing = TRUE)
-top_roi <- names(sorted_rois[1])
-
-## --- 2. Subset object ---
-tmp <- spe[, spe$sample_id == top_roi]
-
-## --- 3. Load images ---
-masks <- cytomapper::loadImages(
-  file.path(params$input, "masks", paste0(top_roi, ".tif")),
-  as.is = TRUE
-)
-
-img <- cytomapper::loadImages(
-  file.path(params$input, "img", paste0(top_roi, ".tif"))
-)
-
-mcols(masks) <- DataFrame(sample_id = names(masks))
-mcols(img) <- DataFrame(sample_id = names(img))
-
-channelNames(img) <- rownames(spe)[1:44]
-
-## --- 4. Create plots ---
-# GD2
-p_gd2 <- plotPixels(
-  img,
-  colour_by = "GD2_Gd155_mean",
-  bcg = list(GD2_Gd155_mean = c(0, 1, 1)),
-  legend = NULL,
-  return_plot = TRUE
-)
-
-save_plot(p_gd2, "ROI_dense_tcell_overview_GD2.png", width = 12, height = 10)
-
-# Vim
-p_vim <- plotPixels(
-  img,
-  colour_by = "Vimentin_Pt196_mean",
-  bcg = list(Vimentin_Pt196_mean = c(0, 1, 1)),
-  legend = NULL,
-  return_plot = TRUE
-)
-save_plot(p_vim, "ROI_dense_tcell_overview_Vim.png", width = 12, height = 10)
-
-# CD3
-p_CD3 <- plotPixels(
-  img,
-  colour_by = "CD3_Sm152_mean",
-  bcg = list(CD3_Sm152_mean = c(0, 1, 1)),
-  legend = NULL,
-  return_plot = TRUE
-)
-save_plot(p_CD3, "ROI_dense_tcell_overview_CD3.png", width = 12, height = 10)
-
-
-# Celltype
-p_celltype <- plotCells(
-  masks,
-  object = tmp,
-  cell_id = "ObjectNumber",
-  img_id = "sample_id",
-  colour_by = "celltype",
-  colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
-  missing_colour = "white",
-  return_plot = TRUE
-)
-save_plot(p_celltype, "ROI_dense_tcell_overview_celltype.png", width = 12, height = 10)
-
-```
-
-
 ## Save object
 
 ```{r save-objects}
