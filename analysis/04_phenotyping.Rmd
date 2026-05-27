@@ -181,141 +181,6 @@ p
 
 
 
-## Phenograph clustering on normalized data
-
-```{r phenograph-clustering}
-set.seed(221228)
-
-k_values <- c(15, 30, 45, 60)
-
-for (k in k_values) {
-
-  # Run Phenograph
-  Rphenograph_out <- Rphenoannoy(t(mat), k = k)
-
-  # Extract clusters
-  clusters <- factor(membership(Rphenograph_out[[2]]))
-
-  # Add to SPE object
-  colData(spe)[[paste0("pg_clusters_k", k)]] <- clusters
-}
-```
-
-## UMAP: Phenograph clusters
-Lets visualize phenograph clusters and tissue types in UMAP space. Here `dittoDimPlot` can be used directly on the SPE object.
-
-```{r UMAP-vis-clusters}
-cluster_vars <- c(
-  "pg_clusters_k15",
-  "pg_clusters_k30",
-  "pg_clusters_k45",
-  "pg_clusters_k60"
-)
-
-color_seed_base <- 221228
-
-get_cluster_levels <- function(values) {
-  cluster_levels <- unique(as.character(values))
-  cluster_levels <- cluster_levels[!is.na(cluster_levels)]
-  cluster_levels <- cluster_levels[nzchar(cluster_levels)]
-  
-  if (all(grepl("^\\d+$", cluster_levels))) {
-    cluster_levels <- as.character(sort(as.integer(cluster_levels)))
-  } else {
-    cluster_levels <- sort(cluster_levels)
-  }
-  
-  cluster_levels
-}
-
-generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
-  non_gray_colors <- colors()[
-    grep("\\bgr[ae]y", grDevices::colors(), invert = TRUE)
-  ]
-  
-  set.seed(seed)
-  setNames(
-    sample(
-      non_gray_colors,
-      length(cluster_levels),
-      replace = length(cluster_levels) > length(non_gray_colors)
-    ),
-    cluster_levels
-  )
-}
-
-if (is.null(metadata(spe)$color_vectors)) {
-  metadata(spe)$color_vectors <- list()
-}
-
-for (var_name in cluster_vars) {
-  cluster_levels <- get_cluster_levels(spe[[var_name]])
-  color_key <- paste0("col_", var_name)
-  
-  if (is.null(metadata(spe)$color_vectors[[color_key]]) ||
-      !all(cluster_levels %in% names(metadata(spe)$color_vectors[[color_key]]))) {
-    metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
-      cluster_levels = cluster_levels,
-      seed = color_seed_base + match(var_name, cluster_vars)
-    )
-  }
-  
-  col_clusters <- metadata(spe)$color_vectors[[color_key]][cluster_levels]
-
-  # Create plot
-  p <- dittoDimPlot(
-    spe,
-    var = var_name,
-    reduction.use = "UMAP",
-    size = 0.5,
-    do.label = TRUE,
-    legend.show = FALSE,
-    color.panel = col_clusters
-  ) +
-    theme(
-      legend.title = element_blank()
-    ) +
-    ggtitle(paste(var_name, "on UMAP"))
-    
-  # Find label layer
-  label_layer <- which(
-    sapply(
-      p$layers,
-      function(x) class(x$geom)[1]
-    ) %in% c("GeomLabelRepel", "GeomLabel")
-  )
-  
-  # Get label data (one row per cluster)
-  label_data <- layer_data(p, label_layer)
-  
-  # Match colors to labels
-  label_fills <- col_clusters[
-    as.character(label_data$label)
-  ]
-  
-  # Set label appearance
-  p$layers[[label_layer]]$aes_params$fill <- label_fills
-  p$layers[[label_layer]]$aes_params$colour <- "black"
-
-  
-  p <- p +
-    theme(
-      legend.title = element_blank()
-    ) +
-    ggtitle(paste(var_name, "on UMAP"))
-
-  # Save plot
-  save_plot(
-    p,
-    paste0("umap_", var_name, ".png"),
-    width = 8,
-    height = 6
-  )
-
-  print(p)
-}
-```
-
 # UMAPs for each marker
 ```{r UMAP-all-markers, fig.width=24, fig.height=32}
 excluded_markers <- "mean-80|PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3"
@@ -812,327 +677,107 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
 ```
 
-```{r vis-data-zscore-heatmap, fig.height=14, fig.width=16}
-plot_cluster_zscore_heatmap <- function(cluster_col, save_name,
-                                        annotation_level = c("cluster", "metacluster"),
-                                        col_annotation  = NULL,
-                                        metacluster_col = "metacluster",
-                                        ncells_break_at = 50000) {
-  annotation_level <- match.arg(annotation_level)
-  barplot_height <- unit(4, "cm")
+```{r phenograph-umap-bubbleplot}
+set.seed(221228)
 
-  # ----------------------------
-  # Cluster vector
-  # ----------------------------
-  cluster_vec <- as.character(colData(spe)[[cluster_col]])
-  tissue_vec  <- colData(spe)$tissue
+k_values <- c(15, 30, 45, 60)
 
-  # ----------------------------
-  # Expression matrix
-  # ----------------------------
-  mat_df <- as.data.frame(t(mat))
-
-  exp_mat_ <- aggregate(
-    mat_df,
-    by = list(cluster = cluster_vec),
-    FUN = function(x) {
-      pos_vals <- x[x > 0]
-      if (length(pos_vals) == 0) return(0)
-      median(log1p(pos_vals))
-    }
-  )
-
-  cluster_names <- exp_mat_$cluster
-
-  exp_mat <- exp_mat_[, -1, drop = FALSE]
-  rownames(exp_mat) <- cluster_names
-  exp_mat <- t(as.matrix(exp_mat))
-
-  # ----------------------------
-  # Row z-scoring
-  # ----------------------------
-  exp_mat <- t(scale(t(exp_mat)))
-
-  exp_mat[is.nan(exp_mat)] <- 0
-  exp_mat[is.infinite(exp_mat)] <- 0
-
-  clusters <- colnames(exp_mat)
-
-  # ----------------------------
-  # Tissue counts
-  # ----------------------------
-  bm_count <- table(factor(cluster_vec[tissue_vec == "BM"], levels = clusters))
-  pt_count <- table(factor(cluster_vec[tissue_vec == "PT"], levels = clusters))
-
-  # ----------------------------
-  # Barplot info helper (supports optional axis break)
-  # ----------------------------
-  make_barplot_info <- function(v) {
-    v_num   <- as.numeric(v)
-    max_val <- max(v_num, na.rm = TRUE)
-
-    if (max_val <= ncells_break_at) {
-      y_axis_max <- max(10000, ceiling(max_val / 10000) * 10000)
-      at <- seq(0, y_axis_max, by = 10000)
-      return(list(
-        values      = v_num,
-        upper       = y_axis_max,
-        axis_param  = list(
-          at     = at,
-          labels = ifelse(at == 0, "0", paste0(at / 1000, "k")),
-          gp     = gpar(fontsize = 12)
-        ),
-        needs_break = FALSE
-      ))
-    }
-
-    top_frac   <- 0.18
-    break_frac <- 1 - top_frac
-    top_ext    <- ncells_break_at * (top_frac / break_frac)
-    ylim_max   <- ncells_break_at + top_ext
-
-    above_display <- ncells_break_at + top_ext * 0.9
-    values_plot   <- ifelse(v_num > ncells_break_at, above_display, v_num)
-
-    at_below   <- seq(0, ncells_break_at, by = 10000)
-    at_all     <- c(at_below, above_display)
-    labels_all <- c(
-      ifelse(at_below == 0, "0", paste0(at_below / 1000, "k")),
-      paste0(round(max_val / 1000), "k")
-    )
-
-    list(
-      values           = values_plot,
-      upper            = ylim_max,
-      axis_param       = list(
-        at     = at_all,
-        labels = labels_all,
-        gp     = gpar(fontsize = 12)
-      ),
-      needs_break      = TRUE,
-      break_y_npc      = ncells_break_at / ylim_max,
-      above_break_orig = which(v_num > ncells_break_at),
-      n_total          = length(v_num)
-    )
-  }
-
-  # ----------------------------
-  # Cluster / metacluster colors
-  # ----------------------------
-  if (annotation_level == "metacluster") {
-    metaclust_by_cluster <- aggregate(
-      colData(spe)[[metacluster_col]],
-      list(cluster = cluster_vec),
-      max
-    )
-    meta_by_cluster <- setNames(
-      as.character(metaclust_by_cluster$x),
-      as.character(metaclust_by_cluster$cluster)
-    )
-    annot_values <- meta_by_cluster[clusters]
-    annot_name <- "metacluster"
-    annot_colors <- metadata(spe)$color_vectors$col_metacluster
-  } else {
-    color_key <- paste0("col_", cluster_col)
-    seed_offset <- match(cluster_col, cluster_vars)
-    if (is.na(seed_offset)) {
-      seed_offset <- sum(utf8ToInt(cluster_col))
-    }
-
-    existing_colors <- metadata(spe)$color_vectors[[color_key]]
-    if (is.null(existing_colors) ||
-        !all(clusters %in% names(existing_colors)) ||
-        any(is.na(existing_colors[clusters]))) {
-      existing_colors <- generate_cluster_colors(
-        cluster_levels = clusters,
-        seed = color_seed_base + seed_offset
-      )
-      metadata(spe)$color_vectors[[color_key]] <- existing_colors
-    }
-
-    annot_values <- clusters
-    annot_name <- cluster_col
-    annot_colors <- existing_colors[clusters]
-  }
-
-  if (!is.null(col_annotation)) {
-    annot_colors <- col_annotation
-  }
-
-  levels_from_colors <- names(annot_colors)
-  annot_levels <- if (!is.null(levels_from_colors)) {
-    intersect(levels_from_colors, unique(annot_values))
-  } else {
-    unique(annot_values)
-  }
-  if (length(annot_levels) == 0) {
-    annot_levels <- unique(annot_values)
-  }
-
-  col_for_annot <- setNames(list(annot_colors), annot_name)
-
-  pt_info <- make_barplot_info(pt_count)
-  bm_info <- make_barplot_info(bm_count)
-  cluster_annotation_list <- setNames(
-    list(factor(annot_values, levels = annot_levels)),
-    annot_name
-  )
-
-  # ----------------------------
-  # Heatmap colors
-  # ----------------------------
-  z_lim <- max(abs(exp_mat), na.rm = TRUE)
-  if (!is.finite(z_lim) || z_lim == 0) {
-    z_lim <- 1
-  }
-
-  col_fun <- circlize::colorRamp2(
-    c(-z_lim, 0, z_lim),
-    c("#3B4CC0", "white", "#B40426")
-  )
-
-  # ----------------------------
-  # Column annotation
-  # ----------------------------
-  column_ha <- do.call(
-    HeatmapAnnotation,
-    c(
-      cluster_annotation_list,
-      list(
-        ncells_PT = anno_barplot(
-          pt_info$values,
-          ylim = c(0, pt_info$upper),
-          height = barplot_height,
-          gp = gpar(fill = "brown"),
-          axis_param = pt_info$axis_param
-        ),
-        ncells_BM = anno_barplot(
-          bm_info$values,
-          ylim = c(0, bm_info$upper),
-          height = barplot_height,
-          gp = gpar(fill = "aquamarine4"),
-          axis_param = bm_info$axis_param
-        ),
-        col = col_for_annot,
-        show_legend = TRUE
-      )
-    )
-  )
-
-  # ----------------------------
-  # Heatmap
-  # ----------------------------
-  hp <- Heatmap(
-    exp_mat,
-
-    heatmap_legend_param = list(title = "z-score"),
-
-    column_title = paste0(
-      "Z-score heatmap - ",
-      cluster_col
-    ),
-
-    top_annotation = column_ha,
-
-    col = col_fun,
-
-    clustering_distance_columns = "pearson",
-
-    clustering_method_columns = "average",
-
-    row_labels = sapply(
-      strsplit(rownames(exp_mat), "_"),
-      "[[",
-      1
-    ),
-
-    show_row_dend = FALSE,
-
-    column_dend_height = unit(1.5, "cm"),
-
-    row_names_gp = gpar(fontsize = 15),
-
-    column_names_gp = gpar(fontsize = 15),
-
-    column_names_rot = 45,
-
-    border = "black"
-  )
-
-  # ----------------------------
-  # Break-mark decoration helper
-  # ----------------------------
-  add_break_marks <- function(anno_name, info, drawn_hp) {
-    if (!info$needs_break) return(invisible(NULL))
-
-    col_ord <- column_order(drawn_hp)
-    if (is.list(col_ord)) col_ord <- unlist(col_ord)
-    n_tot <- info$n_total
-    b_y   <- info$break_y_npc
-    gap   <- 0.04
-
-    decorate_annotation(anno_name, {
-      pushViewport(viewport(clip = "off"))
-
-      for (orig_idx in info$above_break_orig) {
-        vis <- match(orig_idx, col_ord)
-        if (is.na(vis)) next
-        xc <- (vis - 0.5) / n_tot
-        bw <- 0.8  / n_tot
-
-        grid.rect(
-          x = xc, y = b_y - gap / 2,
-          width = bw, height = gap,
-          just  = c("center", "bottom"),
-          default.units = "npc",
-          gp = gpar(fill = "white", col = NA)
-        )
-
-        xs <- c(xc - bw/2, xc - bw/4, xc, xc + bw/4, xc + bw/2)
-        ys <- b_y + c(-gap * 0.6, gap * 0.6, -gap * 0.6, gap * 0.6, -gap * 0.6)
-        grid.polyline(
-          x = xs, y = ys,
-          default.units = "npc",
-          gp = gpar(col = "black", lwd = 1.5)
-        )
-      }
-
-      grid.polyline(
-        x = unit(c(-2.5, -1.5, -2.5), "mm"),
-        y = unit(c(b_y - gap * 0.6, b_y, b_y + gap * 0.6), "npc"),
-        gp = gpar(col = "black", lwd = 1.5)
-      )
-
-      popViewport()
-    })
-  }
-
-  # ----------------------------
-  # Draw, decorate, and save
-  # ----------------------------
-  full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
-  pdf(full_path, width = 16, height = 14)
-  hp_drawn <- draw(hp)
-  add_break_marks("ncells_PT", pt_info, hp_drawn)
-  add_break_marks("ncells_BM", bm_info, hp_drawn)
-  dev.off()
-  message("Saved: ", full_path)
-
-  hp_drawn <- draw(hp)
-  add_break_marks("ncells_PT", pt_info, hp_drawn)
-  add_break_marks("ncells_BM", bm_info, hp_drawn)
-
-  invisible(structure(list(), class = "heatmap_drawn"))
+for (k in k_values) {
+  Rphenograph_out <- Rphenoannoy(t(mat), k = k)
+  clusters <- factor(membership(Rphenograph_out[[2]]))
+  colData(spe)[[paste0("pg_clusters_k", k)]] <- clusters
 }
-```
 
-```{r, generating-bubbleplot}
 cluster_vars <- c(
   "pg_clusters_k15",
   "pg_clusters_k30",
   "pg_clusters_k45",
   "pg_clusters_k60"
 )
+
+color_seed_base <- 221228
+
+get_cluster_levels <- function(values) {
+  cluster_levels <- unique(as.character(values))
+  cluster_levels <- cluster_levels[!is.na(cluster_levels)]
+  cluster_levels <- cluster_levels[nzchar(cluster_levels)]
+
+  if (all(grepl("^\\d+$", cluster_levels))) {
+    cluster_levels <- as.character(sort(as.integer(cluster_levels)))
+  } else {
+    cluster_levels <- sort(cluster_levels)
+  }
+
+  cluster_levels
+}
+
+generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
+  non_gray_colors <- colors()[
+    grep("\\bgr[ae]y", grDevices::colors(), invert = TRUE)
+  ]
+
+  set.seed(seed)
+  setNames(
+    sample(
+      non_gray_colors,
+      length(cluster_levels),
+      replace = length(cluster_levels) > length(non_gray_colors)
+    ),
+    cluster_levels
+  )
+}
+
+if (is.null(metadata(spe)$color_vectors)) {
+  metadata(spe)$color_vectors <- list()
+}
+
+for (var_name in cluster_vars) {
+  cluster_levels <- get_cluster_levels(spe[[var_name]])
+  color_key <- paste0("col_", var_name)
+
+  if (is.null(metadata(spe)$color_vectors[[color_key]]) ||
+      !all(cluster_levels %in% names(metadata(spe)$color_vectors[[color_key]]))) {
+    metadata(spe)$color_vectors[[color_key]] <- generate_cluster_colors(
+      cluster_levels = cluster_levels,
+      seed = color_seed_base + match(var_name, cluster_vars)
+    )
+  }
+
+  col_clusters <- metadata(spe)$color_vectors[[color_key]][cluster_levels]
+
+  p <- dittoDimPlot(
+    spe,
+    var = var_name,
+    reduction.use = "UMAP",
+    size = 0.5,
+    do.label = TRUE,
+    legend.show = FALSE,
+    color.panel = col_clusters
+  ) +
+    theme(legend.title = element_blank()) +
+    ggtitle(paste(var_name, "on UMAP"))
+
+  label_layer <- which(
+    sapply(
+      p$layers,
+      function(x) class(x$geom)[1]
+    ) %in% c("GeomLabelRepel", "GeomLabel")
+  )
+
+  label_data <- layer_data(p, label_layer)
+  label_fills <- col_clusters[as.character(label_data$label)]
+  p$layers[[label_layer]]$aes_params$fill <- label_fills
+  p$layers[[label_layer]]$aes_params$colour <- "black"
+
+  save_plot(
+    p,
+    paste0("umap_", var_name, ".png"),
+    width = 8,
+    height = 6
+  )
+
+  print(p)
+}
 
 for (cluster_col in cluster_vars) {
   message("Processing: ", cluster_col)
@@ -1146,21 +791,8 @@ for (cluster_col in cluster_vars) {
 }
 ```
 
-```{r, generating-zscore-heatmap}
-for (cluster_col in cluster_vars) {
-  message("Processing z-score heatmap: ", cluster_col)
-  print(
-    plot_cluster_zscore_heatmap(
-      cluster_col = cluster_col,
-      save_name = paste0("zscore_heatmap_", cluster_col, ".pdf"),
-      ncells_break_at = 100000
-    )
-  )
-}
-```
-
 ## Define final clustering set
-```{r pg-clusters-zscore-heatmap}
+```{r define-final-pg-clusters}
 spe$pg_clusters <- spe$pg_clusters_k30
 ```
 
@@ -1290,21 +922,12 @@ for (pair in subcluster_pairs) {
 }
 ```
 
-```{r celltype-zscore-heatmap}
+```{r pg-clusters-final-bubbleplot}
 
 plot_cluster_bubble(
       cluster_col = "pg_clusters",
       ncells_break_at = 100000,
       save_name = "bubbleplot_pg_clusters.pdf")
-
-```
-
-```{r}
-
-plot_cluster_zscore_heatmap(
-      cluster_col = "pg_clusters",
-      ncells_break_at = 100000,
-      save_name = "zscore_heatmap_pg_clusters.pdf")
 
 ```
 
@@ -1558,16 +1181,6 @@ p2
 plot_cluster_bubble(
   cluster_col = "celltype",
   save_name = "bubbleplot-celltypes.pdf",
-  annotation_level = "metacluster"
-)
-
-```
-
-```{r}
-
-plot_cluster_zscore_heatmap(
-  cluster_col = "celltype",
-  save_name = "zscore_heatmap-celltypes.pdf",
   annotation_level = "metacluster"
 )
 
