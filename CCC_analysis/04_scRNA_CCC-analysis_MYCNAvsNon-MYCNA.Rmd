@@ -1682,7 +1682,7 @@ pdf("/home/out/MapMet/figures/multiNicheNet_nMNA_top50.pdf",
 plot_oi_nMNA
 dev.off()
 
-png("/home/out/MapMet/Figures/Fig4b_cell-cell_interactions_nMNA.png",
+png("/home/out/MapMet/Figures/multiNicheNet_nMNA_top50.png",
    height = 1700, width = 2000, units = "px", pointsize = 1, res = 150)
 plot_oi_nMNA 
 dev.off()
@@ -1704,14 +1704,7 @@ plot_oi_MNA = make_sample_lr_prod_activity_plots(
   multinichenet_output$prioritization_tables, 
   prioritized_tbl_oi_M_50)
 
-combined_cell_cell_interactions <- cowplot::plot_grid(
-  plot_oi_nMNA,
-  plot_oi_MNA,
-  ncol = 2,
-  labels = c("nMNA", "MNA")
-)
-
-combined_cell_cell_interactions
+plot_oi_MNA
 
 # save plots
 pdf("/home/out/MapMet/figures/multiNicheNet_MNA_top50.pdf",
@@ -1719,7 +1712,7 @@ pdf("/home/out/MapMet/figures/multiNicheNet_MNA_top50.pdf",
 plot_oi_MNA
 dev.off()
 
-png("/home/out/MapMet/Figures/Fig4b_cell-cell_interactions_MNA.png",
+png( "/home/out/MapMet/Figures/multiNicheNet_MNA_top50.png",
    height = 1700, width = 2000, units = "px", pointsize = 1, res = 150)
 plot_oi_MNA 
 dev.off()

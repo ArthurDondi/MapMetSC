@@ -155,39 +155,6 @@ out <- testInteractions(spe,
                         BPPARAM = SerialParam(RNGseed = 221029))
 ```
 
-```{r interaction-analysis-mycn}
-if (any(is.na(spe$MYCN_amp))) {
-  warning("Missing MYCN_amp values detected; NA cells are excluded from MYCN-stratified interaction analysis.")
-}
-
-valid_mycn <- !is.na(spe$MYCN_amp)
-spe_known_mycn <- spe[, valid_mycn]
-spe_mycn <- spe_known_mycn[, spe_known_mycn$MYCN_amp == 1]
-spe_non_mycn <- spe_known_mycn[, spe_known_mycn$MYCN_amp == 0]
-
-run_interactions_subset <- function(spe_subset, empty_warning) {
-  if (ncol(spe_subset) == 0) {
-    warning(empty_warning)
-    return(NULL)
-  }
-  
-  testInteractions(spe_subset,
-                   group_by = "sample_id",
-                   label = "metacluster",
-                   colPairName = "neighborhood",
-                   BPPARAM = SerialParam(RNGseed = 221029))
-}
-
-out_mycn <- run_interactions_subset(
-  spe_mycn,
-  "No MYCN-amplified cells detected; out_mycn is set to NULL."
-)
-out_non_mycn <- run_interactions_subset(
-  spe_non_mycn,
-  "No non-MYCN-amplified cells detected; out_non_mycn is set to NULL."
-)
-```
-
 These interactions can be shown in a heatmap.
 
 ```{r interaction-heatmap, fig.width=5, fig.height=5}
@@ -224,6 +191,100 @@ p_heatmap <- pheatmap(data_wide,
          display_numbers = TRUE)  # Optionally display the values in cells
 
 save_plot(p_heatmap, "Fig4b_cell-cell_interactions.png", width = 6, height = 6)
+```
+
+We next repeat the interaction analysis and heatmap visualization separately for nMNA and MNA samples.
+
+```{r interaction-analysis-mycn}
+if (any(is.na(spe$MYCN_amp))) {
+  warning("Missing MYCN_amp values detected; NA cells are excluded from MYCN-stratified interaction analysis.")
+}
+
+valid_mycn <- !is.na(spe$MYCN_amp)
+spe_known_mycn <- spe[, valid_mycn]
+spe_mycn <- spe_known_mycn[, spe_known_mycn$MYCN_amp == 1]
+spe_non_mycn <- spe_known_mycn[, spe_known_mycn$MYCN_amp == 0]
+
+run_interactions_subset <- function(spe_subset, empty_warning) {
+  if (ncol(spe_subset) == 0) {
+    warning(empty_warning)
+    return(NULL)
+  }
+  
+  testInteractions(spe_subset,
+                   group_by = "sample_id",
+                   label = "metacluster",
+                   colPairName = "neighborhood",
+                   BPPARAM = SerialParam(RNGseed = 221029))
+}
+
+out_non_mycn <- run_interactions_subset(
+  spe_non_mycn,
+  "No non-MYCN-amplified cells detected; out_non_mycn is set to NULL."
+)
+out_mycn <- run_interactions_subset(
+  spe_mycn,
+  "No MYCN-amplified cells detected; out_mycn is set to NULL."
+)
+```
+
+```{r interaction-heatmap-mycn, fig.width=10, fig.height=5}
+make_interaction_heatmap <- function(interaction_tbl) {
+  data <- interaction_tbl %>% as_tibble() %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE), .groups = "drop")
+  
+  data_wide <- data %>%
+    pivot_wider(
+      names_from = to_label,
+      values_from = sum_sigval
+    )
+  
+  data_wide <- tibble::column_to_rownames(data_wide, var = "from_label")
+  
+  max_range <- max(abs(50), abs(50))
+  breaks <- seq(-max_range, max_range, length.out = 101)
+  colors <- colorRampPalette(c("blue", "white", "red"))(length(breaks) - 1)
+  
+  pheatmap(data_wide,
+           color = colors,
+           breaks = breaks,
+           cellwidth = 20,
+           cellheight = 20,
+           fontsize = 10,
+           display_numbers = TRUE)
+}
+
+plot_interaction_heatmap <- function(interaction_tbl, filename) {
+  if (is.null(interaction_tbl)) {
+    return(invisible(NULL))
+  }
+  
+  p_heatmap <- make_interaction_heatmap(interaction_tbl)
+  save_plot(p_heatmap, filename, width = 6, height = 6)
+  p_heatmap
+}
+
+p_heatmap_non_mycn <- plot_interaction_heatmap(out_non_mycn, "Fig4b_cell-cell_interactions_nMNA.png")
+p_heatmap_mycn <- plot_interaction_heatmap(out_mycn, "Fig4b_cell-cell_interactions_MNA.png")
+
+heatmap_grobs <- Filter(
+  Negate(is.null),
+  list(
+    if (is.null(p_heatmap_non_mycn)) NULL else p_heatmap_non_mycn$gtable,
+    if (is.null(p_heatmap_mycn)) NULL else p_heatmap_mycn$gtable
+  )
+)
+
+if (length(heatmap_grobs) > 0) {
+  gridExtra::grid.arrange(
+    grobs = heatmap_grobs,
+    ncol = 2,
+    top = "Cell-cell interactions: nMNA and MNA"
+  )
+} else {
+  warning("No MYCN-stratified interaction heatmaps were generated.")
+}
 ```
 
 ## Cellular neighborhoods
