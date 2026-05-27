@@ -376,7 +376,7 @@ meta_long <- meta_df %>%
   pivot_longer(cols = c(mna, progress, tumor_community), names_to = "annotation", values_to = "value") %>%
   mutate(
     annotation = factor(annotation, levels = c("mna", "progress", "tumor_community"),
-                        labels = c("MYCN", "Progression", "Tumor community"))
+                        labels = c("MYCN", "Progression", "Patient Group"))
   )
 
 p_meta <- ggplot(meta_long, aes(x = sample_id, y = annotation, fill = as.character(value))) +
@@ -1730,35 +1730,6 @@ for (cells in c("tumor", "immune")) {
     }
   } # end GLMM section B
 }
-```
-
-
-```{r bm-tumor-cell-counts, fig.width=20, fig.height=5}
-library(dplyr)
-library(ggplot2)
-
-df_counts <- colData(spe) %>%
-  as_tibble() %>%
-  filter(tissue == "BM") %>%
-  group_by(fm_id) %>%
-  summarise(
-    n_cells = sum(metacluster == "tumor"),
-    control = first(control),
-    .groups = "drop"
-  )
-
-ggplot(df_counts, aes(x = fm_id, y = n_cells)) +
-  geom_bar(stat = "identity", fill = "steelblue") +
-  geom_text(aes(label = n_cells), vjust = -0.3) +
-  facet_wrap(~control, scales = "free_x") +   # 🔑 key fix
-  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
-  theme_classic() +
-  labs(
-    x = "fm_id",
-    y = "Number of tumor cells (BM only)",
-    title = "Tumor cells per BM fm_id (by control)"
-  ) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 

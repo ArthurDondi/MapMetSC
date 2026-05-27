@@ -749,7 +749,7 @@ for (cluster_col in cluster_vars) {
 
 ## Define final clustering set
 ```{r define-final-pg-clusters}
-spe$pg_clusters <- spe$pg_clusters_k45
+spe$pg_clusters <- spe$pg_clusters_k60
 ```
 
 ## Subclustering of mixed clusters using GMM
@@ -1028,9 +1028,9 @@ col_celltype <- c(
   ## ---- Tumor ----
   "CXCR4+ Tu"     = rgb(120, 180,  40, maxColorValue = 255),
   "CD44+ Tu"      = rgb(65,  208,  57, maxColorValue = 255),
-  "GD2- Tu"      = rgb(40,  150,130, maxColorValue = 255),
+  "GD2neg Tu"      = rgb(40,  150,130, maxColorValue = 255),
   "Ki67+ Tu"      = rgb(173, 255,  47, maxColorValue = 255),
-  "early NB Tu"   = rgb(150, 220, 170, maxColorValue = 255),
+  "early neuroblast-like Tu"   = rgb(150, 220, 170, maxColorValue = 255),
   "marker-lo Tu"  = rgb(40,  120,  70, maxColorValue = 255),
   "bridge-like Tu" = rgb(0, 160, 110, maxColorValue = 255),
 
@@ -1052,7 +1052,7 @@ col_celltype <- c(
   ## ---- Myeloid ----
   "granulocytes"       = rgb(8,   48, 107, maxColorValue = 255),
   "CD14+ MO"           = rgb(33, 102, 172, maxColorValue = 255),
-  "myeloid"     = rgb(64, 180, 170, maxColorValue = 255),
+  "myeloid cells"     = rgb(64, 180, 170, maxColorValue = 255),
   "GZMB+ DC/NK cells"  = rgb(107,174, 214, maxColorValue = 255),
 
   ## ---- B cells ----
@@ -1074,7 +1074,7 @@ metadata(spe)$color_vectors$col_celltype <- col_celltype
 col_metacluster <- c(
   "tumor" = "#238B45",
   "T cells" = "#E34A33",
-  "granulocytes" = "#08306B",   # dark blue (matches rgb(8,48,107))
+  "granulocytes" = "#08306B",  
   "MO/DC/NK" = "#41B6C4",
   "B cells" = "#88419D",
   "mesenchymal" = "#8C510A",
