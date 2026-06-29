@@ -1029,7 +1029,7 @@ col_celltype <- c(
   "CXCR4+ Tu"     = rgb(128, 128,   0, maxColorValue = 255),   # olive (dark yellow-green)
   "CD44+ Tu"      = rgb(50,  205,  50, maxColorValue = 255),   # bright lime green
   "GD2neg Tu"      = rgb(189, 183, 107, maxColorValue = 255),  # khaki
-  "Ki67+ Tu"      = rgb(173, 255,  47, maxColorValue = 255),   # chartreuse
+  "Ki67+ Tu"      = rgb(0,   255, 127, maxColorValue = 255),   # spring green
   "early neuroblast-like Tu"   = rgb(152, 251, 152, maxColorValue = 255),  # pale green
   "marker-low Tu"  = rgb(34,  100,  60, maxColorValue = 255),   # dark green
   "neuroblast-like Tu" = rgb(0, 145, 150, maxColorValue = 255),    # teal / blue-green
