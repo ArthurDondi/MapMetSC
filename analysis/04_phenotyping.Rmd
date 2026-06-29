@@ -1026,13 +1026,12 @@ Finally, we assign colors to all celltypes and metaclusters.
 col_celltype <- c(
 
   ## ---- Tumor ----
-  "CXCR4+ Tu"     = rgb(120, 180,  40, maxColorValue = 255),
-  "CD44+ Tu"      = rgb(65,  208,  57, maxColorValue = 255),
-  "GD2neg Tu"      = rgb(40,  150,130, maxColorValue = 255),
-  "Ki67+ Tu"      = rgb(173, 255,  47, maxColorValue = 255),
-  "early neuroblast-like Tu"   = rgb(150, 220, 170, maxColorValue = 255),
-  "marker-lo Tu"  = rgb(40,  120,  70, maxColorValue = 255),
-  "bridge-like Tu" = rgb(0, 160, 110, maxColorValue = 255),
+  "Ki67+ Tu"     = rgb(128, 128,   0, maxColorValue = 255),   # olive (dark yellow-green)
+  "CD44+ Tu"      = rgb(50,  205,  50, maxColorValue = 255),   # bright lime green
+  "GD2neg Tu"      = rgb(189, 183, 107, maxColorValue = 255),  # khaki
+  "early neuroblast-like Tu"   = rgb(152, 251, 152, maxColorValue = 255),  # pale green
+  "adrenergic marker-low Tu"  = rgb(34,  100,  60, maxColorValue = 255),   # dark green
+  "neuroblast-like Tu" = rgb(0, 145, 150, maxColorValue = 255),    # teal / blue-green
 
   ## ---- Proliferation ----
   "Ki67+ cells" = rgb(255, 200,   0, maxColorValue = 255),
@@ -1042,12 +1041,12 @@ col_celltype <- c(
   "CD34+ HSPCs" = rgb(255,  95,   0, maxColorValue = 255),
 
   ## ---- T cells ----
-  "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),
-  "CD4+ T cells"        = rgb(232,  80,  70, maxColorValue = 255),
-  "CD3+ T cells"        = rgb(180,  30,  50, maxColorValue = 255),
-  "CD8+ S100B+ T cells"      = rgb(199,  21, 133, maxColorValue = 255),
-  "CD8+ GZMB+ T cells"       = rgb(220,  90,  40, maxColorValue = 255),
-  "dense T cell region" = rgb(170,  30, 120, maxColorValue = 255),
+  "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),   # crimson
+  "CD4+ T cells"        = rgb(255, 127,  80, maxColorValue = 255),   # coral
+  "CD3+ T cells"        = rgb(139,   0,   0, maxColorValue = 255),   # dark red
+  "CD8+ S100B+ T cells"      = rgb(230,  20, 210, maxColorValue = 255),  # fuchsia
+  "CD8+ GZMB+ T cells"       = rgb(255, 182, 193, maxColorValue = 255),  # light pink
+  "dense T cell region" = rgb(199,  21, 133, maxColorValue = 255),   # magenta / medium violet red
 
   ## ---- Myeloid ----
   "granulocytes"       = rgb(8,   48, 107, maxColorValue = 255),
