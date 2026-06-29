@@ -1045,8 +1045,8 @@ col_celltype <- c(
   "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),   # crimson
   "CD4+ T cells"        = rgb(255, 127,  80, maxColorValue = 255),   # coral
   "CD3+ T cells"        = rgb(139,   0,   0, maxColorValue = 255),   # dark red
-  "CD8+ S100B+ T cells"      = rgb(255,  20, 147, maxColorValue = 255),  # deep pink
-  "CD8+ GZMB+ T cells"       = rgb(255, 140,   0, maxColorValue = 255),  # dark orange
+  "CD8+ S100B+ T cells"      = rgb(230,  20, 210, maxColorValue = 255),  # fuchsia
+  "CD8+ GZMB+ T cells"       = rgb(255, 182, 193, maxColorValue = 255),  # light pink
   "dense T cell region" = rgb(199,  21, 133, maxColorValue = 255),   # magenta / medium violet red
 
   ## ---- Myeloid ----
