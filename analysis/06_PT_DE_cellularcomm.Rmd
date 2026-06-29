@@ -140,18 +140,51 @@ metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_
 
 ## Cluster cellular communities
 
-Next, we cluster proportions of tumor cell types across all diagnostic PT samples (instead of conditions) and plot the result in barplots:
+Next, we cluster proportions of tumor cell types across all diagnostic PT samples (instead of conditions). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage, and plot the result in barplots:
 
 ```{r cohort-overview}
 set.seed(20231103)
 sce_tumor <- sce[,sce$metacluster=="tumor"]
 
-distance <- "manhattan"
-linkage <- "complete"
+distance <- "euclidean"
+linkage <- "ward.D2"
 n_communities <- 3
 
-p <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust=T, k_pal=metadata(spe)$color_vectors$col_celltype_ordered, 
-                    linkage = linkage, distance= distance) 
+# Centered log-ratio (CLR) transformation for compositional proportions.
+# Cell-type proportions sum to 1 per sample, so we CLR-transform them before
+# computing Euclidean distances. Zeros are handled with a small pseudocount
+# (half the smallest non-zero proportion) before taking logs; CLR then centers
+# each sample's log-proportions on its geometric mean.
+clr_transform <- function(mat) {
+  mat <- as.matrix(mat)
+  pos <- mat[mat > 0]
+  pseudocount <- if (length(pos) > 0) min(pos) / 2 else 1e-6
+  log_mat <- log(mat + pseudocount)
+  sweep(log_mat, 1, rowMeans(log_mat), "-")
+}
+
+# Extract tumor cell-type proportions per sample
+p_tumor_data <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = FALSE,
+                               k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
+wide_df <- p_tumor_data$data %>%
+  select(-condition) %>%
+  pivot_wider(names_from = cluster_id, values_from = Freq)
+
+wide_df <- data.frame(wide_df)
+rownames(wide_df) <- wide_df$sample_id
+wide_df <- wide_df %>% select(-sample_id)
+
+# CLR-transform proportions, then cluster samples (euclidean distance, ward.D2 linkage)
+clr_df <- clr_transform(wide_df)
+dist_matrix <- dist(clr_df, method = distance)
+hc <- hclust(dist_matrix, method = linkage)
+
+# Order samples by dendrogram leaf order so the barplot follows the CLR clustering
+clustered_order <- rownames(wide_df)[hc$order]
+sce_tumor$sample_id <- factor(as.character(sce_tumor$sample_id), levels = clustered_order)
+
+p <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = FALSE,
+                    k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
 
 p
 
@@ -161,19 +194,7 @@ save_plot(p, "Fig3a1_PT_abundance_patients_clustered_cancer.png", width = 8, hei
 along with the dendogram:
 
 ```{r dendogram, fig.height=8, fig.width=7}
-#Dendogram
-set.seed(20231103)
-wide_df <- p$data %>%
-  select(-condition) %>%
-  pivot_wider(names_from = cluster_id, values_from = Freq)
-
-wide_df <- data.frame(wide_df)
-rownames(wide_df) <- wide_df$sample_id
-wide_df <- wide_df %>% select(-sample_id)
-
-dist_matrix <- dist(wide_df, method = distance)
-hc <- hclust(dist_matrix, method = linkage)
-
+# Dendogram of the CLR-based clustering computed above
 plot(hc)
 
 save_plot(plot(hc), "Fig3a2_PT_abundance_patients_clustered_dendrogram.png", width = 8, height = 6)
