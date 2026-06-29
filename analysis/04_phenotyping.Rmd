@@ -1026,12 +1026,11 @@ Finally, we assign colors to all celltypes and metaclusters.
 col_celltype <- c(
 
   ## ---- Tumor ----
-  "CXCR4+ Tu"     = rgb(128, 128,   0, maxColorValue = 255),   # olive (dark yellow-green)
+  "Ki67+ Tu"     = rgb(128, 128,   0, maxColorValue = 255),   # olive (dark yellow-green)
   "CD44+ Tu"      = rgb(50,  205,  50, maxColorValue = 255),   # bright lime green
   "GD2neg Tu"      = rgb(189, 183, 107, maxColorValue = 255),  # khaki
-  "Ki67+ Tu"      = rgb(0,   170,  90, maxColorValue = 255),   # emerald / jade green
   "early neuroblast-like Tu"   = rgb(152, 251, 152, maxColorValue = 255),  # pale green
-  "marker-low Tu"  = rgb(34,  100,  60, maxColorValue = 255),   # dark green
+  "adrenergic marker-low Tu"  = rgb(34,  100,  60, maxColorValue = 255),   # dark green
   "neuroblast-like Tu" = rgb(0, 145, 150, maxColorValue = 255),    # teal / blue-green
 
   ## ---- Proliferation ----
