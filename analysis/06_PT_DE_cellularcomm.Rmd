@@ -2,11 +2,11 @@
 title: "Identifying cellular communities in diagnostic primary tumors"
 author: "LazDaria"
 date: "`r Sys.Date()`"
-output: 
+output:
   workflowr::wflow_html
 editor_options:
   chunk_output_type: inline
-params: 
+params:
   input: "/home/rstudio/data/input_all"
   output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
 ---
@@ -29,24 +29,24 @@ date_prefix <- format(Sys.Date(), "%Y%m%d")
 # ================================
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
-  
+
   if (inherits(plot_obj, "ggplot")) {
-    
+
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
-    
+
   } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
-    
+
     # save as PNG instead of PDF if you want consistency
     png(full_path, width = width * dpi, height = height * dpi, res = dpi)
     draw(plot_obj)
     dev.off()
-    
+
   } else {
-    
+
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
-  
+
   message("Saved: ", full_path)
 }
 
@@ -71,7 +71,7 @@ Following the path of tumor progression, we start with an analysis of the primar
 ## Load libraries
 <details>
    <summary>Load libraries</summary>
-   
+
 ```{r load-libraries}
 library(diffcyt)
 library(SingleCellExperiment)
@@ -92,16 +92,16 @@ library(patchwork)
 </details>
 
 ## Read data
-First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
+First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping).
 
 ```{r read-data}
 spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 ```
 
-We will then transform the SPE object into a catalyst-compatible object. 
+We will then transform the SPE object into a catalyst-compatible object.
 
 ```{r catalyst-comp-object}
-keep_rows <- rowData(spe)$use_channel 
+keep_rows <- rowData(spe)$use_channel
 keep_cols <- spe$celltype != "other" & spe$tissue=="PT" & (spe$timepoint=="DE")
 
 sce <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows, keep_cols], exprs=assay(spe, "counts")[keep_rows, keep_cols]))
@@ -132,7 +132,7 @@ sce$age_diag <- spe[keep_rows, keep_cols]$age_diag
 sce$cluster_id <- factor(spe[keep_rows, keep_cols]$celltype_ordered)
 sce$metacluster <- factor(spe[keep_rows, keep_cols]$metacluster)
 
-sce$condition <- 'na' 
+sce$condition <- 'na'
 
 # Add celltype information to metadata
 metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_cols]$celltype_ordered))
@@ -234,9 +234,9 @@ p_split
 save_plot(p_split, "Fig3a1_PT_abundance_patients_clustered_cancer_split.png", width = 12, height = 5)
 ```
 
-## Plot TME cellular profiles 
+## Plot TME cellular profiles
 
-We will then plot the cellular profiles of the TME for these samples. 
+We will then plot the cellular profiles of the TME for these samples.
 
 ```{r plot-TME, fig.width=12, fig.height=5}
 #order samples based on above clustering
@@ -274,13 +274,13 @@ rownames(prop) <- levels(sce$cluster_id)
 me_clusters <- unique(sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]$cluster_id)
 me_prop <- prop[rownames(prop)%in%me_clusters,]
 me_het <- apply(me_prop,2, entropy)
-  
+
 tumor_clusters <- unique(sce[,sce$metacluster=="tumor"]$cluster_id)
 tumor_prop <- prop[rownames(prop)%in%tumor_clusters,]
 tumor_het <- apply(tumor_prop,2, entropy)
 ```
 
-## Plot metadata 
+## Plot metadata
 
 Then we plot intra-sample heterogeneity together with sample-specific metadata for the clustered sammples.
 
@@ -288,7 +288,7 @@ Then we plot intra-sample heterogeneity together with sample-specific metadata f
 #access sample-level data
 sample_summary <- as.data.frame(colData(sce)) %>%
   group_by(sample_id) %>%
-  summarize(mna = first(mna), 
+  summarize(mna = first(mna),
             X1p_loss = first(X1p_loss),
             progress=first(progress),
             age_diag = first(age_diag)
@@ -315,15 +315,15 @@ col_me_het = colorRamp2(c(min(me_het, na.rm = TRUE), (max(me_het, na.rm = TRUE)-
 col_tumor_het = colorRamp2(c(min(tumor_het, na.rm = TRUE), (max(tumor_het, na.rm = TRUE)-min(tumor_het, na.rm = TRUE))/2, max(tumor_het, na.rm = TRUE)), viridis(3))
 
 # Plot metadata
-p <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
+p_anno <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(X1p_loss=sample_summary$X1p_loss, col=list(X1p_loss=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
   columnAnnotation(age=sample_summary$age_diag, col=list(age=col_age_diag)) %v%
   columnAnnotation(TUM_het=tumor_het, col=list(TUM_het=col_tumor_het)) %v%
   columnAnnotation(ME_het=me_het, col=list(ME_het=col_me_het))
 
-save_plot(p, "Fig3a4_PT_abundance_patients_clustered_metadata.png", width = 8, height = 6)
-  
+save_plot(p_anno, "Fig3a4_PT_abundance_patients_clustered_metadata.png", width = 8, height = 6)
+
 ```
 
 ## Plot continous and discrete summary statistics
@@ -340,26 +340,26 @@ discrete_metadata_colors <- list(col_code, col_code, col_code)
 plot_list <- list()
 for (d in seq_along(discrete_metadata)) {
   sample_meta <- sample_summary[,c(discrete_metadata[d], "community_clusters")]
-  sample_meta <- sample_meta[rowSums(sample_meta == "unknown") == 0, ] 
+  sample_meta <- sample_meta[rowSums(sample_meta == "unknown") == 0, ]
   colnames(sample_meta) <- c("dis_var", "condition")
-  
+
   result <- sample_meta %>%
     group_by(condition, dis_var) %>%
     summarise(Freq = n(), .groups = 'drop')
-  
+
   result[,"dis_var"]<- as.factor(unlist(result[,"dis_var"]))
-  
+
 plot_list[[d]] <- ggplot(result, aes(x="", y=Freq, fill=dis_var, group=dis_var)) +
     geom_col(position = "fill") +
     scale_fill_manual(values = discrete_metadata_colors[[d]], name=discrete_metadata[d]) +
-    coord_polar("y", start=0)  +  
+    coord_polar("y", start=0)  +
     facet_grid(.~ condition) +
     theme_void()
 }
 
-p<-do.call("grid.arrange", c(plot_list, ncol=1))
+p_pie <- do.call("grid.arrange", c(plot_list, ncol=1))
 
-save_plot(p, "Fig3b_PT_abundance_piecharts_metadata.png", width = 6, height = 8)
+save_plot(p_pie, "Fig3b_PT_abundance_piecharts_metadata.png", width = 6, height = 8)
 ```
 ```{r boxplots}
 het_m <- as.vector(unname(me_het[clustered_samples]))
@@ -380,18 +380,18 @@ plot_list <- list()
 
 for (d in colnames(cont_df)[1:ncol(cont_df)-1]) {
 
-  df <- cont_df[,c(d, "community_cluster")] 
+  df <- cont_df[,c(d, "community_cluster")]
 
 plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
                 color = "community_cluster", palette = community_palette,
-                add = "jitter")+ 
+                add = "jitter")+
                 stat_compare_means() +
-                theme(aspect.ratio = 1.5, legend.position="none") 
+                theme(aspect.ratio = 1.5, legend.position="none")
 }
 
-p<-do.call("grid.arrange", c(plot_list, ncol=3))
+p_box <- do.call("grid.arrange", c(plot_list, ncol=3))
 
-save_plot(p, "Fig3c_PT_abundance_het_boxplot_metadata.png", width = 6, height = 8)
+save_plot(p_box, "Fig3c_PT_abundance_het_boxplot_metadata.png", width = 6, height = 8)
 ```
 
 ## Plot metaclusters
@@ -414,120 +414,87 @@ save_plot(p_all, "Fig3a3_PT_abundance_patients_clustered_metacluster.png", width
 
 ## Combined Figure 3a (stacked panels)
 
-All panels share the same sample order (dendrogram order) and community split.
+All panels share the same sample order (dendrogram order). The dendrogram on top
+is a single connected tree: its root spans the two communities. To keep the
+communities visually separated, a blank spacer column is inserted at each
+community boundary in every panel (an empty column with no sample and no
+dendrogram leaf), and the connecting root segment simply crosses that gap.
+Because the dendrogram is drawn on a continuous x-axis matched to the discrete
+barplot/tile axes (same `[0.5, M+0.5]` range and expansion, where `M` includes
+the spacer columns), each dendrogram leaf is centered on its column in every
+panel.
 
 ```{r fig3a-combined, fig.width=8, fig.height=15}
-# Shared inter-community gap in physical units — applied to every panel so all
-# gaps are identical regardless of the panel's base theme.
-COMM_GAP <- unit(4, "pt")
-
-# Shared discrete x-axis expansion — set explicitly on every panel so the
-# proportional widths (space = "free_x") are identical for barplots and tiles.
+# Shared discrete x-axis expansion — set on every panel so the continuous
+# dendrogram axis and the discrete barplot/tile axes share the same physical
+# range [0.5, M + 0.5] and therefore align column-by-column.
 X_EXPAND <- expansion(add = 0.5)
 
-# ---- Helper: remove x-axis elements (shared axis) ----
-clean_x <- function(p) {
-  p + theme(
-    axis.text.x       = element_blank(),
-    axis.ticks.x      = element_blank(),
-    axis.title.x      = element_blank(),
-    plot.title        = element_blank(),
-    strip.text.x      = element_blank(),
-    strip.background  = element_blank(),
-    panel.border      = element_blank(),
-    panel.spacing.x   = COMM_GAP
+# ---- Community layout: blank spacer column between communities ----
+# cellular_communities is contiguous in clustered order (each cutree cluster is a
+# subtree of the dendrogram), so communities change at single boundaries. We add
+# one empty column at each boundary: it carries no sample (and no dendrogram
+# leaf), producing a visible gap that the single connected dendrogram spans.
+comm_seq     <- cellular_communities[clustered_samples, "community_cluster"]
+N            <- length(clustered_samples)
+boundary_idx <- which(diff(as.integer(comm_seq)) != 0)  # last index of each community (except the last)
+n_spacers    <- length(boundary_idx)
+M            <- N + n_spacers
+
+# Build a factor-level vector with a unique blank spacer inserted after each boundary
+insert_spacers <- function(ids) {
+  if (n_spacers == 0) return(ids)
+  out <- character(0); prev <- 0L
+  for (b in seq_along(boundary_idx)) {
+    out  <- c(out, ids[(prev + 1L):boundary_idx[b]], paste0("__gap__", b))
+    prev <- boundary_idx[b]
+  }
+  c(out, ids[(prev + 1L):length(ids)])
+}
+
+# Map an original x (1..N, no spacer) onto the spaced axis (1..M)
+remap_x  <- function(v) v + vapply(v, function(z) sum(boundary_idx < z), numeric(1))
+real_pos <- remap_x(seq_len(N))   # spaced positions of the N real columns
+
+# Spaced level vectors for the two sample-id formats used by the panels
+lev_tumor <- insert_spacers(clustered_order)    # progress_..._tissue ids (tumor panel)
+lev_fm    <- insert_spacers(clustered_samples)  # fm_id_tissue ids (metacluster & immune panels, metadata strips)
+
+# ---- Helper: drop faceting, apply spaced levels, remove x-axis (shared axis) ----
+# drop = FALSE keeps the empty spacer levels so they render as blank gap columns.
+prep_bar <- function(pl, lev) {
+  pl <- pl + facet_null()
+  pl$data$sample_id <- factor(as.character(pl$data$sample_id), levels = lev)
+  pl + theme(
+    axis.text.x  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    plot.title   = element_blank(),
+    panel.border = element_blank()
   ) +
-  scale_x_discrete(expand = X_EXPAND)
+  scale_x_discrete(drop = FALSE, expand = X_EXPAND)
 }
 
-# Community strip labeller used by the dendrogram panel
-comm_labels <- setNames(as.character(community_levels), as.character(community_levels))
-comm_labeller <- labeller(community = comm_labels)
+# ---- 1. Single connected dendrogram (no faceting), leaves on real columns ----
+ddata     <- dendro_data(hc, type = "rectangle")
+segs      <- segment(ddata)
+segs$x    <- remap_x(segs$x)      # shift coordinates onto the spaced axis
+segs$xend <- remap_x(segs$xend)
+h_root    <- max(c(segs$y, segs$yend))
 
-# ---- 1. Dendrogram as ggplot, split by community ----
-ddata <- dendro_data(hc, type = "rectangle")
-segs  <- segment(ddata)
+# Community labels centered over each community's (spaced) leaf range
+comm_label_df <- data.frame(
+  x     = vapply(community_levels, function(cc) mean(real_pos[comm_seq == cc]), numeric(1)),
+  label = as.character(community_levels),
+  y     = h_root * 1.08
+)
 
-# Map leaf x-positions to community
-leaf_x   <- as.integer(ddata$labels$x)
-leaf_lab <- as.character(ddata$labels$label)
-leaf_key <- sapply(strsplit(leaf_lab, "_"), function(x) paste(x[length(x)-1], x[length(x)], sep="_"))
-leaf_comm <- cellular_communities[leaf_key, "community_cluster"]
-present_leaf_communities <- sort(unique(stats::na.omit(leaf_comm)))
-missing_leaf_communities <- setdiff(community_levels, present_leaf_communities)
-if (length(missing_leaf_communities) > 0) {
-  warning(sprintf("Communities without matched dendrogram leaves: %s", paste(missing_leaf_communities, collapse = ", ")))
-}
-
-community_ranges <- lapply(community_levels, function(comm) {
-  comm_x <- leaf_x[leaf_comm == comm]
-  if (length(comm_x) == 0) return(NULL)
-  c(min = min(comm_x), max = max(comm_x), mean = mean(comm_x))
-})
-names(community_ranges) <- as.character(community_levels)
-community_ranges <- Filter(Negate(is.null), community_ranges)
-if (length(community_ranges) == 0) stop(sprintf("No dendrogram leaves matched community assignments (leaves=%d, expected communities=%s, observed communities=%s). Check that cellular_communities includes valid sample-level assignments.", length(leaf_x), paste(community_levels, collapse = ","), paste(present_leaf_communities, collapse = ",")))
-valid_communities <- as.integer(names(community_ranges))
-
-SEGMENT_TOLERANCE <- 0.5
-PANEL_EDGE_PADDING <- 0.5
-# SEGMENT_TOLERANCE is used to assign dendrogram segments to communities.
-# Leaf positions are integers (1..n), so this ensures each segment whose
-# x-range falls entirely within one community's leaf positions is assigned
-# to that community; cross-community (root) segments are excluded.
-segs$community <- factor(mapply(function(x1, x2) {
-  lo <- min(x1, x2); hi <- max(x1, x2)
-  in_comm <- vapply(valid_communities, function(comm) {
-    comm_range <- community_ranges[[as.character(comm)]]
-    lo >= comm_range["min"] - SEGMENT_TOLERANCE && hi <= comm_range["max"] + SEGMENT_TOLERANCE
-  }, logical(1))
-  if (sum(in_comm) == 1) return(valid_communities[in_comm])
-  NA_integer_
-}, segs$x, segs$xend), levels = community_levels)
-
-segs_c <- segs[!is.na(segs$community), ]
-
-# ---- Normalize x-coordinates to community-local positions ----
-# The barplots use discrete x (1..n_c per community panel), but dendro_data()
-# assigns global x-positions (1..N across all samples). Subtracting each
-# community's minimum leaf position minus 1 maps leaves to 1..n_c locally,
-# aligning dendrogram leaves with barplot columns in every facet.
-comm_levels_chr <- as.character(community_levels)
-comm_min_x <- vapply(community_levels, function(comm) {
-  cx <- leaf_x[leaf_comm == comm]
-  if (length(cx) == 0L) NA_integer_ else min(cx) - 1L
-}, integer(1))
-names(comm_min_x) <- comm_levels_chr
-offset_vec  <- comm_min_x[as.character(segs_c$community)]
-segs_c$x    <- segs_c$x    - offset_vec
-segs_c$xend <- segs_c$xend - offset_vec
-
-# ---- Root arms: one horizontal cap per community at its natural top ----
-# Drawing each cap at the community's own maximum merge height (not the global
-# h_root) correctly reflects the hierarchy: groups that merge early show a
-# lower cap than the group that forms the last split at h_root.
-make_root_arm <- function(comm) {
-  s_comm <- segs_c[segs_c$community == comm, ]
-  if (nrow(s_comm) == 0) return(NULL)
-  h_comm <- max(c(s_comm$y, s_comm$yend))   # actual top of this community's subtree
-  n_c    <- sum(leaf_comm == comm)           # number of leaves (= local x range)
-  data.frame(x    = 1 - PANEL_EDGE_PADDING,
-             y    = h_comm,
-             xend = n_c + PANEL_EDGE_PADDING,
-             yend = h_comm,
-             community = factor(comm, levels = community_levels))
-}
-
-root_arm_list  <- Filter(Negate(is.null), lapply(valid_communities, make_root_arm))
-root_arms      <- if (length(root_arm_list) == 0) NULL else do.call(rbind, root_arm_list)
-segs_with_root <- if (is.null(root_arms)) segs_c else rbind(segs_c, root_arms)
-
-p_dendro <- ggplot(segs_with_root) +
+p_dendro <- ggplot(segs) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
-  scale_x_continuous(expand = c(0, PANEL_EDGE_PADDING)) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
-  facet_grid(. ~ community, scales = "free_x", space = "free_x",
-             labeller = comm_labeller) +
+  geom_text(data = comm_label_df, aes(x = x, y = y, label = label),
+            fontface = "bold", size = 4, inherit.aes = FALSE) +
+  scale_x_continuous(limits = c(0.5, M + 0.5), expand = c(0, 0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
   labs(title = "Community") +
   theme_minimal() +
   theme(
@@ -536,10 +503,7 @@ p_dendro <- ggplot(segs_with_root) +
     axis.title      = element_blank(),
     plot.title      = element_text(face = "bold", size = 11, hjust = 0.5),
     plot.title.position = "plot",
-    strip.text.x    = element_text(face = "bold", size = 11),
-    strip.background = element_blank(),
     panel.grid      = element_blank(),
-    panel.spacing.x = COMM_GAP,
     plot.margin     = margin(2, 2, 0, 2)
   )
 
@@ -547,8 +511,7 @@ p_dendro <- ggplot(segs_with_root) +
 meta_df <- sample_summary[clustered_samples, c("mna", "X1p_loss", "progress", "age_diag")]
 meta_df$TUM_het   <- tumor_het[clustered_samples]
 meta_df$ME_het    <- me_het[clustered_samples]
-meta_df$sample_id <- factor(clustered_samples, levels = clustered_samples)
-meta_df$community <- factor(cellular_communities[clustered_samples, "community_cluster"], levels = community_levels)
+meta_df$sample_id <- factor(clustered_samples, levels = lev_fm)
 
 # Colorbar guide for continuous variables
 cbar_guide <- guide_colorbar(
@@ -558,16 +521,12 @@ cbar_guide <- guide_colorbar(
   ticks          = FALSE
 )
 
-# Shared ggplot layers for each metadata strip
+# Shared ggplot layers for each metadata strip (drop = FALSE keeps spacer columns)
 meta_layers <- list(
   geom_tile(),
-  facet_grid(. ~ community, scales = "free_x", space = "free_x"),
-  scale_x_discrete(expand = X_EXPAND),
+  scale_x_discrete(drop = FALSE, expand = X_EXPAND),
   theme_void(),
   theme(
-    strip.text.x    = element_blank(),
-    strip.background = element_blank(),
-    panel.spacing.x = COMM_GAP,
     legend.position = "right",
     legend.key.size = unit(0.6, "cm"),
     legend.text     = element_text(size = 9),
@@ -609,10 +568,10 @@ p_mehet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = ME_het)) +
   scale_fill_viridis_c(name = "ME_het", na.value = "white", guide = cbar_guide) +
   labs(y = "ME_het")
 
-# ---- 3. Clean barplots (remove x-axis, title, and facet strips) ----
-p_tumor_c  <- clean_x(p_split)
-p_meta_c   <- clean_x(p_all)
-p_immune_c <- clean_x(p_ME)
+# ---- 3. Clean barplots (drop facet, apply spacer levels, remove x-axis) ----
+p_tumor_c  <- prep_bar(p_split, lev_tumor)
+p_meta_c   <- prep_bar(p_all,   lev_fm)
+p_immune_c <- prep_bar(p_ME,    lev_fm)
 
 # ---- 4. Stack all panels ----
 # guides = "collect" consolidates all legends into one area, eliminating overlap
@@ -639,7 +598,7 @@ save_plot(p_fig3a, "Fig3a_combined_stacked.png", width = 8, height = 15)
 
 <details>
    <summary>SessionInfo</summary>
-   
+
 ```{r, echo = FALSE}
 sessionInfo()
 ```

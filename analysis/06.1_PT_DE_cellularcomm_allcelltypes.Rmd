@@ -415,54 +415,77 @@ save_plot(p_all, "Fig3aBis_PT_abundance_patients_clustered_metacluster.png", wid
 
 ## Combined Figure 3a-bis (stacked panels)
 
-All panels share the same sample order (dendrogram order). The communities are
-delimited by a single connected dendrogram on top (showing the split between
-groups), a dashed separator line at the community boundary, and community labels
-above the tree. Because the dendrogram is a single tree on a continuous x-axis
-that matches the discrete barplot/tile axes (same `[0.5, N+0.5]` range and
-expansion), each dendrogram leaf is centered on its column in every panel.
+All panels share the same sample order (dendrogram order). The dendrogram on top
+is a single connected tree: its root spans the two communities. To keep the
+communities visually separated, a blank spacer column is inserted at each
+community boundary in every panel (an empty column with no sample and no
+dendrogram leaf), and the connecting root segment simply crosses that gap.
+Because the dendrogram is drawn on a continuous x-axis matched to the discrete
+barplot/tile axes (same `[0.5, M+0.5]` range and expansion, where `M` includes
+the spacer columns), each dendrogram leaf is centered on its column in every
+panel.
 
 ```{r fig3a-combined, fig.width=8, fig.height=15}
-# Shared discrete x-axis expansion — set explicitly on every panel so the
-# continuous dendrogram axis and the discrete barplot/tile axes share the same
-# physical range [0.5, N + 0.5] and therefore align column-by-column.
+# Shared discrete x-axis expansion — set on every panel so the continuous
+# dendrogram axis and the discrete barplot/tile axes share the same physical
+# range [0.5, M + 0.5] and therefore align column-by-column.
 X_EXPAND <- expansion(add = 0.5)
 
-# ---- Community boundaries & labels (shared across all panels) ----
+# ---- Community layout: blank spacer column between communities ----
 # cellular_communities is contiguous in clustered order (each cutree cluster is a
-# subtree of the dendrogram), so a community changes at a single boundary.
-comm_seq   <- cellular_communities[clustered_samples, "community_cluster"]
-N          <- length(clustered_samples)
-boundaries <- which(diff(as.integer(comm_seq)) != 0) + 0.5  # x of dashed separators
+# subtree of the dendrogram), so communities change at single boundaries. We add
+# one empty column at each boundary: it carries no sample (and no dendrogram
+# leaf), producing a visible gap that the single connected dendrogram spans.
+comm_seq     <- cellular_communities[clustered_samples, "community_cluster"]
+N            <- length(clustered_samples)
+boundary_idx <- which(diff(as.integer(comm_seq)) != 0)  # last index of each community (except the last)
+n_spacers    <- length(boundary_idx)
+M            <- N + n_spacers
 
-# Dashed vertical separators between communities, reused on every panel
-sep_layer <- if (length(boundaries) > 0) {
-  geom_vline(xintercept = boundaries, linetype = "dashed",
-             colour = "grey40", linewidth = 0.3)
-} else NULL
-add_sep <- function(pl) if (is.null(sep_layer)) pl else pl + sep_layer
-
-# ---- Helper: remove x-axis elements (shared axis) ----
-clean_x <- function(p) {
-  p + theme(
-    axis.text.x       = element_blank(),
-    axis.ticks.x      = element_blank(),
-    axis.title.x      = element_blank(),
-    plot.title        = element_blank(),
-    panel.border      = element_blank()
-  ) +
-  scale_x_discrete(expand = X_EXPAND)
+# Build a factor-level vector with a unique blank spacer inserted after each boundary
+insert_spacers <- function(ids) {
+  if (n_spacers == 0) return(ids)
+  out <- character(0); prev <- 0L
+  for (b in seq_along(boundary_idx)) {
+    out  <- c(out, ids[(prev + 1L):boundary_idx[b]], paste0("__gap__", b))
+    prev <- boundary_idx[b]
+  }
+  c(out, ids[(prev + 1L):length(ids)])
 }
 
-# ---- 1. Single connected dendrogram (no faceting) ----
-ddata  <- dendro_data(hc, type = "rectangle")
-segs   <- segment(ddata)
-h_root <- max(c(segs$y, segs$yend))
+# Map an original x (1..N, no spacer) onto the spaced axis (1..M)
+remap_x  <- function(v) v + vapply(v, function(z) sum(boundary_idx < z), numeric(1))
+real_pos <- remap_x(seq_len(N))   # spaced positions of the N real columns
 
-# Community labels centered over each community's leaf range (leaves are at
-# integer x = 1..N in clustered order, so the mean position centers the label).
+# Spaced level vectors for the two sample-id formats used by the panels
+lev_allct <- insert_spacers(clustered_order)    # progress_..._tissue ids (all-cell-type & tumor panels)
+lev_fm    <- insert_spacers(clustered_samples)  # fm_id_tissue ids (immune panel & metadata strips)
+
+# ---- Helper: drop faceting, apply spaced levels, remove x-axis (shared axis) ----
+# drop = FALSE keeps the empty spacer levels so they render as blank gap columns.
+prep_bar <- function(pl, lev) {
+  pl <- pl + facet_null()
+  pl$data$sample_id <- factor(as.character(pl$data$sample_id), levels = lev)
+  pl + theme(
+    axis.text.x  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    plot.title   = element_blank(),
+    panel.border = element_blank()
+  ) +
+  scale_x_discrete(drop = FALSE, expand = X_EXPAND)
+}
+
+# ---- 1. Single connected dendrogram (no faceting), leaves on real columns ----
+ddata     <- dendro_data(hc, type = "rectangle")
+segs      <- segment(ddata)
+segs$x    <- remap_x(segs$x)      # shift coordinates onto the spaced axis
+segs$xend <- remap_x(segs$xend)
+h_root    <- max(c(segs$y, segs$yend))
+
+# Community labels centered over each community's (spaced) leaf range
 comm_label_df <- data.frame(
-  x     = vapply(community_levels, function(cc) mean(which(comm_seq == cc)), numeric(1)),
+  x     = vapply(community_levels, function(cc) mean(real_pos[comm_seq == cc]), numeric(1)),
   label = as.character(community_levels),
   y     = h_root * 1.08
 )
@@ -471,7 +494,7 @@ p_dendro <- ggplot(segs) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_text(data = comm_label_df, aes(x = x, y = y, label = label),
             fontface = "bold", size = 4, inherit.aes = FALSE) +
-  scale_x_continuous(limits = c(0.5, N + 0.5), expand = c(0, 0)) +
+  scale_x_continuous(limits = c(0.5, M + 0.5), expand = c(0, 0)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
   labs(title = "Community") +
   theme_minimal() +
@@ -484,13 +507,12 @@ p_dendro <- ggplot(segs) +
     panel.grid      = element_blank(),
     plot.margin     = margin(2, 2, 0, 2)
   )
-p_dendro <- add_sep(p_dendro)
 
 # ---- 2. Metadata strips as geom_tile ggplots ----
 meta_df <- sample_summary[clustered_samples, c("mna", "X1p_loss", "progress", "age_diag")]
 meta_df$TUM_het   <- tumor_het[clustered_samples]
 meta_df$ME_het    <- me_het[clustered_samples]
-meta_df$sample_id <- factor(clustered_samples, levels = clustered_samples)
+meta_df$sample_id <- factor(clustered_samples, levels = lev_fm)
 
 # Colorbar guide for continuous variables
 cbar_guide <- guide_colorbar(
@@ -500,22 +522,19 @@ cbar_guide <- guide_colorbar(
   ticks          = FALSE
 )
 
-# Shared ggplot layers for each metadata strip (dashed separators included)
-meta_layers <- c(
-  list(
-    geom_tile(),
-    scale_x_discrete(expand = X_EXPAND),
-    theme_void(),
-    theme(
-      legend.position = "right",
-      legend.key.size = unit(0.6, "cm"),
-      legend.text     = element_text(size = 9),
-      legend.title    = element_text(size = 10, face = "bold"),
-      axis.title.y    = element_text(angle = 0, vjust = 0.5, size = 7),
-      plot.margin     = margin(0, 2, 0, 2)
-    )
-  ),
-  if (!is.null(sep_layer)) list(sep_layer)
+# Shared ggplot layers for each metadata strip (drop = FALSE keeps spacer columns)
+meta_layers <- list(
+  geom_tile(),
+  scale_x_discrete(drop = FALSE, expand = X_EXPAND),
+  theme_void(),
+  theme(
+    legend.position = "right",
+    legend.key.size = unit(0.6, "cm"),
+    legend.text     = element_text(size = 9),
+    legend.title    = element_text(size = 10, face = "bold"),
+    axis.title.y    = element_text(angle = 0, vjust = 0.5, size = 7),
+    plot.margin     = margin(0, 2, 0, 2)
+  )
 )
 
 p_mna_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(mna))) +
@@ -550,12 +569,12 @@ p_mehet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = ME_het)) +
   scale_fill_viridis_c(name = "ME_het", na.value = "white", guide = cbar_guide) +
   labs(y = "ME_het")
 
-# ---- 3. Clean barplots (remove x-axis & title), with separators ----
+# ---- 3. Clean barplots (drop facet, apply spacer levels, remove x-axis) ----
 # Panel order: all cell types (was tumor) -> metadata -> tumor only (was
 # metacluster) -> immune (kept as is).
-p_allct_c  <- add_sep(clean_x(p))
-p_tumor_c  <- add_sep(clean_x(p_tumor))
-p_immune_c <- add_sep(clean_x(p_ME))
+p_allct_c  <- prep_bar(p,       lev_allct)
+p_tumor_c  <- prep_bar(p_tumor, lev_allct)
+p_immune_c <- prep_bar(p_ME,    lev_fm)
 
 # ---- 4. Stack all panels ----
 # guides = "collect" consolidates all legends into one area, eliminating overlap
