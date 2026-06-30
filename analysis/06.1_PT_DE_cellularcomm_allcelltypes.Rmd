@@ -95,7 +95,14 @@ library(patchwork)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping).
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
+# Build on an existing communities object if one is present (e.g. the tumor-only
+# cellular-community script has already been run) so that the community columns
+# created by both cellular-community scripts accumulate into a single object.
+# Otherwise start from the clustering object. The scripts can therefore be run
+# sequentially in either order.
+comm_path  <- file.path(params$output, "spe_final_communities.rds")
+clust_path <- file.path(params$output, "spe_final_clustering.rds")
+spe <- readRDS(if (file.exists(comm_path)) comm_path else clust_path)
 ```
 
 We will then transform the SPE object into a catalyst-compatible object.
@@ -231,9 +238,12 @@ community_levels <- sort(unique(cellular_communities$community_cluster))
 # Rename rownames to fm_id_tissue format for downstream matching
 rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_communities)), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
 
-# Add cellular_community metacolumn to spe
+# Add the all-cell-type-clustering community column to spe. This is the community
+# assignment obtained by clustering samples on the composition of all cell types
+# (tumor and microenvironment, including "other"). It is kept distinct from the
+# tumor-only `tumor_community` column created in 06_PT_DE_cellularcomm.Rmd.
 spe_key <- paste0(spe$fm_id, "_", spe$tissue)
-spe$cellular_community <- cellular_communities[spe_key, "community_cluster"]
+spe$allcelltype_community <- cellular_communities[spe_key, "community_cluster"]
 ```
 
 ## Plot tumor cellular profiles
@@ -604,7 +614,10 @@ save_plot(p_fig3a, "Fig3aBis_combined_stacked.png", width = 8, height = 15)
 ## Save SPE
 
 ```{r save-spe}
-#saveRDS(spe, file.path(params$output, "spe_final_communities_allcelltypes.rds"))
+# Persist to the shared communities object so that both the all-cell-type
+# (spe$allcelltype_community) and tumor-only (spe$tumor_community) community
+# columns are available together for the downstream DA analyses.
+saveRDS(spe, file.path(params$output, "spe_final_communities.rds"))
 ```
 
 ## Session Info
