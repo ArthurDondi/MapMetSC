@@ -204,13 +204,15 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     g1 <- selected_communities[1]; g2 <- selected_communities[2]
   }
 
-  # --- 3. Set cluster_id ---
+  # --- 3. Set cluster_id and colour vector ---
   if (cluster_level == "celltype") {
     sce_sub$cluster_id <- droplevels(sce_sub$celltype_ordered)
     metadata(sce_sub)$cluster_codes <- data.frame(celltype = droplevels(sce_sub$celltype_ordered))
+    col_vec <- metadata(spe)$color_vectors$col_celltype_ordered
   } else {
     sce_sub$cluster_id <- droplevels(sce_sub$metacluster)
     metadata(sce_sub)$cluster_codes <- data.frame(celltype = droplevels(sce_sub$metacluster))
+    col_vec <- metadata(spe)$color_vectors$col_metacluster
   }
 
   # --- 4. Set sample_id and experiment_info ---
@@ -292,28 +294,26 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   }))
   stats_df$cluster_id <- factor(stats_df$cluster_id, levels = cluster_present)
 
-  # Condition colours: MYCN convention (blue nMNA / red MNA) or a community palette
-  if (comparison == "mna") {
-    cond_colors <- c(nMNA = "#0571B0", MNA = "#CA0020",
-                     het = "#92C5DE", unknown = "grey70")[as.character(ord)]
-  } else {
-    cond_palette <- c("#0571B0", "#CA0020", "#1B9E77", "#D95F02", "#7570B3", "#E7298A")
-    cond_colors  <- setNames(cond_palette[seq_along(ord)], as.character(ord))
-  }
+  # Boxes are coloured by cell type / metacluster (matching the project colour
+  # scheme). The two conditions within each panel share the cluster colour and
+  # are distinguished by their x-axis label. Missing colours fall back to grey.
+  cluster_colors <- col_vec[cluster_present]
+  cluster_colors[is.na(cluster_colors)] <- "gray50"
+  names(cluster_colors) <- cluster_present
 
   # Long cell-type names are rotated vertically; short labels stay horizontal
   long_labels <- any(nchar(cluster_present) > 6)
 
   p_boxplot <- ggplot(abund_data, aes(x = condition, y = Freq)) +
-    geom_boxplot(aes(fill = condition, colour = condition),
-                 outlier.shape = NA, alpha = 0.45, width = 0.7) +
-    geom_jitter(aes(colour = condition), width = 0.15, size = 1, alpha = 0.8,
+    geom_boxplot(aes(fill = cluster_id, colour = cluster_id),
+                 outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
+    geom_jitter(aes(colour = cluster_id), width = 0.15, size = 1, alpha = 0.8,
                 show.legend = FALSE) +
     facet_grid(cols = vars(cluster_id), switch = "x") +
     stat_pvalue_manual(stats_df, label = "label", size = 2.6,
                        bracket.size = 0.3, tip.length = 0.01) +
-    scale_fill_manual(values = cond_colors, name = NULL, drop = FALSE) +
-    scale_colour_manual(values = cond_colors, name = NULL, drop = FALSE) +
+    scale_fill_manual(values = cluster_colors, drop = FALSE) +
+    scale_colour_manual(values = cluster_colors, drop = FALSE) +
     scale_y_continuous(expand = expansion(mult = c(0.03, 0.18))) +
     labs(x = NULL, y = "% abundance") +
     theme_pubr(base_size = 11) +
@@ -325,7 +325,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
                                        vjust = 0.5, size = 8),
       panel.spacing    = unit(0.15, "lines"),
       axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
-      legend.position  = "top"
+      legend.position  = "none"
     )
 
   print(p_boxplot)
