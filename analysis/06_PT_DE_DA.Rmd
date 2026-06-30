@@ -162,17 +162,39 @@ marker_info$marker_class <- as.factor(marker_class_vec)
 #                  two communities in `selected_communities` are compared.
 # ord            : display order of groups on boxplot x-axis
 # selected_communities: two communities to compare when comparison is a community column
+# cohort_col     : optional community column used to restrict the samples (cohort)
+#                  before the comparison - e.g. to run the MNA comparison on the
+#                  same cohort as a clustering's patient-group comparison (NULL = all)
+# cohort_communities: communities to keep when cohort_col is set (NULL = any non-NA)
 # min_samples_frac: fraction of samples to use as min_samples threshold (NULL = 1)
 # fig_suffix     : string appended to all saved filenames for this analysis
 
 run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
                             ord, selected_communities = NULL,
+                            cohort_col = NULL, cohort_communities = NULL,
                             min_samples_frac = NULL, fig_suffix) {
 
   # --- 1. Subset cells ---
   sce_sub <- sce_base[, cell_filter]
 
-  # --- 2. Apply comparison filter and set condition ---
+  # --- 2. Apply (optional) cohort restriction and the comparison filter ---
+  # cohort_col optionally restricts the samples to those that received a community
+  # label in a given clustering (cohort_communities). This is used to run the MNA
+  # comparison on the SAME cohort as a clustering's patient-group comparison, so
+  # the two are directly comparable.
+  if (!is.null(cohort_col)) {
+    if (is.null(colData(sce_sub)[[cohort_col]])) {
+      stop("Cohort column not found in SCE: ", cohort_col,
+           ". Run the corresponding cellular-community script first.")
+    }
+    cohort_vals <- as.character(colData(sce_sub)[[cohort_col]])
+    keep_cohort <- !is.na(cohort_vals)
+    if (!is.null(cohort_communities)) {
+      keep_cohort <- keep_cohort & cohort_vals %in% as.character(cohort_communities)
+    }
+    sce_sub <- sce_sub[, keep_cohort]
+  }
+
   # comparison is either "mna" (MNA vs nMNA) or the name of a community column
   # ("tumor_community" / "allcelltype_community"), in which case the two
   # communities in `selected_communities` are compared.
@@ -341,7 +363,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   print(p_boxplot)
   # Smaller per-panel width + larger fonts give bigger text relative to the figure.
   n_clusters <- length(cluster_present)
-  save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".png"),
+  save_plot(p_boxplot, paste0("boxplot_", fig_suffix, ".png"),
             width  = max(6.5, n_clusters * 0.85 + 1.2),
             height = if (long_labels) 7.5 else 6)
 
@@ -353,67 +375,73 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 ## Run differential abundance analyses
 
 We perform DA at four cluster levels — metacluster, all cell types (including
-"other"), tumor cell types, and immune cell types — and, for each level, across
-the available comparisons: MYCN status (MNA vs nMNA) and, when the corresponding
-community column is present in the object, the tumor-only-clustering community
-(`tumor_community`) and the all-cell-type-clustering community
-(`allcelltype_community`). Each analysis produces one combined boxplot figure.
+"other"), tumor cell types, and immune cell types. For each level we run the
+MYCN comparison (MNA vs nMNA) over all samples and, for each available
+patient-group clustering (tumor-only `tumorclustering` and all-cell-type
+`allctclustering`), two comparisons on that clustering's cohort: patient group 1
+vs 2, and MNA vs nMNA. Each analysis produces one combined boxplot figure saved
+as `boxplot_<level>[_<clustering>]_<comparison>.png`.
 
 ```{r run-all-analyses, fig.width=16, fig.height=9}
 immune_metaclusters <- c("granulocytes", "T cells", "B cells", "MO/DC/NK")
 
-# Two communities to compare for every community-based comparison.
+# The two patient groups (communities) to compare; group 1 is the largest group.
 community_comparison <- c("1", "2")
 
-# --- Cluster-level options: the 3 originals plus all cell types incl. "other" ---
+# --- Cluster-level options: the 3 originals plus all cell types incl. "other".
+# `key` is the (shortened) cluster-level token used in the saved file names. ---
 cluster_level_configs <- list(
-  list(key = "metacluster",     cluster_level = "metacluster",
+  list(key = "metacluster", cluster_level = "metacluster",
        cell_filter = rep(TRUE, ncol(sce)),                     min_samples_frac = NULL),
-  list(key = "celltype_all",    cluster_level = "celltype",
+  list(key = "all",         cluster_level = "celltype",
        cell_filter = rep(TRUE, ncol(sce)),                     min_samples_frac = NULL),
-  list(key = "celltype_tumor",  cluster_level = "celltype",
+  list(key = "tumor",       cluster_level = "celltype",
        cell_filter = sce$metacluster == "tumor",               min_samples_frac = 0.2),
-  list(key = "celltype_immune", cluster_level = "celltype",
+  list(key = "immune",      cluster_level = "celltype",
        cell_filter = sce$metacluster %in% immune_metaclusters, min_samples_frac = NULL)
 )
 
-# --- Comparison options: MNA always; each community comparison only if its column
-# is present (i.e. the corresponding cellular-community script has been run) ---
-comparison_configs <- list(
-  list(key = "mna", comparison = "mna", ord = c("nMNA", "MNA"), selected_communities = NULL)
-)
-community_col_labels <- c(tumor_community = "tumorcomm", allcelltype_community = "allctcomm")
-for (cc in names(community_col_labels)) {
-  if (cc %in% colnames(colData(sce))) {
-    comparison_configs[[length(comparison_configs) + 1]] <- list(
-      key = community_col_labels[[cc]], comparison = cc,
-      ord = community_comparison, selected_communities = community_comparison
-    )
-  } else {
-    message("Community column '", cc, "' not found - skipping its DA analyses. ",
-            "Run the corresponding cellular-community script first.")
+# Patient-group clusterings (community column -> short label used in file names).
+# Each is used only if its column is present (its cellular-community script ran).
+clustering_cols <- c(tumor_community = "tumorclustering", allcelltype_community = "allctclustering")
+for (cc in names(clustering_cols)) {
+  if (!(cc %in% colnames(colData(sce)))) {
+    message("Community column '", cc, "' not found - skipping its patient-group DA ",
+            "analyses. Run the corresponding cellular-community script first.")
   }
 }
+available_clusterings <- clustering_cols[names(clustering_cols) %in% colnames(colData(sce))]
 
-# --- Full set of analyses: every cluster level x every available comparison ---
+# --- Build the analyses. For every cluster level:
+#   <level>_mna                     MNA vs nMNA over all samples
+# and, for each available clustering:
+#   <level>_<clustering>_1_vs_2     patient group 1 vs 2 (that clustering)
+#   <level>_<clustering>_mna        MNA vs nMNA on that clustering's cohort
+add_cfg <- function(lst, suffix, cl, comparison, ord, selected_communities = NULL,
+                    cohort_col = NULL, cohort_communities = NULL) {
+  lst[[suffix]] <- list(
+    name = suffix, cell_filter = cl$cell_filter, cluster_level = cl$cluster_level,
+    comparison = comparison, ord = ord, selected_communities = selected_communities,
+    cohort_col = cohort_col, cohort_communities = cohort_communities,
+    min_samples_frac = cl$min_samples_frac, fig_suffix = suffix
+  )
+  lst
+}
+
 analysis_configs <- list()
 for (cl in cluster_level_configs) {
-  for (cm in comparison_configs) {
-    suffix <- if (cm$comparison == "mna") {
-      paste0(cl$key, "_mna")
-    } else {
-      paste0(cl$key, "_", cm$key, "_", paste(cm$selected_communities, collapse = "_vs_"))
-    }
-    analysis_configs[[suffix]] <- list(
-      name             = suffix,
-      cell_filter      = cl$cell_filter,
-      cluster_level    = cl$cluster_level,
-      comparison       = cm$comparison,
-      ord              = cm$ord,
-      selected_communities = cm$selected_communities,
-      min_samples_frac = cl$min_samples_frac,
-      fig_suffix       = suffix
-    )
+  analysis_configs <- add_cfg(analysis_configs, paste0(cl$key, "_mna"),
+                              cl, "mna", c("nMNA", "MNA"))
+  for (cc in names(available_clusterings)) {
+    clab <- available_clusterings[[cc]]
+    analysis_configs <- add_cfg(
+      analysis_configs,
+      paste0(cl$key, "_", clab, "_", paste(community_comparison, collapse = "_vs_")),
+      cl, cc, community_comparison, selected_communities = community_comparison)
+    analysis_configs <- add_cfg(
+      analysis_configs, paste0(cl$key, "_", clab, "_mna"),
+      cl, "mna", c("nMNA", "MNA"),
+      cohort_col = cc, cohort_communities = community_comparison)
   }
 }
 
@@ -427,6 +455,8 @@ for (cfg in analysis_configs) {
     comparison       = cfg$comparison,
     ord              = cfg$ord,
     selected_communities = cfg$selected_communities,
+    cohort_col       = cfg$cohort_col,
+    cohort_communities = cfg$cohort_communities,
     min_samples_frac = cfg$min_samples_frac,
     fig_suffix       = cfg$fig_suffix
   )
