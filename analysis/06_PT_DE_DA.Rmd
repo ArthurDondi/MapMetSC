@@ -204,6 +204,17 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     g1 <- selected_communities[1]; g2 <- selected_communities[2]
   }
 
+  # Display labels for the x-axis groups: communities are shown as patient groups
+  # (group 1 = largest, per the cellular-community scripts); MNA labels are kept
+  # as is. g1/g2 (used for the p-value bracket) follow the display labels so they
+  # match the relabelled x-axis categories.
+  if (comparison == "mna") {
+    ord_display <- as.character(ord)
+  } else {
+    ord_display <- paste("Group", ord)
+  }
+  g1 <- ord_display[1]; g2 <- ord_display[2]
+
   # --- 3. Set cluster_id and colour vector ---
   if (cluster_level == "celltype") {
     sce_sub$cluster_id <- droplevels(sce_sub$celltype_ordered)
@@ -233,7 +244,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   abund_data <- abund_plot$data %>%
     mutate(
       cluster_id = factor(as.character(cluster_id), levels = levels(sce_sub$cluster_id)),
-      condition  = factor(as.character(condition),  levels = ord)
+      condition  = factor(as.character(condition),  levels = ord, labels = ord_display)
     ) %>%
     filter(!is.na(cluster_id))
   abund_data$cluster_id <- droplevels(abund_data$cluster_id)
@@ -301,7 +312,8 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   cluster_colors[is.na(cluster_colors)] <- "gray50"
   names(cluster_colors) <- cluster_present
 
-  # Long cell-type names are rotated vertically; short labels stay horizontal
+  # Cluster (celltype/metacluster) names and the group labels are both rotated
+  # vertically so they stay readable in narrow panels.
   long_labels <- any(nchar(cluster_present) > 6)
 
   p_boxplot <- ggplot(abund_data, aes(x = condition, y = Freq)) +
@@ -310,29 +322,28 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     geom_jitter(aes(colour = cluster_id), width = 0.15, size = 1, alpha = 0.8,
                 show.legend = FALSE) +
     facet_grid(cols = vars(cluster_id), switch = "x") +
-    stat_pvalue_manual(stats_df, label = "label", size = 2.6,
+    stat_pvalue_manual(stats_df, label = "label", size = 3.0,
                        bracket.size = 0.3, tip.length = 0.01) +
     scale_fill_manual(values = cluster_colors, drop = FALSE) +
     scale_colour_manual(values = cluster_colors, drop = FALSE) +
     scale_y_continuous(expand = expansion(mult = c(0.03, 0.18))) +
     labs(x = NULL, y = "% abundance") +
-    theme_pubr(base_size = 11) +
+    theme_pubr(base_size = 13) +
     theme(
       strip.background = element_blank(),
       strip.placement  = "outside",
-      strip.text.x     = element_text(angle = if (long_labels) 90 else 0,
-                                       hjust = if (long_labels) 1 else 0.5,
-                                       vjust = 0.5, size = 8),
-      panel.spacing    = unit(0.15, "lines"),
-      axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
+      strip.text.x     = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 10),
+      panel.spacing    = unit(0.12, "lines"),
+      axis.text.x      = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 9),
       legend.position  = "none"
     )
 
   print(p_boxplot)
+  # Smaller per-panel width + larger fonts give bigger text relative to the figure.
   n_clusters <- length(cluster_present)
   save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".png"),
-            width  = max(8, n_clusters * 1.1 + 1.5),
-            height = if (long_labels) 9 else 7)
+            width  = max(6.5, n_clusters * 0.85 + 1.2),
+            height = if (long_labels) 7.5 else 6)
 
   invisible(list(res = res, abund_data = abund_data,
                  stats = stats_df, p_boxplot = p_boxplot))
