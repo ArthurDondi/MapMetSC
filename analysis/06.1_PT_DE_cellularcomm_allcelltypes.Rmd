@@ -1,0 +1,589 @@
+---
+title: "Identifying cellular communities in diagnostic primary tumors (all cell types)"
+author: "LazDaria"
+date: "`r Sys.Date()`"
+output:
+  workflowr::wflow_html
+editor_options:
+  chunk_output_type: inline
+params:
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+---
+
+```{r setup, include=FALSE}
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/06.1_PT_DE_cellularcom_allcelltypes")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+
+  if (inherits(plot_obj, "ggplot")) {
+
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+
+  } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
+
+    # save as PNG instead of PDF if you want consistency
+    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    draw(plot_obj)
+    dev.off()
+
+  } else {
+
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options - no automatic plot saving
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
+```
+
+# Identifying cellular communities in diagnostic primary tumors (all cell types) {#pt-dx-allct}
+This is a variant of the [primary-tumor cellular community analysis](06_PT_DE_cellularcomm.html). Instead of clustering on tumor cell types only, here we cluster diagnostic PT samples on the composition of **all cell types** (tumor and microenvironment together). The combined figure therefore shows the all-cell-type abundance on top, the tumor-only abundance in place of the metacluster panel, and keeps the immune abundance below.
+
+## Load libraries
+<details>
+   <summary>Load libraries</summary>
+
+```{r load-libraries}
+library(diffcyt)
+library(SingleCellExperiment)
+library(CATALYST)
+library(dplyr)
+library(tidyr)
+library(BioQC)
+library(ComplexHeatmap)
+library(viridis)
+library(circlize)
+library(ggplot2)
+library(gridExtra)
+library(ggpubr)
+#install.packages("ggdendro")
+library(ggdendro)
+library(patchwork)
+```
+</details>
+
+## Read data
+First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping).
+
+```{r read-data}
+spe <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
+```
+
+We will then transform the SPE object into a catalyst-compatible object.
+
+```{r catalyst-comp-object}
+keep_rows <- rowData(spe)$use_channel
+keep_cols <- spe$celltype != "other" & spe$tissue=="PT" & (spe$timepoint=="DE")
+
+sce <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows, keep_cols], exprs=assay(spe, "counts")[keep_rows, keep_cols]))
+
+#recode metadata on progression
+sce$progress <- factor(spe[keep_rows, keep_cols]$progression)
+progress <- recode(sce$progress, `0` = 'NoProg', `1` = 'Prog')
+sce$progress <- as.factor(progress)
+
+#recode metadata on MYCN amplification
+sce$mna <- factor(spe[keep_rows, keep_cols]$MYCN_amp)
+mna <- recode(sce$mna, `1` = 'MNA', `2` = 'het', `0` = 'nMNA', `9` = 'unknown')
+sce$mna <- as.factor(mna)
+
+sce$patient <- factor(spe[keep_rows, keep_cols]$patient_id)
+sce$fm_id <- spe[keep_rows, keep_cols]$fm_id
+sce$tissue <- factor(spe[keep_rows, keep_cols]$tissue)
+
+sce$sample_id <- factor(paste0(sce$progress, "_", sce$mna, "_", sce$patient, "_", sce$fm_id, "_", sce$tissue))
+
+#recode metadata on 1p loss
+sce$X1p_loss <- factor(spe[keep_rows, keep_cols]$X1p_loss)
+X1p_loss <- recode(sce$X1p_loss, `1` = 'yes', `2` = 'het', `0` = 'no', `9` = 'unknown')
+sce$X1p_loss <- as.factor(X1p_loss)
+
+sce$age_diag <- spe[keep_rows, keep_cols]$age_diag
+
+sce$cluster_id <- factor(spe[keep_rows, keep_cols]$celltype_ordered)
+sce$metacluster <- factor(spe[keep_rows, keep_cols]$metacluster)
+
+sce$condition <- 'na'
+
+# Add celltype information to metadata
+metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_cols]$celltype_ordered))
+```
+
+## Cluster cellular communities
+
+Next, we cluster proportions of **all cell types** (tumor and microenvironment) across all diagnostic PT samples (instead of conditions). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage, and plot the result in barplots:
+
+```{r cohort-overview}
+set.seed(20231103)
+
+distance <- "euclidean"
+linkage <- "ward.D2"
+n_communities <- 2
+
+# Pseudocount (in "cells") added before the CLR transform to handle zero
+# proportions. It is scaled per sample by the number of cells, so it always
+# represents the same fractional cell regardless of sample depth.
+CLR_PSEUDO <- 0.5
+
+# Tumor subset is kept for the tumor-only abundance panel and heterogeneity below
+sce_tumor <- sce[,sce$metacluster=="tumor"]
+
+# Extract ALL cell-type proportions per sample (clustering is on all cell types)
+p_allct_data <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
+                               k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
+wide_df <- p_allct_data$data %>%
+  select(-condition) %>%
+  pivot_wider(names_from = cluster_id, values_from = Freq)
+
+wide_df <- data.frame(wide_df)
+rownames(wide_df) <- wide_df$sample_id
+wide_df <- wide_df %>% select(-sample_id)
+cmat <- as.matrix(wide_df)
+
+# Centered log-ratio (CLR) transformation for compositional proportions.
+# Cell-type proportions sum to 1 per sample, so we CLR-transform them before
+# computing Euclidean distances. Zeros are handled with a per-sample pseudocount
+# (CLR_PSEUDO cells / number of cells in the sample); CLR then centers each
+# sample's log-proportions on its geometric mean.
+n_per_sample <- as.integer(table(sce$sample_id)[rownames(cmat)])
+pseudo_vec   <- CLR_PSEUDO / n_per_sample
+cmat_adj     <- sweep(cmat, 1, pseudo_vec, "+")
+clr_df       <- t(apply(cmat_adj, 1, function(x) log(x) - mean(log(x))))
+
+# Cluster samples (euclidean distance, ward.D2 linkage)
+dist_matrix <- dist(clr_df, method = distance)
+hc <- hclust(dist_matrix, method = linkage)
+
+# Order samples by dendrogram leaf order so the barplot follows the CLR clustering
+clustered_order <- rownames(wide_df)[hc$order]
+sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
+
+# All-cell-type abundance barplot in clustered order
+p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
+                    k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
+
+p
+
+save_plot(p, "Fig3aBis1_PT_abundance_patients_clustered_allcelltypes.png", width = 8, height = 6)
+```
+
+along with the dendogram:
+
+```{r dendogram, fig.height=8, fig.width=7}
+# Dendogram of the CLR-based clustering computed above
+plot(hc)
+
+save_plot(plot(hc), "Fig3aBis2_PT_abundance_patients_clustered_dendrogram.png", width = 8, height = 6)
+```
+We then save the order of clustered samples along with cluster labels.
+
+```{r}
+clustered_samples <- sapply(strsplit(levels(p$data$sample_id), "_"), function(x) paste(x[5], x[6], sep = "_"))
+
+#Extract clusters of cellular communities
+cellular_communities <- as.data.frame(cutree(hc, k = n_communities)[levels(p$data$sample_id)])
+colnames(cellular_communities) <- c("community_cluster")
+# Renumber cutree labels to consecutive IDs (1..n_communities) for plotting.
+cluster_values <- sort(unique(cellular_communities$community_cluster))
+cluster_names <- setNames(seq_along(cluster_values), cluster_values)
+cellular_communities$community_cluster <- recode(cellular_communities$community_cluster, !!!cluster_names)
+community_levels <- sort(unique(cellular_communities$community_cluster))
+
+# Rename rownames to fm_id_tissue format for downstream matching
+rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_communities)), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
+
+# Add cellular_community metacolumn to spe
+spe_key <- paste0(spe$fm_id, "_", spe$tissue)
+spe$cellular_community <- cellular_communities[spe_key, "community_cluster"]
+```
+
+## Plot tumor cellular profiles
+
+We plot the tumor cell-type profiles for these samples in the clustered order (this panel replaces the metacluster panel in the combined figure below).
+
+```{r plot-tumor, fig.width=12, fig.height=5}
+#order tumor subset based on above clustering
+sce_tumor$sample_id <- factor(as.character(sce_tumor$sample_id), levels = clustered_order)
+
+p_tumor <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = FALSE,
+                          k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
+
+p_tumor
+
+save_plot(p_tumor, "Fig3aBis_PT_abundance_patients_clustered_tumor.png", width = 12, height = 5)
+```
+
+## Plot TME cellular profiles
+
+We will then plot the cellular profiles of the TME for these samples (kept as is).
+
+```{r plot-TME, fig.width=12, fig.height=5}
+#order samples based on above clustering
+sce$sample_id <- factor(paste0(spe[keep_rows, keep_cols]$fm_id, "_", spe[keep_rows, keep_cols]$tissue), levels=clustered_samples)
+
+sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
+
+p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered)
+
+p_ME
+
+save_plot(p_ME, "Fig3aBis_PT_abundance_patients_clustered_immune.png", width = 12, height = 5)
+```
+
+## Compute tumor and TME heterogeneity
+
+We compute tumor and TME intra-sample heterogeneity.
+
+```{r heterogeneity}
+proportions <- plotAbundances(sce, k = "celltype", by = "sample")
+prop <- proportions$data %>%
+  select(-condition) %>%
+  pivot_wider(names_from = cluster_id, values_from = Freq)
+
+prop <- data.frame(prop)
+rownames(prop) <- prop$sample_id
+prop <- prop %>% select(-sample_id)
+prop <- t(prop)
+rownames(prop) <- levels(sce$cluster_id)
+
+me_clusters <- unique(sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]$cluster_id)
+me_prop <- prop[rownames(prop)%in%me_clusters,]
+me_het <- apply(me_prop,2, entropy)
+
+tumor_clusters <- unique(sce[,sce$metacluster=="tumor"]$cluster_id)
+tumor_prop <- prop[rownames(prop)%in%tumor_clusters,]
+tumor_het <- apply(tumor_prop,2, entropy)
+```
+
+## Plot metadata
+
+Then we plot intra-sample heterogeneity together with sample-specific metadata for the clustered sammples.
+
+```{r plot-metadata}
+#access sample-level data
+sample_summary <- as.data.frame(colData(sce)) %>%
+  group_by(sample_id) %>%
+  summarize(mna = first(mna),
+            X1p_loss = first(X1p_loss),
+            progress=first(progress),
+            age_diag = first(age_diag)
+  )
+
+sample_summary <- as.data.frame(sample_summary)
+rownames(sample_summary) <- sample_summary$sample_id
+sample_summary <- sample_summary %>% select(-sample_id)
+
+
+#assign color codes
+col_code <- c("MNA"=rgb(202,0,32, maxColorValue = 255),
+              "het"=rgb(146,197,222, maxColorValue = 255),
+              "nMNA"=rgb(5,113,176, maxColorValue = 255),
+              "unknown"="white",
+              "yes"=rgb(202,0,32, maxColorValue = 255),
+              "no"=rgb(5,113,176, maxColorValue = 255),
+              "Prog"=rgb(202,0,32, maxColorValue = 255),
+              "NoProg"=rgb(5,113,176, maxColorValue = 255)
+              )
+
+col_age_diag = colorRamp2(c(min(sample_summary$age_diag, na.rm = TRUE), (quantile(sample_summary$age_diag, 0.95, na.rm = TRUE)-min(sample_summary$age_diag, na.rm = TRUE))/2, quantile(sample_summary$age_diag,0.95, na.rm = TRUE)), viridis(3))
+col_me_het = colorRamp2(c(min(me_het, na.rm = TRUE), (max(me_het, na.rm = TRUE)-min(me_het, na.rm = TRUE))/2, max(me_het, na.rm = TRUE)), viridis(3))
+col_tumor_het = colorRamp2(c(min(tumor_het, na.rm = TRUE), (max(tumor_het, na.rm = TRUE)-min(tumor_het, na.rm = TRUE))/2, max(tumor_het, na.rm = TRUE)), viridis(3))
+
+# Plot metadata
+p_anno <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
+  columnAnnotation(X1p_loss=sample_summary$X1p_loss, col=list(X1p_loss=col_code)) %v%
+  columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
+  columnAnnotation(age=sample_summary$age_diag, col=list(age=col_age_diag)) %v%
+  columnAnnotation(TUM_het=tumor_het, col=list(TUM_het=col_tumor_het)) %v%
+  columnAnnotation(ME_het=me_het, col=list(ME_het=col_me_het))
+
+save_plot(p_anno, "Fig3aBis4_PT_abundance_patients_clustered_metadata.png", width = 8, height = 6)
+
+```
+
+## Plot continous and discrete summary statistics
+
+We then plot summary statistics of continuous and discrete metadata in boxplots and piecharts, respectively.
+
+```{r piecharts}
+sample_summary[rownames(cellular_communities),"community_clusters"] <- cellular_communities$community_cluster
+
+discrete_metadata <- c("mna", "X1p_loss", "progress")
+
+discrete_metadata_colors <- list(col_code, col_code, col_code)
+
+plot_list <- list()
+for (d in seq_along(discrete_metadata)) {
+  sample_meta <- sample_summary[,c(discrete_metadata[d], "community_clusters")]
+  sample_meta <- sample_meta[rowSums(sample_meta == "unknown") == 0, ]
+  colnames(sample_meta) <- c("dis_var", "condition")
+
+  result <- sample_meta %>%
+    group_by(condition, dis_var) %>%
+    summarise(Freq = n(), .groups = 'drop')
+
+  result[,"dis_var"]<- as.factor(unlist(result[,"dis_var"]))
+
+plot_list[[d]] <- ggplot(result, aes(x="", y=Freq, fill=dis_var, group=dis_var)) +
+    geom_col(position = "fill") +
+    scale_fill_manual(values = discrete_metadata_colors[[d]], name=discrete_metadata[d]) +
+    coord_polar("y", start=0)  +
+    facet_grid(.~ condition) +
+    theme_void()
+}
+
+p_pie <- do.call("grid.arrange", c(plot_list, ncol=1))
+
+save_plot(p_pie, "Fig3bBis_PT_abundance_piecharts_metadata.png", width = 6, height = 8)
+```
+```{r boxplots}
+het_m <- as.vector(unname(me_het[clustered_samples]))
+het_t <- as.vector(unname(tumor_het[clustered_samples]))
+
+age <- sample_summary$age_diag
+
+cont_df <- data.frame(cbind(het_m, het_t, age, cellular_communities),row.names=clustered_samples)
+cont_df$community_cluster <- factor(cont_df$community_cluster, levels = community_levels)
+# Keep a stable base palette so the first community colors stay consistent
+# even if n_communities changes between analyses.
+# Eight provides enough distinct baseline colors for this analysis while keeping
+# the first assigned colors stable when fewer communities are used.
+base_palette_size <- 8
+community_palette <- viridis(max(base_palette_size, length(community_levels)))[seq_along(community_levels)]
+
+plot_list <- list()
+
+for (d in colnames(cont_df)[1:ncol(cont_df)-1]) {
+
+  df <- cont_df[,c(d, "community_cluster")]
+
+plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
+                color = "community_cluster", palette = community_palette,
+                add = "jitter")+
+                stat_compare_means() +
+                theme(aspect.ratio = 1.5, legend.position="none")
+}
+
+p_box <- do.call("grid.arrange", c(plot_list, ncol=3))
+
+save_plot(p_box, "Fig3cBis_PT_abundance_het_boxplot_metadata.png", width = 6, height = 8)
+```
+
+## Plot metaclusters
+
+For reference, we also plot the proportions of metaclusters in the clustered samples (kept as a standalone figure; it is not part of the combined figure below).
+
+```{r plot-metaclusters}
+sce_mc <- sce
+sce_mc$cluster_id <- sce_mc$metacluster
+metadata(sce_mc)$cluster_codes <- data.frame(celltype = factor(sce_mc$metacluster))
+p_all <- plotAbundances(sce_mc, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_metacluster)
+
+p_all
+
+save_plot(p_all, "Fig3aBis_PT_abundance_patients_clustered_metacluster.png", width = 12, height = 5)
+```
+
+## Combined Figure 3a-bis (stacked panels)
+
+All panels share the same sample order (dendrogram order). The communities are
+delimited by a single connected dendrogram on top (showing the split between
+groups), a dashed separator line at the community boundary, and community labels
+above the tree. Because the dendrogram is a single tree on a continuous x-axis
+that matches the discrete barplot/tile axes (same `[0.5, N+0.5]` range and
+expansion), each dendrogram leaf is centered on its column in every panel.
+
+```{r fig3a-combined, fig.width=8, fig.height=15}
+# Shared discrete x-axis expansion — set explicitly on every panel so the
+# continuous dendrogram axis and the discrete barplot/tile axes share the same
+# physical range [0.5, N + 0.5] and therefore align column-by-column.
+X_EXPAND <- expansion(add = 0.5)
+
+# ---- Community boundaries & labels (shared across all panels) ----
+# cellular_communities is contiguous in clustered order (each cutree cluster is a
+# subtree of the dendrogram), so a community changes at a single boundary.
+comm_seq   <- cellular_communities[clustered_samples, "community_cluster"]
+N          <- length(clustered_samples)
+boundaries <- which(diff(as.integer(comm_seq)) != 0) + 0.5  # x of dashed separators
+
+# Dashed vertical separators between communities, reused on every panel
+sep_layer <- if (length(boundaries) > 0) {
+  geom_vline(xintercept = boundaries, linetype = "dashed",
+             colour = "grey40", linewidth = 0.3)
+} else NULL
+add_sep <- function(pl) if (is.null(sep_layer)) pl else pl + sep_layer
+
+# ---- Helper: remove x-axis elements (shared axis) ----
+clean_x <- function(p) {
+  p + theme(
+    axis.text.x       = element_blank(),
+    axis.ticks.x      = element_blank(),
+    axis.title.x      = element_blank(),
+    plot.title        = element_blank(),
+    panel.border      = element_blank()
+  ) +
+  scale_x_discrete(expand = X_EXPAND)
+}
+
+# ---- 1. Single connected dendrogram (no faceting) ----
+ddata  <- dendro_data(hc, type = "rectangle")
+segs   <- segment(ddata)
+h_root <- max(c(segs$y, segs$yend))
+
+# Community labels centered over each community's leaf range (leaves are at
+# integer x = 1..N in clustered order, so the mean position centers the label).
+comm_label_df <- data.frame(
+  x     = vapply(community_levels, function(cc) mean(which(comm_seq == cc)), numeric(1)),
+  label = as.character(community_levels),
+  y     = h_root * 1.08
+)
+
+p_dendro <- ggplot(segs) +
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_text(data = comm_label_df, aes(x = x, y = y, label = label),
+            fontface = "bold", size = 4, inherit.aes = FALSE) +
+  scale_x_continuous(limits = c(0.5, N + 0.5), expand = c(0, 0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Community") +
+  theme_minimal() +
+  theme(
+    axis.text       = element_blank(),
+    axis.ticks      = element_blank(),
+    axis.title      = element_blank(),
+    plot.title      = element_text(face = "bold", size = 11, hjust = 0.5),
+    plot.title.position = "plot",
+    panel.grid      = element_blank(),
+    plot.margin     = margin(2, 2, 0, 2)
+  )
+p_dendro <- add_sep(p_dendro)
+
+# ---- 2. Metadata strips as geom_tile ggplots ----
+meta_df <- sample_summary[clustered_samples, c("mna", "X1p_loss", "progress", "age_diag")]
+meta_df$TUM_het   <- tumor_het[clustered_samples]
+meta_df$ME_het    <- me_het[clustered_samples]
+meta_df$sample_id <- factor(clustered_samples, levels = clustered_samples)
+
+# Colorbar guide for continuous variables
+cbar_guide <- guide_colorbar(
+  barwidth       = unit(0.5,  "cm"),
+  barheight      = unit(2.5,  "cm"),
+  title.position = "top",
+  ticks          = FALSE
+)
+
+# Shared ggplot layers for each metadata strip (dashed separators included)
+meta_layers <- c(
+  list(
+    geom_tile(),
+    scale_x_discrete(expand = X_EXPAND),
+    theme_void(),
+    theme(
+      legend.position = "right",
+      legend.key.size = unit(0.6, "cm"),
+      legend.text     = element_text(size = 9),
+      legend.title    = element_text(size = 10, face = "bold"),
+      axis.title.y    = element_text(angle = 0, vjust = 0.5, size = 7),
+      plot.margin     = margin(0, 2, 0, 2)
+    )
+  ),
+  if (!is.null(sep_layer)) list(sep_layer)
+)
+
+p_mna_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(mna))) +
+  meta_layers +
+  scale_fill_manual(values = col_code, name = "MYCN", na.value = "white") +
+  labs(y = "MYCN")
+
+p_1p_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(X1p_loss))) +
+  meta_layers +
+  scale_fill_manual(values = col_code, name = "1p_loss", na.value = "white") +
+  labs(y = "1p_loss")
+
+p_prog_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(progress))) +
+  meta_layers +
+  scale_fill_manual(values = col_code, name = "Prog", na.value = "white") +
+  labs(y = "Prog")
+
+# Use scale_fill_viridis_c for all continuous metadata (avoids fragile attr() calls
+# on colorRamp2 functions; viridis palette matches the colorRamp2 definitions above)
+p_age_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = age_diag)) +
+  meta_layers +
+  scale_fill_viridis_c(name = "Age", na.value = "white", guide = cbar_guide) +
+  labs(y = "Age")
+
+p_tumhet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = TUM_het)) +
+  meta_layers +
+  scale_fill_viridis_c(name = "TUM_het", na.value = "white", guide = cbar_guide) +
+  labs(y = "TUM_het")
+
+p_mehet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = ME_het)) +
+  meta_layers +
+  scale_fill_viridis_c(name = "ME_het", na.value = "white", guide = cbar_guide) +
+  labs(y = "ME_het")
+
+# ---- 3. Clean barplots (remove x-axis & title), with separators ----
+# Panel order: all cell types (was tumor) -> metadata -> tumor only (was
+# metacluster) -> immune (kept as is).
+p_allct_c  <- add_sep(clean_x(p))
+p_tumor_c  <- add_sep(clean_x(p_tumor))
+p_immune_c <- add_sep(clean_x(p_ME))
+
+# ---- 4. Stack all panels ----
+# guides = "collect" consolidates all legends into one area, eliminating overlap
+p_fig3a <- (p_dendro /
+  p_allct_c /
+  p_mna_m / p_1p_m / p_prog_m / p_age_m / p_tumhet_m / p_mehet_m /
+  p_tumor_c /
+  p_immune_c) +
+  plot_layout(ncol = 1, heights = c(1, 4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 4, 4),
+              guides = "collect")
+
+p_fig3a
+
+save_plot(p_fig3a, "Fig3aBis_combined_stacked.png", width = 8, height = 15)
+```
+
+## Save SPE
+
+```{r save-spe}
+#saveRDS(spe, file.path(params$output, "spe_final_communities_allcelltypes.rds"))
+```
+
+## Session Info
+
+<details>
+   <summary>SessionInfo</summary>
+
+```{r, echo = FALSE}
+sessionInfo()
+```
+</details>
