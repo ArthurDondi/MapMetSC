@@ -140,7 +140,7 @@ metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_
 
 ## Cluster cellular communities
 
-Next, we cluster proportions of **all cell types** (tumor and microenvironment) across all diagnostic PT samples (instead of conditions). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage, and plot the result in barplots:
+Next, we cluster proportions of **all cell types** (tumor and microenvironment, including the `other` category) across all diagnostic PT samples (instead of conditions). The composition is built directly from raw cell counts (`n / sum(n)` per sample). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage, and plot the result in barplots:
 
 ```{r cohort-overview}
 set.seed(20231103)
@@ -157,34 +157,44 @@ CLR_PSEUDO <- 0.5
 # Tumor subset is kept for the tumor-only abundance panel and heterogeneity below
 sce_tumor <- sce[,sce$metacluster=="tumor"]
 
-# Extract ALL cell-type proportions per sample (clustering is on all cell types)
-p_allct_data <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
-                               k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
-wide_df <- p_allct_data$data %>%
-  select(-condition) %>%
-  pivot_wider(names_from = cluster_id, values_from = Freq)
+# ---- Build the all-cell-type composition DIRECTLY from cell counts ----
+# The clustering input is built from raw cell counts (NOT plotAbundances()$Freq,
+# which CATALYST returns as a percentage 0-100) over ALL cell types INCLUDING
+# "other", per sample. Proportions are n / sum(n); a per-sample pseudocount
+# (CLR_PSEUDO cells / total cells in the sample) is then added on the same 0-1
+# scale before the CLR transform. This mirrors the reference cluster_patients()
+# recipe and keeps the pseudocount on the correct (proportion) scale.
+md_clust <- as.data.frame(colData(spe)) %>%
+  filter(tissue == "PT", timepoint == "DE") %>%             # keep "other" cells
+  mutate(
+    progress  = recode(factor(progression), `0` = "NoProg", `1` = "Prog"),
+    mna       = recode(factor(MYCN_amp), `1` = "MNA", `2` = "het", `0` = "nMNA", `9` = "unknown"),
+    sample_id = paste0(progress, "_", mna, "_", patient_id, "_", fm_id, "_", tissue),
+    celltype  = as.character(celltype)
+  )
 
-wide_df <- data.frame(wide_df)
-rownames(wide_df) <- wide_df$sample_id
-wide_df <- wide_df %>% select(-sample_id)
-cmat <- as.matrix(wide_df)
+pt_comp <- md_clust %>%
+  count(sample_id, celltype, name = "n") %>%
+  group_by(sample_id) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  pivot_wider(id_cols = sample_id, names_from = celltype, values_from = prop, values_fill = 0)
 
-# Centered log-ratio (CLR) transformation for compositional proportions.
-# Cell-type proportions sum to 1 per sample, so we CLR-transform them before
-# computing Euclidean distances. Zeros are handled with a per-sample pseudocount
-# (CLR_PSEUDO cells / number of cells in the sample); CLR then centers each
-# sample's log-proportions on its geometric mean.
-n_per_sample <- as.integer(table(sce$sample_id)[rownames(cmat)])
-pseudo_vec   <- CLR_PSEUDO / n_per_sample
-cmat_adj     <- sweep(cmat, 1, pseudo_vec, "+")
-clr_df       <- t(apply(cmat_adj, 1, function(x) log(x) - mean(log(x))))
+cmat <- as.matrix(pt_comp[, setdiff(names(pt_comp), "sample_id")])
+rownames(cmat) <- pt_comp$sample_id
+
+# Per-sample pseudocount (CLR_PSEUDO cells / total cells in the sample)
+n_total    <- md_clust %>% count(sample_id, name = "n_total")
+pseudo_vec <- CLR_PSEUDO / n_total$n_total[match(rownames(cmat), n_total$sample_id)]
+cmat_adj   <- sweep(cmat, 1, pseudo_vec, "+")
+clr_df     <- t(apply(cmat_adj, 1, function(x) log(x) - mean(log(x))))
 
 # Cluster samples (euclidean distance, ward.D2 linkage)
 dist_matrix <- dist(clr_df, method = distance)
 hc <- hclust(dist_matrix, method = linkage)
 
 # Order samples by dendrogram leaf order so the barplot follows the CLR clustering
-clustered_order <- rownames(wide_df)[hc$order]
+clustered_order <- rownames(clr_df)[hc$order]
 sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
 
 # All-cell-type abundance barplot in clustered order
