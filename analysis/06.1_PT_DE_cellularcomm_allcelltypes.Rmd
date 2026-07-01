@@ -219,7 +219,7 @@ p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
 
 p
 
-save_plot(p, "Fig3aBis1_PT_abundance_patients_clustered_allcelltypes.png", width = 8, height = 6)
+save_plot(p, "Fig3a1_PT_allcelltypes_allctclustering.png", width = 8, height = 6)
 ```
 
 along with the dendogram:
@@ -228,7 +228,7 @@ along with the dendogram:
 # Dendogram of the CLR-based clustering computed above
 plot(hc)
 
-save_plot(plot(hc), "Fig3aBis2_PT_abundance_patients_clustered_dendrogram.png", width = 8, height = 6)
+save_plot(plot(hc), "Fig3a2_PT_dendrogram_allctclustering.png", width = 8, height = 6)
 ```
 We then save the order of clustered samples along with cluster labels.
 
@@ -269,7 +269,7 @@ p_tumor <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = 
 
 p_tumor
 
-save_plot(p_tumor, "Fig3aBis_PT_abundance_patients_clustered_tumor.png", width = 12, height = 5)
+save_plot(p_tumor, "Fig3a_PT_tumor_allctclustering.png", width = 12, height = 5)
 ```
 
 ## Plot TME cellular profiles
@@ -286,7 +286,7 @@ p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal
 
 p_ME
 
-save_plot(p_ME, "Fig3aBis_PT_abundance_patients_clustered_immune.png", width = 12, height = 5)
+save_plot(p_ME, "Fig3a_PT_immune_allctclustering.png", width = 12, height = 5)
 ```
 
 ## Compute tumor and TME heterogeneity
@@ -356,7 +356,7 @@ p_anno <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_co
   columnAnnotation(TUM_het=tumor_het, col=list(TUM_het=col_tumor_het)) %v%
   columnAnnotation(ME_het=me_het, col=list(ME_het=col_me_het))
 
-save_plot(p_anno, "Fig3aBis4_PT_abundance_patients_clustered_metadata.png", width = 8, height = 6)
+save_plot(p_anno, "Fig3a4_PT_metadata_allctclustering.png", width = 8, height = 6)
 
 ```
 
@@ -393,7 +393,7 @@ plot_list[[d]] <- ggplot(result, aes(x="", y=Freq, fill=dis_var, group=dis_var))
 
 p_pie <- do.call("grid.arrange", c(plot_list, ncol=1))
 
-save_plot(p_pie, "Fig3bBis_PT_abundance_piecharts_metadata.png", width = 6, height = 8)
+save_plot(p_pie, "Fig3b_PT_piecharts_metadata_allctclustering.png", width = 6, height = 8)
 ```
 ```{r boxplots}
 het_m <- as.vector(unname(me_het[clustered_samples]))
@@ -425,7 +425,7 @@ plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
 
 p_box <- do.call("grid.arrange", c(plot_list, ncol=3))
 
-save_plot(p_box, "Fig3cBis_PT_abundance_het_boxplot_metadata.png", width = 6, height = 8)
+save_plot(p_box, "Fig3c_PT_het_boxplot_metadata_allctclustering.png", width = 6, height = 8)
 ```
 
 ## Plot metaclusters
@@ -440,7 +440,7 @@ p_all <- plotAbundances(sce_mc, k = "celltype", by = "sample", col_clust=F, k_pa
 
 p_all
 
-save_plot(p_all, "Fig3aBis_PT_abundance_patients_clustered_metacluster.png", width = 12, height = 5)
+save_plot(p_all, "Fig3a_PT_metacluster_allctclustering.png", width = 12, height = 5)
 ```
 
 ## Combined Figure 3a-bis (stacked panels)
@@ -520,22 +520,26 @@ comm_label_df <- data.frame(
   y     = h_root * 1.08
 )
 
+# "Patient group" title, centered between the two group labels and placed above
+# them. Drawn inside the panel (not as plot.title) so it can be centred between the
+# groups and given enough headroom not to be cropped by the dendrogram.
+title_df <- data.frame(x = mean(comm_label_df$x), y = h_root * 1.30, label = "Patient group")
+
 p_dendro <- ggplot(segs) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_text(data = comm_label_df, aes(x = x, y = y, label = label),
             fontface = "bold", size = 7, inherit.aes = FALSE) +
+  geom_text(data = title_df, aes(x = x, y = y, label = label),
+            fontface = "bold", size = 7, inherit.aes = FALSE) +
   scale_x_continuous(limits = c(0.5, M + 0.5), expand = c(0, 0)) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
-  labs(title = "Patient group") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.30))) +
   theme_minimal() +
   theme(
     axis.text       = element_blank(),
     axis.ticks      = element_blank(),
     axis.title      = element_blank(),
-    plot.title      = element_text(face = "bold", size = 18, hjust = 0.5),
-    plot.title.position = "plot",
     panel.grid      = element_blank(),
-    plot.margin     = margin(2, 2, 0, 2)
+    plot.margin     = margin(6, 2, 2, 2)
   )
 
 # ---- 2. Metadata strips as geom_tile ggplots ----
@@ -613,12 +617,12 @@ p_fig3a <- (p_dendro /
   p_mna_m / p_1p_m / p_prog_m / p_age_m / p_tumhet_m / p_mehet_m /
   p_tumor_c /
   p_immune_c) +
-  plot_layout(ncol = 1, heights = c(1, 4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 4, 4),
+  plot_layout(ncol = 1, heights = c(1.6, 4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 4, 4),
               guides = "collect")
 
 p_fig3a
 
-save_plot(p_fig3a, "Fig3aBis_combined_stacked.png", width = 8, height = 15)
+save_plot(p_fig3a, "Fig3a_combined_stacked_allctclustering.png", width = 8, height = 15)
 ```
 
 ## Save SPE
