@@ -200,6 +200,15 @@ clr_df     <- t(apply(cmat_adj, 1, function(x) log(x) - mean(log(x))))
 dist_matrix <- dist(clr_df, method = distance)
 hc <- hclust(dist_matrix, method = linkage)
 
+# Rotate the dendrogram so patient group 1 (the largest community) sits on the LEFT.
+# Branch rotation is purely cosmetic - it does not change the clustering, distances
+# or cluster membership. Leaves are weighted by their community's size rank
+# (1 = largest); reorder() then places the smallest-weight (largest) branch first.
+comm_raw   <- cutree(hc, k = n_communities)
+size_order <- names(sort(table(comm_raw), decreasing = TRUE))
+leaf_w     <- match(as.character(comm_raw[rownames(clr_df)]), size_order)
+hc <- as.hclust(reorder(as.dendrogram(hc), wts = leaf_w, agglo.FUN = mean))
+
 # Order samples by dendrogram leaf order so the barplot follows the CLR clustering
 clustered_order <- rownames(clr_df)[hc$order]
 sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
