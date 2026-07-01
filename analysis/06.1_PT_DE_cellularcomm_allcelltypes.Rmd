@@ -523,7 +523,7 @@ comm_label_df <- data.frame(
 p_dendro <- ggplot(segs) +
   geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_text(data = comm_label_df, aes(x = x, y = y, label = label),
-            fontface = "bold", size = 4, inherit.aes = FALSE) +
+            fontface = "bold", size = 7, inherit.aes = FALSE) +
   scale_x_continuous(limits = c(0.5, M + 0.5), expand = c(0, 0)) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
   labs(title = "Patient group") +
@@ -532,7 +532,7 @@ p_dendro <- ggplot(segs) +
     axis.text       = element_blank(),
     axis.ticks      = element_blank(),
     axis.title      = element_blank(),
-    plot.title      = element_text(face = "bold", size = 11, hjust = 0.5),
+    plot.title      = element_text(face = "bold", size = 18, hjust = 0.5),
     plot.title.position = "plot",
     panel.grid      = element_blank(),
     plot.margin     = margin(2, 2, 0, 2)
