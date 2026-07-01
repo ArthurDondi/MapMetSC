@@ -375,12 +375,11 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 ## Run differential abundance analyses
 
 We perform DA at four cluster levels — metacluster, all cell types (including
-"other"), tumor cell types, and immune cell types. For each level we run the
-MYCN comparison (MNA vs nMNA) over all samples and, for each available
-patient-group clustering (tumor-only `tumorclustering` and all-cell-type
-`allctclustering`), two comparisons on that clustering's cohort: patient group 1
-vs 2, and MNA vs nMNA. Each analysis produces one combined boxplot figure saved
-as `boxplot_<level>[_<clustering>]_<comparison>.png`.
+"other"), tumor cell types, and immune cell types. For each level and each
+available patient-group clustering (tumor-only `tumorclustering` and all-cell-type
+`allctclustering`), we run two comparisons on that clustering's cohort: patient
+group 1 vs 2, and MNA vs nMNA. Each analysis produces one combined boxplot figure
+saved as `boxplot_<level>_<clustering>_<comparison>.png`.
 
 ```{r run-all-analyses, fig.width=16, fig.height=9}
 immune_metaclusters <- c("granulocytes", "T cells", "B cells", "MO/DC/NK")
@@ -412,11 +411,11 @@ for (cc in names(clustering_cols)) {
 }
 available_clusterings <- clustering_cols[names(clustering_cols) %in% colnames(colData(sce))]
 
-# --- Build the analyses. For every cluster level:
-#   <level>_mna                     MNA vs nMNA over all samples
-# and, for each available clustering:
+# --- Build the analyses. For each cluster level and each available clustering:
 #   <level>_<clustering>_1_vs_2     patient group 1 vs 2 (that clustering)
 #   <level>_<clustering>_mna        MNA vs nMNA on that clustering's cohort
+# The standalone all-sample MNA (<level>_mna) is only produced as a fallback when
+# no clustering column is present; otherwise it duplicates <level>_allctclustering_mna.
 add_cfg <- function(lst, suffix, cl, comparison, ord, selected_communities = NULL,
                     cohort_col = NULL, cohort_communities = NULL) {
   lst[[suffix]] <- list(
@@ -430,8 +429,10 @@ add_cfg <- function(lst, suffix, cl, comparison, ord, selected_communities = NUL
 
 analysis_configs <- list()
 for (cl in cluster_level_configs) {
-  analysis_configs <- add_cfg(analysis_configs, paste0(cl$key, "_mna"),
-                              cl, "mna", c("nMNA", "MNA"))
+  if (length(available_clusterings) == 0) {
+    analysis_configs <- add_cfg(analysis_configs, paste0(cl$key, "_mna"),
+                                cl, "mna", c("nMNA", "MNA"))
+  }
   for (cc in names(available_clusterings)) {
     clab <- available_clusterings[[cc]]
     analysis_configs <- add_cfg(

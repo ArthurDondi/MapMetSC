@@ -220,12 +220,11 @@ clustered_samples <- sapply(strsplit(levels(p$data$sample_id), "_"), function(x)
 #Extract clusters of cellular communities
 cellular_communities <- as.data.frame(cutree(hc, k = n_communities)[levels(p$data$sample_id)])
 colnames(cellular_communities) <- c("community_cluster")
-# Renumber communities to consecutive IDs ordered by size, so that patient group 1
-# is the largest group, 2 the next, etc. (ties broken by original cutree id).
-cluster_sizes  <- sort(table(cellular_communities$community_cluster), decreasing = TRUE)
-cluster_values <- as.integer(names(cluster_sizes))
-cluster_names  <- setNames(seq_along(cluster_values), cluster_values)
-cellular_communities$community_cluster <- recode(cellular_communities$community_cluster, !!!cluster_names)
+# Renumber patient groups so that group 1 is the largest group (2 the next, ...),
+# breaking ties by the original cutree id. match() on the size-ordered ids performs
+# the relabelling directly (recode() on an integer vector could silently no-op here).
+size_order <- names(sort(table(cellular_communities$community_cluster), decreasing = TRUE))
+cellular_communities$community_cluster <- match(as.character(cellular_communities$community_cluster), size_order)
 community_levels <- sort(unique(cellular_communities$community_cluster))
 
 # Rename rownames to fm_id_tissue format for downstream matching
