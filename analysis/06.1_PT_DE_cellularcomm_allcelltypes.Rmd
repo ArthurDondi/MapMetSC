@@ -36,14 +36,13 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
 
   } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
 
-    # save as PNG instead of PDF if you want consistency
-    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
 
   } else {
 
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
 
@@ -210,7 +209,7 @@ p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
 
 p
 
-save_plot(p, "Fig3aBis1_PT_abundance_patients_clustered_allcelltypes.png", width = 8, height = 6)
+save_plot(p, "Fig3aBis1_PT_abundance_patients_clustered_allcelltypes.pdf", width = 8, height = 6)
 ```
 
 along with the dendogram:
@@ -219,7 +218,7 @@ along with the dendogram:
 # Dendogram of the CLR-based clustering computed above
 plot(hc)
 
-save_plot(plot(hc), "Fig3aBis2_PT_abundance_patients_clustered_dendrogram.png", width = 8, height = 6)
+save_plot(plot(hc), "Fig3aBis2_PT_abundance_patients_clustered_dendrogram.pdf", width = 8, height = 6)
 ```
 We then save the order of clustered samples along with cluster labels.
 
@@ -259,7 +258,7 @@ p_tumor <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = 
 
 p_tumor
 
-save_plot(p_tumor, "Fig3aBis_PT_abundance_patients_clustered_tumor.png", width = 12, height = 5)
+save_plot(p_tumor, "Fig3aBis_PT_abundance_patients_clustered_tumor.pdf", width = 12, height = 5)
 ```
 
 ## Plot TME cellular profiles
@@ -276,7 +275,7 @@ p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal
 
 p_ME
 
-save_plot(p_ME, "Fig3aBis_PT_abundance_patients_clustered_immune.png", width = 12, height = 5)
+save_plot(p_ME, "Fig3aBis_PT_abundance_patients_clustered_immune.pdf", width = 12, height = 5)
 ```
 
 ## Compute tumor and TME heterogeneity
@@ -346,7 +345,7 @@ p_anno <- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_co
   columnAnnotation(TUM_het=tumor_het, col=list(TUM_het=col_tumor_het)) %v%
   columnAnnotation(ME_het=me_het, col=list(ME_het=col_me_het))
 
-save_plot(p_anno, "Fig3aBis4_PT_abundance_patients_clustered_metadata.png", width = 8, height = 6)
+save_plot(p_anno, "Fig3aBis4_PT_abundance_patients_clustered_metadata.pdf", width = 8, height = 6)
 
 ```
 
@@ -383,7 +382,7 @@ plot_list[[d]] <- ggplot(result, aes(x="", y=Freq, fill=dis_var, group=dis_var))
 
 p_pie <- do.call("grid.arrange", c(plot_list, ncol=1))
 
-save_plot(p_pie, "Fig3bBis_PT_abundance_piecharts_metadata.png", width = 6, height = 8)
+save_plot(p_pie, "Fig3bBis_PT_abundance_piecharts_metadata.pdf", width = 6, height = 8)
 ```
 ```{r boxplots}
 het_m <- as.vector(unname(me_het[clustered_samples]))
@@ -415,7 +414,7 @@ plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
 
 p_box <- do.call("grid.arrange", c(plot_list, ncol=3))
 
-save_plot(p_box, "Fig3cBis_PT_abundance_het_boxplot_metadata.png", width = 6, height = 8)
+save_plot(p_box, "Fig3cBis_PT_abundance_het_boxplot_metadata.pdf", width = 6, height = 8)
 ```
 
 ## Plot metaclusters
@@ -430,7 +429,7 @@ p_all <- plotAbundances(sce_mc, k = "celltype", by = "sample", col_clust=F, k_pa
 
 p_all
 
-save_plot(p_all, "Fig3aBis_PT_abundance_patients_clustered_metacluster.png", width = 12, height = 5)
+save_plot(p_all, "Fig3aBis_PT_abundance_patients_clustered_metacluster.pdf", width = 12, height = 5)
 ```
 
 ## Combined Figure 3a-bis (stacked panels)
@@ -608,7 +607,7 @@ p_fig3a <- (p_dendro /
 
 p_fig3a
 
-save_plot(p_fig3a, "Fig3aBis_combined_stacked.png", width = 8, height = 15)
+save_plot(p_fig3a, "Fig3aBis_combined_stacked.pdf", width = 8, height = 15)
 ```
 
 ## Save SPE

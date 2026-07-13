@@ -36,14 +36,13 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     
   } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
     
-    # save as PNG instead of PDF if you want consistency
-    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
     
   } else {
     
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   
@@ -330,7 +329,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   print(p_boxplot)
   n_clusters <- length(cluster_present)
-  save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".png"),
+  save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".pdf"),
             width  = max(8, n_clusters * 1.1 + 1.5),
             height = if (long_labels) 9 else 7)
 

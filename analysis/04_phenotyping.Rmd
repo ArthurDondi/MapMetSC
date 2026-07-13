@@ -44,7 +44,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     dev.off()
   } else {
     # Base R plots or other objects - assume already rendered, save via dev.copy
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
@@ -173,7 +173,7 @@ p <- dittoDimPlot(spe, var = "fm_id",
   ggtitle("Sample ID on UMAP")
 
 
-save_plot(p2, "UMAP-vis-sampleID.png", width = 8, height = 6)
+save_plot(p2, "UMAP-vis-sampleID.pdf", width = 8, height = 6)
 
 p
 
@@ -204,7 +204,7 @@ p_markers <- multi_dittoDimPlot(
   color.panel = viridis(100, direction = -1)
 )
 
-save_plot(p_markers, "UMAP-all-markers.png", width = 24, height = 32)
+save_plot(p_markers, "UMAP-all-markers.pdf", width = 24, height = 32)
 p_markers
 ```
 
@@ -727,7 +727,7 @@ for (var_name in cluster_vars) {
 
   save_plot(
     p,
-    paste0("umap_", var_name, ".png"),
+    paste0("umap_", var_name, ".pdf"),
     width = 8,
     height = 6
   )
@@ -872,7 +872,7 @@ for (pair in subcluster_pairs) {
 
   save_plot(
     p1,
-    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".png"),
+    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".pdf"),
     width  = 14,
     height = 6
   )
@@ -925,7 +925,7 @@ for (cl in clusters) {
   # save plot
   save_plot(
     p1,
-    paste0("heatmap_after_subclustering_", cl, ".png"),
+    paste0("heatmap_after_subclustering_", cl, ".pdf"),
     width = 14,
     height = 6
   )
@@ -1108,7 +1108,7 @@ p1 <- dittoDimPlot(spe, var = "celltype_ordered",
   theme(legend.title = element_blank()) +
   ggtitle("Celltypes on UMAP")
 
-save_plot(p1, "umap-celltypes.png", width = 16, height = 8)
+save_plot(p1, "umap-celltypes.pdf", width = 16, height = 8)
 
 p1
 ```
@@ -1123,7 +1123,7 @@ p2 <- dittoDimPlot(spe, var = "metacluster",
   theme(legend.title = element_blank()) +
   ggtitle("Metaclusters on UMAP")
 
-save_plot(p2, "umap-metaclusters.png", width = 13, height = 8)
+save_plot(p2, "umap-metaclusters.pdf", width = 13, height = 8)
 
 p2
 ```
@@ -1190,7 +1190,7 @@ for (cl in clusters) {
   )
   
   # --- 5. Save heatmap safely ---
-  filename <- paste0("heatmap_celltype_", safe_name, ".png")
+  filename <- paste0("heatmap_celltype_", safe_name, ".pdf")
   full_path <- file.path(outdir, filename)
   
   # If save_plot() is your custom function
