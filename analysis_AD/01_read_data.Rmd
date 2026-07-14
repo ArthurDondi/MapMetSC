@@ -83,21 +83,21 @@ library(patchwork)
 ```
 </details>
 
-## Preprocess adrenal gland (AD) files to remove supplementary channels
+## Preprocess adrenal gland (AD) files to remove supplementary channels.This does not run in docker and needs to be an in parent folder of intensities.
 
-The adrenal gland (AD) intensity files contain supplementary negative-control channels (`IF4_NEGATIVE_MIX`) that are not part of the marker panel. We remove these columns from the intensity CSVs so that the files match the panel before reading them in. This step overwrites the CSV files in place and is idempotent (re-running it on already-cleaned files has no effect).
+This step overwrites the intensity CSVs in place, so it can only be run where the data is **writable**. Run it manually, once, from the parent folder of the `intensities-*` folders on a writable copy of the data (not against a read-only mounted `input_AD`). Once the files are cleaned, the pipeline below reads them normally.
 
-```{r preprocess-ad-channels}
+```{r eval=FALSE}
 
 # Folders to process
-folders <- file.path(params$input, c("intensities-0px", "intensities-1px"))
+folders <- c("intensities-0px/", "intensities-1px/")
 
 # Columns to remove
 cols_to_remove <- c("IF4_NEGATIVE_MIX_mean", "IF4_NEGATIVE_MIX_mean-80")
 
 # Loop through each folder
 for(folder in folders){
-  # List all AD intensity CSVs
+  # List CSVs containing "AD"
   ad_files <- list.files(folder, pattern="AD.*\\.csv$", full.names = TRUE)
   print(ad_files)
 
