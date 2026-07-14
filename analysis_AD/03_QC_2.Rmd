@@ -144,7 +144,17 @@ img <- loadImages(file.path(params$input, "img", paste0(image, ".tif")))
 
 mcols(masks) <- DataFrame(sample_id = names(masks))
 mcols(img) <- DataFrame(sample_id = names(img))
-channelNames(img) <- rownames(spe)[1:44]
+
+# The raw AD images may still carry channels (e.g. IF4_NEGATIVE_MIX) that were
+# dropped from the cleaned intensity tables. Name the channels from the marker
+# (_mean) names using the image's actual channel count so the lengths match.
+marker_names <- rownames(spe)[grepl("_mean$", rownames(spe))]
+n_ch <- dim(img[[1]])[3]
+channelNames(img) <- if (n_ch <= length(marker_names)) {
+  marker_names[seq_len(n_ch)]
+} else {
+  c(marker_names, paste0("extra_channel_", seq_len(n_ch - length(marker_names))))
+}
 
 tmp <- spe[,spe$sample_id==image]
 tmp$outlier <- "no"
