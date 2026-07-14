@@ -40,7 +40,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     dev.off()
   } else {
     # Base R plots or other objects - assume already rendered, save via dev.copy
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
@@ -117,7 +117,7 @@ for(i in 1: ncol(df)){
 plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #change this to the number of morphological features
 
 
-save_plot(plot, "morpho_features_AD.png", width = 12, height = 12)
+save_plot(plot, "morpho_features_AD.pdf", width = 12, height = 12)
 
 
 plot
@@ -172,7 +172,7 @@ p2 <- ggdraw(mask_plot$plot, clip = "on")
 
 p <- plot_grid(p1, p2)
 
-save_plot(p, "example_large_cell.png", width = 12, height = 12)
+save_plot(p, "example_large_cell.pdf", width = 12, height = 12)
 p
 ```
 
@@ -260,7 +260,7 @@ plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #chang
 
 
 
-save_plot(plot, "morph_.png", width = 12, height = 12)
+save_plot(plot, "morph_.pdf", width = 12, height = 12)
 
 
 plot
@@ -310,7 +310,7 @@ for (m in seq_along(morph_names_clipped)) {
   # Save plot with morph + image ID
   save_plot(
     p,
-    filename = paste0(current_morph, "_", current_id, ".png"),
+    filename = paste0(current_morph, "_", current_id, ".pdf"),
     width = 12,
     height = 12
   )

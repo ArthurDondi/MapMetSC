@@ -39,7 +39,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     dev.off()
   } else {
     # Base R plots or other objects - assume already rendered, save via dev.copy
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
@@ -163,7 +163,7 @@ p <- (p1 | p2)
 
 p
 
-save_plot(p, "DNA_markers_rawdata.png", width = 24, height = 12)
+save_plot(p, "DNA_markers_rawdata.pdf", width = 24, height = 12)
 
 ```
 ## Save object

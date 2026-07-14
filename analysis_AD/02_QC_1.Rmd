@@ -39,7 +39,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     dev.off()
   } else {
     # Base R plots or other objects - assume already rendered, save via dev.copy
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
@@ -148,7 +148,7 @@ p1 <- Heatmap(mat[,rand_cells],
         col=viridis(100)
         )
 
-save_plot(p1, "heatmap_mean80.png", width = 8, height = 6)
+save_plot(p1, "heatmap_mean80.pdf", width = 8, height = 6)
 
 p1
 ```
@@ -191,7 +191,7 @@ p <- Heatmap(mean_t,
         col=viridis(100)
         )
 
-save_plot(p, "heatmap_clusters.png", width = 8, height = 6)
+save_plot(p, "heatmap_clusters.pdf", width = 8, height = 6)
 
 p
 ```
@@ -275,7 +275,7 @@ plot_grid(p1, p2, p3, p4)
 panel_4 <- (p1 | p2) /
            (p3 | p4)
 
-save_plot(panel_4, "ghostcells_mask.png", width = 12, height = 12)
+save_plot(panel_4, "ghostcells_mask.pdf", width = 12, height = 12)
 panel_4
 
 ```
@@ -341,7 +341,7 @@ p4z <- ggdraw(mask_zoom$plot)
 
 zoom_only_grid <- plot_grid(p1z, p2z, p3z, p4z)
 
-save_plot(zoom_only_grid, "ghostcells_mask_zoom.png", width = 12, height = 12)
+save_plot(zoom_only_grid, "ghostcells_mask_zoom.pdf", width = 12, height = 12)
 zoom_only_grid
 ```
 
@@ -403,7 +403,7 @@ p <- ggplot(df, aes(x = DNAIntensity, y = TotalIntensity_noDNA)) +
 
 p
 
-save_plot(p, "DNA_protein_correlation_scatter.png", width = 12, height = 12, dpi = 600)
+save_plot(p, "DNA_protein_correlation_scatter.pdf", width = 12, height = 12, dpi = 600)
 ```
 
 ```{r}
@@ -484,8 +484,8 @@ p_combined <- ggplot(df_summary, aes(x = DNA)) +
        y = "Total protein intensity")
 
 
-save_plot(p_combined, "DNA_protein_correlation_bin_mean.png", width = 12, height = 12)
-save_plot(p1, "DNA_protein_correlation_density.png", width = 12, height = 12)
+save_plot(p_combined, "DNA_protein_correlation_bin_mean.pdf", width = 12, height = 12)
+save_plot(p1, "DNA_protein_correlation_density.pdf", width = 12, height = 12)
 
 # Print the combined plot
 print(p_combined)
@@ -532,7 +532,7 @@ p <- ggplot(df_summary, aes(x = percent_low_DNA, y = reorder(sample_label, perce
 
 p
 
-save_plot(p, "low_DNA_samples.png", width = 9, height = 18)
+save_plot(p, "low_DNA_samples.pdf", width = 9, height = 18)
 ```
 
 ## Save object
