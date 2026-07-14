@@ -85,9 +85,7 @@ library(patchwork)
 
 ## Preprocess adrenal gland (AD) files to remove supplementary channels.This does not run in docker and needs to be an in parent folder of intensities.
 
-This step overwrites the intensity CSVs in place, so it can only be run where the data is **writable**. Run it manually, once, from the parent folder of the `intensities-*` folders on a writable copy of the data (not against a read-only mounted `input_AD`). Once the files are cleaned, the pipeline below reads them normally.
-
-```{r eval=FALSE}
+```{r}
 
 # Folders to process
 folders <- c("intensities-0px/", "intensities-1px/")
