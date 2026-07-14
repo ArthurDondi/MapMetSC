@@ -1,14 +1,14 @@
 ---
-title: "Read single-cell and meta-data"
+title: "Read single-cell and meta-data - AD"
 author: "LazDaria"
 date: "`r Sys.Date()`"
-output: 
+output:
   workflowr::wflow_html
 editor_options:
   chunk_output_type: inline
-params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+params:
+  input: "/home/rstudio/data/input_AD"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc_AD"
 ---
 
 ```{r setup, include=FALSE}
@@ -83,6 +83,33 @@ library(patchwork)
 ```
 </details>
 
+## Preprocess adrenal gland (AD) files to remove supplementary channels
+
+The adrenal gland (AD) intensity files contain supplementary negative-control channels (`IF4_NEGATIVE_MIX`) that are not part of the marker panel. We remove these columns from the intensity CSVs so that the files match the panel before reading them in. This step overwrites the CSV files in place and is idempotent (re-running it on already-cleaned files has no effect).
+
+```{r preprocess-ad-channels}
+
+# Folders to process
+folders <- file.path(params$input, c("intensities-0px", "intensities-1px"))
+
+# Columns to remove
+cols_to_remove <- c("IF4_NEGATIVE_MIX_mean", "IF4_NEGATIVE_MIX_mean-80")
+
+# Loop through each folder
+for(folder in folders){
+  # List all AD intensity CSVs
+  ad_files <- list.files(folder, pattern="AD.*\\.csv$", full.names = TRUE)
+  print(ad_files)
+
+  # Loop through each file
+  for(f in ad_files){
+    df <- read.csv(f, check.names = FALSE)        # read CSV
+    df <- df %>% select(-any_of(cols_to_remove)) # remove columns if present
+    write.csv(df, f, row.names = FALSE)           # overwrite file
+  }
+}
+
+```
 ## Read single-cell measurement
 
 Replace `path` with the path to the folder where you stored the single-cell data (e.g. `path/to/folder/MapMetIP_ProcessedDataset` in case processed data was downloaded from Zenodo). 
@@ -104,7 +131,7 @@ rm(spe_0px)
 rm(spe_1px)
 ```
 
-## Read single-cell metadata
+## Set cell identifiers and sample IDs
 
 We set the `colnames` of the object to generate unique identifiers per cell.
 
@@ -112,63 +139,13 @@ We set the `colnames` of the object to generate unique identifiers per cell.
 colnames(spe) <- paste0(spe$sample_id, "_", spe$ObjectNumber)
 ```
 
-When then read sample and patient-specific metadata from the metadata file provided on Zenodo [(Supplementary_Tables/20240808_Suppl_Table1.xlsx)](https://doi.org/10.5281/zenodo.13220634). 
-
-```{r read-metadata}
-
-file_path <- file.path(params$input, 'Supplementary_Tables/20260526_Suppl_Table1.xlsx')
-sample_spec_metadata <- read_excel(file_path, sheet = "sample_spec_metadata")
-patient_spec_clinical <- read_excel(file_path, sheet = "patient_spec_clinical")
-patient_spec_genetic <- read_excel(file_path, sheet = "patient_spec_genetic")
-
-# Merge patient and sample-specific data
-merged_data <- sample_spec_metadata %>%
-  left_join(patient_spec_clinical, by = "Patient_ID")
-
-meta <- merged_data %>%
-  left_join(patient_spec_genetic, by = "Patient_ID")
-```
-
-and assign it to the colData slot in our SPE object.
+For the adrenal gland (AD) samples there is no sample- or patient-specific metadata table to read in. We only derive `sample` and `fm_id` identifiers from the `sample_id` and assign these to the colData slot of our SPE object. Tissue, year, stainer, etc. are not relevant here, as they are identical for all AD samples.
 
 ```{r add-coldata}
 
 #spe$sample <- gsub(spe$sample_id, pattern="([UMD]).*", replacement="\\1")
 spe$sample <- sub("_[^_]+$", "", spe$sample_id)
-spe$fm_id <- str_match(spe$sample, "_.*_(.*)_")[,2]  
-spe$tissue <- str_match(spe$sample, "^.*_.*_(.*)")[,2] 
-spe$tissue[spe$tissue=="TU"] = "PT"
-
-spe$puncture_side <- meta$Puncture_side[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$imc_score <- meta$IMC_score[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$staining_date <- meta$Staining_date[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$stainer <- meta$Stainer[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$imc_date <- meta$IMC_date[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$control <- meta$control[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$patient_id <- meta$Patient_ID[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$timepoint <- meta$Timepoint[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-
-# Keeping only primary tumor (PT) diagnosis (DE) samples + bone marrow (BM) control samples
-spe <- spe[, (spe$timepoint == "DE" & spe$tissue == "PT") | spe$control == "yes"]
-
-# Removing Patient_018 (after investigation, it's not a PT sample but a lymph node sample):
-spe <- spe[, spe$patient_id != "Patient_018"]
-
-spe$stage <- meta$INSS_stage[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$progression <- meta$efs[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$death <- meta$death[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$efs_dur <- meta$efs_dur[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$death_dur <- meta$death_dur[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$X1p_loss <- meta$X1p_loss[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$X11q_loss <- meta$X11q_loss[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$X17q_gain <- meta$X17q_gain[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$MYCN_amp <- meta$MYCN_amp[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$age_diag <- meta$age_at_diag[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$therapy <- meta$therapy[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-spe$sex_aab <- meta$sex_aab[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
-
-spe$ROI <- str_match(spe$sample_id, "^.*_.*_.*_.*_(.*)")[,2]
-spe$year <- str_c("20", str_extract(spe$fm_id, "^[0-9]+"))
+spe$fm_id <- str_match(spe$sample, "_.*_(.*)_")[,2]
 
 ```
 
@@ -176,14 +153,12 @@ Before we save the SPE object, we check the distribution of markers.
 
 ```{r plot by staining date}
 
-tissue <- unique(spe$tissue)
-
 marker <- 'DNA1_Ir191_mean'
-p1 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", assay = "counts") +
-    ggtitle(paste(marker,  "- per tissue"))
+p1 <- dittoRidgePlot(spe, var = marker, group.by = "sample", assay = "counts") +
+    ggtitle(paste(marker,  "- per sample"))
 marker <- 'DNA1_Ir193_mean'
-p2 <- dittoRidgePlot(spe[,spe$tissue%in%tissue], var = marker, group.by = "tissue", assay = "counts") +
-    ggtitle(paste(marker,  "- per tissue"))
+p2 <- dittoRidgePlot(spe, var = marker, group.by = "sample", assay = "counts") +
+    ggtitle(paste(marker,  "- per sample"))
 p <- (p1 | p2)
 
 p
