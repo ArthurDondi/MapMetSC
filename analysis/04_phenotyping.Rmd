@@ -554,6 +554,14 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
     column_names_rot = 45,
 
+    # Reserve enough room for the long, 45deg-rotated column labels (e.g.
+    # celltype names) so they are not truncated at ComplexHeatmap's 6cm
+    # default cap. Harmless for short-label plots (only raises the cap).
+    column_names_max_height = max_text_width(
+      colnames(exp_mat),
+      gp = gpar(fontsize = 15)
+    ),
+
     border = "black"
   )
 
@@ -613,7 +621,8 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   # ----------------------------
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
   pdf(full_path, width = 16, height = 14)
-  hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+  hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
+                   padding = unit(c(2, 30, 2, 2), "mm"))
   add_break_marks("ncells_PT", pt_info, hp_drawn)
   add_break_marks("ncells_BM", bm_info, hp_drawn)
   dev.off()
@@ -623,7 +632,8 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   # Return a silent marker so the caller's print() in the cluster_vars for-loop
   # (line 884) does not trigger a third, undecorated re-draw via the
   # ComplexHeatmap show() method.
-  hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
+  hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
+                   padding = unit(c(2, 30, 2, 2), "mm"))
   add_break_marks("ncells_PT", pt_info, hp_drawn)
   add_break_marks("ncells_BM", bm_info, hp_drawn)
 
@@ -1129,7 +1139,7 @@ p2
 ```
 
 
-```{r}
+```{r bubbleplot-celltypes, fig.width=16, fig.height=14}
 
 plot_cluster_bubble(
   cluster_col = "celltype",
