@@ -1,14 +1,14 @@
 ---
-title: "Cell phenotyping"
+title: "Cell phenotyping - AD"
 author: "LazDaria"
 date: "`r Sys.Date()`"
-output: 
+output:
   workflowr::wflow_html
 editor_options:
   chunk_output_type: inline
-params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+params:
+  input: "/home/rstudio/data/input_AD"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc_AD"
 ---
 
 ```{r setup, include=FALSE}
@@ -132,7 +132,7 @@ rowData(spe)$use_channel <- !grepl("mean-80|PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|
 ##Matrix with morph. features
 morph_mat_clipped <- (cbind("area"=spe$area_clipped, "solidity"=spe$solidity_clipped, "aspect_ratio"=spe$aspect_ratio_clipped))
 
-tissue <- spe$tissue
+# All cells are adrenal gland (AD) tissue, so no tissue-based splitting is needed.
 cell_id <- colnames(spe)
 
 mat <- intensity_mat_hq_wo_zeros
@@ -173,7 +173,7 @@ p <- dittoDimPlot(spe, var = "fm_id",
   ggtitle("Sample ID on UMAP")
 
 
-save_plot(p2, "UMAP-vis-sampleID.pdf", width = 8, height = 6)
+save_plot(p, "UMAP-vis-sampleID.pdf", width = 8, height = 6)
 
 p
 
@@ -236,7 +236,6 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   # Cluster vector
   # ----------------------------
   cluster_vec <- as.character(colData(spe)[[cluster_col]])
-  tissue_vec  <- colData(spe)$tissue
 
   # ----------------------------
   # Expression matrix
@@ -307,10 +306,9 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   percent_mat[percent_mat < 0.1] <- 0.1
 
   # ----------------------------
-  # Tissue counts
+  # Cell counts (all cells are AD tissue)
   # ----------------------------
-  bm_count <- table(factor(cluster_vec[tissue_vec == "BM"], levels = clusters))
-  pt_count <- table(factor(cluster_vec[tissue_vec == "PT"], levels = clusters))
+  ad_count <- table(factor(cluster_vec, levels = clusters))
 
   # ----------------------------
   # Barplot info helper (supports optional axis break)
@@ -424,8 +422,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
   col_for_annot <- setNames(list(annot_colors), annot_name)
 
-  pt_info <- make_barplot_info(pt_count)
-  bm_info <- make_barplot_info(bm_count)
+  ad_info <- make_barplot_info(ad_count)
   cluster_annotation_list <- setNames(
     list(factor(annot_values, levels = annot_levels)),
     annot_name
@@ -447,19 +444,12 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     c(
       cluster_annotation_list,
       list(
-        ncells_PT = anno_barplot(
-          pt_info$values,
-          ylim = c(0, pt_info$upper),
+        ncells_AD = anno_barplot(
+          ad_info$values,
+          ylim = c(0, ad_info$upper),
           height = barplot_height,
-          gp = gpar(fill = "brown"),
-          axis_param = pt_info$axis_param
-        ),
-        ncells_BM = anno_barplot(
-          bm_info$values,
-          ylim = c(0, bm_info$upper),
-          height = barplot_height,
-          gp = gpar(fill = "aquamarine4"),
-          axis_param = bm_info$axis_param
+          gp = gpar(fill = "goldenrod3"),
+          axis_param = ad_info$axis_param
         ),
         col = col_for_annot,
         show_legend = TRUE
@@ -614,18 +604,16 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
   pdf(full_path, width = 16, height = 14)
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
-  add_break_marks("ncells_PT", pt_info, hp_drawn)
-  add_break_marks("ncells_BM", bm_info, hp_drawn)
+  add_break_marks("ncells_AD", ad_info, hp_drawn)
   dev.off()
   message("Saved: ", full_path)
 
   # Draw once more for the notebook / interactive display (with decorations).
   # Return a silent marker so the caller's print() in the cluster_vars for-loop
-  # (line 884) does not trigger a third, undecorated re-draw via the
+  # does not trigger a third, undecorated re-draw via the
   # ComplexHeatmap show() method.
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list)
-  add_break_marks("ncells_PT", pt_info, hp_drawn)
-  add_break_marks("ncells_BM", bm_info, hp_drawn)
+  add_break_marks("ncells_AD", ad_info, hp_drawn)
 
   invisible(structure(list(), class = "heatmap_drawn"))
 }
@@ -749,147 +737,10 @@ for (cluster_col in cluster_vars) {
 
 ## Define final clustering set
 ```{r define-final-pg-clusters}
-spe$pg_clusters <- spe$pg_clusters_k60
+spe$pg_clusters <- spe$pg_clusters_k15
 ```
 
-## Subclustering of mixed clusters using GMM
-
-```{r gmm-subclustering}
-library(mclust)
-
-set.seed(221228)
-
-spe$pg_clusters_beforesubclustering <- spe$pg_clusters_30
-
-
-spe$pg_clusters <- spe$pg_clusters_beforesubclustering
-
-# Ensure pg_clusters is character for easy reassignment
-spe$pg_clusters <- as.character(spe$pg_clusters)
-
-# Mapping: original cluster -> new subcluster label for the second component
-subcluster_map <- list(
-  "6" = "35",
-  "7" = "36",
-  "8" = "37",
-  "17" = "38"
-)
-
-# define marker sets per cluster
-marker_map <- list(
-  "6"  = c("CD3_"),
-  "7"  = c("GD2"),
-  "8"  = c("CD4_"),
-  "17" = c("CD3_",  "CD10")
-)
-
-for (cl in names(subcluster_map)) {
-  new_cl <- subcluster_map[[cl]]
-  
-  idx <- which(spe$pg_clusters == cl)
-  if (length(idx) < 4) next
-  
-  sub_mat <- t(mat[, idx])  # cells x markers
-  
-  # --- select cluster-specific markers ---
-  if (cl %in% names(marker_map)) {
-    markers <- marker_map[[cl]]
-    keep_cols <- grep(paste0("^(", paste(markers, collapse="|"), ")"), colnames(sub_mat))
-    sub_mat <- sub_mat[, keep_cols, drop = FALSE]
-  }
-  
-  print(cl)
-  print(head(sub_mat))
-  
-  # --- clean data ---
-  sub_mat <- sub_mat[complete.cases(sub_mat), , drop = FALSE]
-  sub_mat <- sub_mat[, apply(sub_mat, 2, var) > 0, drop = FALSE]
-  print(cl)
-  print(head(sub_mat))
-  
-  #if (nrow(sub_mat) < 4 || ncol(sub_mat) < 2) next
-  
-  sub_mat <- scale(sub_mat)
-  
-  # --- GMM ---
-  gmm_fit <- tryCatch(
-    Mclust(sub_mat, G = 2, verbose = FALSE),
-    error = function(e) NULL
-  )
-  
-  if (is.null(gmm_fit)) next
-  
-  comp2 <- which(gmm_fit$classification == 2)
-  spe$pg_clusters[idx[comp2]] <- new_cl
-}
-```
-
-## Single-cell heatmaps for subclustered clusters
-
-```{r subcluster-heatmaps}
-library(dittoSeq)
-library(ggplot2)
-library(viridis)
-
-genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
-
-# Define the pairs: original cluster and its new sibling
-subcluster_pairs <- list(
-  list(orig = "6",  new = "35"),
-  list(orig = "7",  new = "36"),
-  list(orig = "8",  new = "37"),
-  list(orig = "17", new = "38")
-)
-
-
-set.seed(221228)
-for (pair in subcluster_pairs) {
-  orig_cl <- pair$orig
-  new_cl  <- pair$new
-
-  # Cells belonging to either subcluster
-  idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
-
-  if (length(idx) == 0) next
-
-  # Sample up to 8000 cells
-  n_cells   <- min(8000, length(idx))
-  rand_idx  <- sample(idx, n_cells)
-
-  spe_cl <- spe[, rand_idx]
-
-  # Order cells by subcluster so the two groups appear side-by-side
-  cell_order <- order(spe_cl$pg_clusters)
-
-  p1 <- dittoHeatmap(
-    spe_cl[, cell_order],
-    genes          = genes_use,
-    cluster_cols   = FALSE,          # preserve subcluster ordering
-    scaled.to.max  = TRUE,
-    heatmap.colors.max.scaled = viridis(100),
-    annot.by       = "pg_clusters"   # colour bar showing subclusters
-  )
-
-  save_plot(
-    p1,
-    paste0("heatmap_subcluster_", orig_cl, "_", new_cl, ".pdf"),
-    width  = 14,
-    height = 6
-  )
-}
-```
-
-```{r pg-clusters-final-bubbleplot}
-
-plot_cluster_bubble(
-      cluster_col = "pg_clusters",
-      ncells_break_at = 100000,
-      save_name = "bubbleplot_pg_clusters.pdf")
-
-```
-
-
-## Define final clustering and plot clustered heatmaps for each cluster
+## Plot clustered heatmaps for each cluster
 
 ```{r}
 library(dittoSeq)
@@ -902,17 +753,17 @@ genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H
 
 
 for (cl in clusters) {
-  
+
   # subset cells for this cluster
   spe_cl <- spe[, colData(spe)$pg_clusters == cl]
-  
+
   # skip empty clusters (just in case)
   if (ncol(spe_cl) == 0) next
-  
+
   # sample up to 8000 cells
   n_cells <- min(8000, ncol(spe_cl))
   rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
-  
+
   # make heatmap
   p1 <- dittoHeatmap(
     spe_cl[, rand_cells],
@@ -921,11 +772,11 @@ for (cl in clusters) {
     scaled.to.max = TRUE,
     heatmap.colors.max.scaled = viridis(100)
   )
-  
+
   # save plot
   save_plot(
     p1,
-    paste0("heatmap_after_subclustering_", cl, ".pdf"),
+    paste0("heatmap_cluster_", cl, ".pdf"),
     width = 14,
     height = 6
   )
@@ -942,47 +793,15 @@ for (cl in clusters) {
 spe$pg_clusters <- as.character(spe$pg_clusters)
 
 # -----------------------------
-# 1. Absolute counts
+# 1. Absolute counts per cluster (all cells are AD tissue)
 # -----------------------------
-count_table <- as.data.frame(table(
-  cluster = spe$pg_clusters,
-  tissue  = spe$tissue
-))
-
-count_wide <- count_table %>%
-  pivot_wider(
-    names_from = tissue,
-    values_from = Freq,
-    values_fill = 0
-  )
-
-# Ensure all tissues exist
-for(t in c("BM","PT")){
-  if(!t %in% colnames(count_wide)){
-    count_wide[[t]] <- 0
-  }
-}
-
-count_wide <- count_wide %>%
-  select(cluster, BM, PT)
+count_wide <- as.data.frame(table(cluster = spe$pg_clusters)) %>%
+  rename(AD = Freq)
 
 # -----------------------------
-# 2. Percentages WITHIN cluster
+# 2. Add annotation columns
 # -----------------------------
-percent_within_cluster <- count_wide %>%
-  rowwise() %>%
-  mutate(
-    total = BM + PT,
-    BM_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * BM / total), "0.0%"),
-    PT_percent = ifelse(total > 0, sprintf("%.1f%%", 100 * PT / total), "0.0%")
-  ) %>%
-  ungroup() %>%
-  select(-total)
-
-# -----------------------------
-# 3. Add annotation columns
-# -----------------------------
-annotation_template <- percent_within_cluster %>%
+annotation_template <- count_wide %>%
   mutate(
     celltype = "",
     metacluster = "",
@@ -991,7 +810,7 @@ annotation_template <- percent_within_cluster %>%
   arrange(as.numeric(cluster))
 
 # -----------------------------
-# 4. Write Excel
+# 3. Write Excel
 # -----------------------------
 write_xlsx(
   annotation_template,
@@ -1002,11 +821,11 @@ write_xlsx(
 
 ## Annotation and merging of clusters
 
-Next, we read assigned celltype and metacluster-labels for clusters from the metadata file provided on Zenodo [(Supplementary_Tables/20240808_Suppl_Table3.xlsx)](https://doi.org/10.5281/zenodo.13220634 ). These have been assigned based on thorough examination of images and co-expressions and using literature.
+Next, we read the manually assigned celltype and metacluster labels for the AD clusters. These are filled in externally into the `cluster_annotation_template.xlsx` written above (based on thorough examination of images and co-expressions and using literature) and saved as `cluster_annotation_completed.xlsx` in the output folder.
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-file_path <- file.path('/home/rstudio/data/output', 'cluster_annotation_completed.xlsx')
+file_path <- file.path('/home/rstudio/data/output_AD', 'cluster_annotation_completed.xlsx')
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)
@@ -1019,51 +838,35 @@ spe$metacluster <-  as.vector(metacelltypes)
 
 ```
 
-## Assign colors 
-Finally, we assign colors to all celltypes and metaclusters.
+## Assign colors
+Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (the SCPs are green, not brown), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
 
 ```{r colors-celltypes raw_k30}
 col_celltype <- c(
 
-  ## ---- Tumor ----
-  "Ki67+ Tu"     = rgb(128, 128,   0, maxColorValue = 255),   # olive (dark yellow-green)
-  "CD44+ Tu"      = rgb(50,  205,  50, maxColorValue = 255),   # bright lime green
-  "GD2neg Tu"      = rgb(189, 183, 107, maxColorValue = 255),  # khaki
-  "early neuroblast-like Tu"   = rgb(152, 251, 152, maxColorValue = 255),  # pale green
-  "adrenergic marker-low Tu"  = rgb(34,  100,  60, maxColorValue = 255),   # dark green
-  "neuroblast-like Tu" = rgb(0, 145, 150, maxColorValue = 255),    # teal / blue-green
+  ## ---- Neural crest lineage (green tones) ----
+  "SOX10+ S100B+ SCPs"                           = rgb(34,  100,  60, maxColorValue = 255),  # dark green
+  "ELAVL4+ early progenitors"                    = rgb(152, 251, 152, maxColorValue = 255),  # pale green
+  "ELAVL4+ GD2+ sympathoblasts"                  = rgb(50,  205,  50, maxColorValue = 255),  # bright lime green
+  "CHGA- CD15+ chromaffin progenitors"           = rgb(0,   145, 150, maxColorValue = 255),  # teal / blue-green
+  "CHGA+ CD15+ chromaffin differentiating cells" = rgb(128, 128,   0, maxColorValue = 255),  # olive
+  "CHGA+ CD15- chromaffin mature cells"          = rgb(189, 183, 107, maxColorValue = 255),  # khaki
 
-  ## ---- Proliferation ----
-  "Ki67+ cells" = rgb(255, 200,   0, maxColorValue = 255),
-  "CXCR4+ cells" = rgb(255, 245, 160, maxColorValue = 255),
+  ## ---- Mesenchymal (brown tones) ----
+  "CD10+ fibroblasts"                 = rgb(166, 97,  26, maxColorValue = 255),  # brown
+  "LUM+ mesenchymal"                  = rgb(140, 81,  10, maxColorValue = 255),  # dark brown
+  "CD44+ progenitor mesnchymal cells" = rgb(101, 67,  33, maxColorValue = 255),  # deep brown
 
-  ## ---- Progenitor ----
-  "CD34+ HSPCs" = rgb(255,  95,   0, maxColorValue = 255),
+  ## ---- Immune ----
+  "CD45+ immune cells" = rgb(220,  20,  60, maxColorValue = 255),   # crimson
 
-  ## ---- T cells ----
-  "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),   # crimson
-  "CD4+ T cells"        = rgb(255, 127,  80, maxColorValue = 255),   # coral
-  "CD3+ T cells"        = rgb(139,   0,   0, maxColorValue = 255),   # dark red
-  "CD8+ S100B+ T cells"      = rgb(230,  20, 210, maxColorValue = 255),  # fuchsia
-  "CD8+ GZMB+ T cells"       = rgb(255, 182, 193, maxColorValue = 255),  # light pink
-  "dense T cell region" = rgb(199,  21, 133, maxColorValue = 255),   # magenta / medium violet red
+  ## ---- Endothelial ----
+  "CD34+ endothelial cells" = rgb(255,  95,   0, maxColorValue = 255),  # orange
 
-  ## ---- Myeloid ----
-  "granulocytes"       = rgb(8,   48, 107, maxColorValue = 255),
-  "CD14+ MO"           = rgb(33, 102, 172, maxColorValue = 255),
-  "myeloid cells"     = rgb(64, 180, 170, maxColorValue = 255),
-  "GZMB+ DC/NK cells"  = rgb(107,174, 214, maxColorValue = 255),
-
-  ## ---- B cells ----
-  "CD20+ B cells" = rgb(136, 86, 167, maxColorValue = 255),
-
-  ## ---- Stromal ----
-  "S100B+ schwann cells" = rgb(166, 97,  26, maxColorValue = 255),
-  "fibroblast/endothel"  = rgb(101, 67,  33, maxColorValue = 255),
-
-
-  ## ---- Other ----
-  "other" = rgb(120, 120, 120, maxColorValue = 255)
+  ## ---- Other (greyish tones) ----
+  "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
+  "other (Ki67+)"  = rgb(80,  80,  80,  maxColorValue = 255),  # dark grey
+  "other (CXCR4+)" = rgb(195, 195, 195, maxColorValue = 255)  # mid grey
 )
 
 metadata(spe)$color_vectors$col_celltype <- col_celltype
@@ -1071,15 +874,11 @@ metadata(spe)$color_vectors$col_celltype <- col_celltype
 
 ```{r colors-metaclusters}
 col_metacluster <- c(
-  "tumor" = "#238B45",
-  "T cells" = "#E34A33",
-  "granulocytes" = "#08306B",  
-  "MO/DC/NK" = "#41B6C4",
-  "B cells" = "#88419D",
-  "mesenchymal" = "#8C510A",
-  "proliferating cells" = "#FFD700",
-  "progenitors" = "#F59E0B",   
-  "other" = "#969696"
+  "neural crest lineage" = "#238B45",  # green
+  "mesenchymal"          = "#8C510A",  # brown
+  "immune cells"         = "#E34A33",  # red
+  "endothelial"          = "#F59E0B",  # orange
+  "other"                = "#969696"   # grey
 )
 metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
@@ -1100,7 +899,7 @@ As a last step, we generate UMAP and bubble plots for the final celltypes/metacl
 
 ```{r umap-final-celltypes, fig.width=10}
 p1 <- dittoDimPlot(spe, var = "celltype_ordered", 
-             reduction.use = "UMAP", size = 0.3, 
+             reduction.use = "UMAP", size = 1, 
              do.label = F,
              order = "randomize",
              legend.show=T) +
@@ -1115,7 +914,7 @@ p1
 
 ```{r vis-metacluster}
 p2 <- dittoDimPlot(spe, var = "metacluster", 
-             reduction.use = "UMAP", size = 0.3, labels.size=4,
+             reduction.use = "UMAP", size = 1, labels.size=4,
              do.label = F,
              order = "randomize",
              legend.show=T) +
@@ -1190,7 +989,7 @@ for (cl in clusters) {
   )
   
   # --- 5. Save heatmap safely ---
-  filename <- paste0("heatmap_celltype_", safe_name, ".pdf")
+  filename <- paste0("heatmap_celltype_", safe_name, ".png")
   full_path <- file.path(outdir, filename)
   
   # If save_plot() is your custom function

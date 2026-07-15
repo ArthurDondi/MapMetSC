@@ -37,14 +37,13 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     
   } else if (inherits(plot_obj, c("Heatmap", "HeatmapList", "HeatmapAnnotation"))) {
     
-    # save as PNG instead of PDF if you want consistency
-    png(full_path, width = width * dpi, height = height * dpi, res = dpi)
+    pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
     
   } else {
     
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   
@@ -190,7 +189,7 @@ p_heatmap <- pheatmap(data_wide,
          fontsize = 10,
          display_numbers = TRUE)  # Optionally display the values in cells
 
-save_plot(p_heatmap, "Fig4b_cell-cell_interactions.png", width = 6, height = 6)
+save_plot(p_heatmap, "Fig4b_cell-cell_interactions.pdf", width = 6, height = 6)
 ```
 
 ## Cellular neighborhoods
@@ -217,7 +216,7 @@ p_spatial <- plotSpatial(spe,
             node_size_fix = 0.5) +
     scale_color_brewer(palette = "Set3")
 
-save_plot(p_spatial, "Fig4f_spatial_neighborhood_images.png", width = 20, height = 49)
+save_plot(p_spatial, "Fig4f_spatial_neighborhood_images.pdf", width = 20, height = 49)
 
 p_spatial
 ```
@@ -233,7 +232,7 @@ p_map <- regionMap(spe,
 
 p_map <- p_map + ggplot2::coord_flip() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-save_plot(p_map, "Fig4c_spatial_neighborhood_map.png", width = 8, height = 4)
+save_plot(p_map, "Fig4c_spatial_neighborhood_map.pdf", width = 8, height = 4)
 
 p_map
 ```
@@ -282,7 +281,7 @@ linkage <- "complete"
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=brewer.pal(n_neighborhoods, "Set3"), 
                     linkage = linkage, distance= distance) 
 
-save_plot(p, "Fig4d1_spatial_neighborhood_clustering.png", width = 6, height = 4)
+save_plot(p, "Fig4d1_spatial_neighborhood_clustering.pdf", width = 6, height = 4)
 
 p
 ```
@@ -305,7 +304,7 @@ hc <- hclust(dist_matrix, method = linkage)
 
 p2 <- plot(hc)
 
-save_plot(p2, "Fig4d2_spatial_neighborhood_clustering_dendogram.png", width = 6, height = 6)
+save_plot(p2, "Fig4d2_spatial_neighborhood_clustering_dendogram.pdf", width = 6, height = 6)
 p2
 ```
 
@@ -344,7 +343,7 @@ p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_cod
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
   columnAnnotation(patient_group=sample_summary$tumor_community, col=list(patientgroup=col_code))
 
-save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.png", width = 8, height = 4)
+save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.pdf", width = 8, height = 4)
 
 p_anno
 ```
@@ -415,7 +414,7 @@ p_fig4d <- (p_dendro / p_abund / p_meta) +
 
 p_fig4d
 
-save_plot(p_fig4d, "Fig4d_combined_stacked.png", width = 8, height = 12)
+save_plot(p_fig4d, "Fig4d_combined_stacked.pdf", width = 8, height = 12)
 ```
 
 We then compare the abundance of cellular communities between nMNA and MNA samples.
@@ -562,7 +561,7 @@ for(i in 1:length(unique(p$data$cluster_id))){
 
 p_grid <- grid.arrange(grobs = plot_list_fc, ncol = 6)
 
-save_plot(p_anno, "Fig4e2_spatial_neighborhood_DA_mycn_boxplot.png", width = 8, height = 4)
+save_plot(p_anno, "Fig4e2_spatial_neighborhood_DA_mycn_boxplot.pdf", width = 8, height = 4)
 
 p_grid
 
@@ -587,7 +586,7 @@ p <- ggplot(df, aes(fill=cluster, y=logFC, x=cluster)) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   geom_text(aes(label = p_adj_signif), vjust = 0)
 
-save_plot(p, "Fig4e1_spatial_neighborhood_DA_mycn_barplot.png", width = 8, height = 4)
+save_plot(p, "Fig4e1_spatial_neighborhood_DA_mycn_barplot.pdf", width = 8, height = 4)
 
 p
 ```
@@ -622,7 +621,7 @@ p_s1<- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"],
     ggtitle("GD2")
 
 
-save_plot(p_s1, "Fig4g1_tumor_patch.png", width = 6, height = 6)
+save_plot(p_s1, "Fig4g1_tumor_patch.pdf", width = 6, height = 6)
 
 p_s2 <- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"], 
             node_color_by = "patch_id", 
@@ -630,7 +629,7 @@ p_s2 <- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"],
             node_size_fix = 0.5) +
     theme(legend.position = "none")
 
-save_plot(p_s2, "Fig4g2_tumor_patch.png", width = 6, height = 6)
+save_plot(p_s2, "Fig4g2_tumor_patch.pdf", width = 6, height = 6)
 
 (p_s1 | p_s2)
 ```
@@ -703,7 +702,7 @@ for(i in 1:length(unique(celltypes))){
 
 p_box <- grid.arrange(grobs = plot_list, ncol = 6)
 
-save_plot(p_box, paste0("Fig4i_DA_",variable,".png"), width = 16, height = 12)
+save_plot(p_box, paste0("Fig4i_DA_",variable,".pdf"), width = 16, height = 12)
 
 p_box
 
@@ -774,7 +773,7 @@ for(i in 1:length(unique(celltypes))){
 
 p_box <- grid.arrange(grobs = plot_list, ncol = 6)
 
-save_plot(p_box, paste0("Fig4h_DA_",variable,".png"), width = 16, height = 12)
+save_plot(p_box, paste0("Fig4h_DA_",variable,".pdf"), width = 16, height = 12)
 
 p_box
 
@@ -868,7 +867,7 @@ p_dist <- ggplot(as.data.frame(colData(spe)) %>%
   scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2) +
   theme_ridges()
 
-save_plot(p_dist, "Fig4j_border_distance.png", width = 6, height = 10)
+save_plot(p_dist, "Fig4j_border_distance.pdf", width = 6, height = 10)
 
 p_dist
 ```
@@ -923,7 +922,7 @@ for (th in thresholds) {
 
   save_plot(
     p_s2,
-    paste0("Fig4g3_tumor_patch_", th, ".png"),
+    paste0("Fig4g3_tumor_patch_", th, ".pdf"),
     width = 6,
     height = 6
   )
@@ -938,7 +937,7 @@ for (th in thresholds) {
 
   save_plot(
     p_s3,
-    paste0("Fig4g3_tumor_patch2_", th, ".png"),
+    paste0("Fig4g3_tumor_patch2_", th, ".pdf"),
     width = 6,
     height = 6
   )
@@ -985,7 +984,7 @@ panel_img1 <- wrap_plots(plot_list_img1, ncol = length(thresholds)) +
 
 save_plot(
   panel_img1,
-  paste0("Fig4g3_tumor_patch_panel_all_thresholds_", panel_sample_tag_1, ".png"),
+  paste0("Fig4g3_tumor_patch_panel_all_thresholds_", panel_sample_tag_1, ".pdf"),
   width = 30,
   height = 6
 )
@@ -995,7 +994,7 @@ panel_img2 <- wrap_plots(plot_list_img2, ncol = length(thresholds)) +
 
 save_plot(
   panel_img2,
-  paste0("Fig4g3_tumor_patch_panel_all_thresholds_", panel_sample_tag_2, ".png"),
+  paste0("Fig4g3_tumor_patch_panel_all_thresholds_", panel_sample_tag_2, ".pdf"),
   width = 30,
   height = 6
 )
@@ -1038,7 +1037,7 @@ immune_plot <- ggplot(
 
 save_plot(
     immune_plot,
-    paste0("Fig4g3_tumor_bordersize_immune_barplot.png"),
+    paste0("Fig4g3_tumor_bordersize_immune_barplot.pdf"),
     width = 6,
     height = 6
   )
@@ -1074,7 +1073,7 @@ tumor_plot <- ggplot(
 
 save_plot(
     tumor_plot,
-    paste0("Fig4g3_tumor_bordersize_tumor_barplot.png"),
+    paste0("Fig4g3_tumor_bordersize_tumor_barplot.pdf"),
     width = 6,
     height = 6
   )
@@ -1305,7 +1304,7 @@ for (cells in cells_list) {
   )
 
   save_plot(p_comp,
-            paste0("Fig4m_boxplot_compartments_", cells, ".png"),
+            paste0("Fig4m_boxplot_compartments_", cells, ".pdf"),
             width = 12, height = 8)
 }
 ```
@@ -1364,7 +1363,7 @@ for (cells in c("tumor", "immune")) {
           legend.key.size = unit(0.4, "cm"))
 
   save_plot(p_stack,
-            paste0("Fig4_suppl_stackedbar_compartments_", cells, ".png"),
+            paste0("Fig4_suppl_stackedbar_compartments_", cells, ".pdf"),
             width = 6, height = 5)
   print(p_stack)
 }
@@ -1537,7 +1536,7 @@ for (cells in c("tumor", "immune")) {
       ncol  = min(length(plot_list_m), max_plot_columns)
     )
     save_plot(p_m,
-              paste0("Fig4n_boxplot_compartments_", mna_grp, "_", cells, ".png"),
+              paste0("Fig4n_boxplot_compartments_", mna_grp, "_", cells, ".pdf"),
               width = 12, height = 8)
   }
 
@@ -1725,7 +1724,7 @@ for (cells in c("tumor", "immune")) {
         ncol  = min(length(plot_list_b), max_plot_columns)
       )
       save_plot(p_b,
-                paste0("Fig4n_", comp_b, "_MNA_vs_nMNA_GLMM_", cells, ".png"),
+                paste0("Fig4n_", comp_b, "_MNA_vs_nMNA_GLMM_", cells, ".pdf"),
                 width = 12, height = 6)
     }
   } # end GLMM section B
