@@ -737,7 +737,7 @@ for (cluster_col in cluster_vars) {
 
 ## Define final clustering set
 ```{r define-final-pg-clusters}
-spe$pg_clusters <- spe$pg_clusters_k60
+spe$pg_clusters <- spe$pg_clusters_k15
 ```
 
 ## Plot clustered heatmaps for each cluster
@@ -825,7 +825,7 @@ Next, we read the manually assigned celltype and metacluster labels for the AD c
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-file_path <- file.path(params$output, 'cluster_annotation_completed.xlsx')
+file_path <- file.path('/home/rstudio/data/output_AD', 'cluster_annotation_completed.xlsx')
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)
@@ -866,8 +866,7 @@ col_celltype <- c(
   ## ---- Other (greyish tones) ----
   "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
   "other (Ki67+)"  = rgb(80,  80,  80,  maxColorValue = 255),  # dark grey
-  "other (CXCR4+)" = rgb(150, 150, 150, maxColorValue = 255),  # mid grey
-  "CXCR4+ cells"   = rgb(195, 195, 195, maxColorValue = 255)   # light grey
+  "other (CXCR4+)" = rgb(195, 195, 195, maxColorValue = 255)  # mid grey
 )
 
 metadata(spe)$color_vectors$col_celltype <- col_celltype
@@ -900,7 +899,7 @@ As a last step, we generate UMAP and bubble plots for the final celltypes/metacl
 
 ```{r umap-final-celltypes, fig.width=10}
 p1 <- dittoDimPlot(spe, var = "celltype_ordered", 
-             reduction.use = "UMAP", size = 0.3, 
+             reduction.use = "UMAP", size = 1, 
              do.label = F,
              order = "randomize",
              legend.show=T) +
@@ -915,7 +914,7 @@ p1
 
 ```{r vis-metacluster}
 p2 <- dittoDimPlot(spe, var = "metacluster", 
-             reduction.use = "UMAP", size = 0.3, labels.size=4,
+             reduction.use = "UMAP", size = 1, labels.size=4,
              do.label = F,
              order = "randomize",
              legend.show=T) +
@@ -990,7 +989,7 @@ for (cl in clusters) {
   )
   
   # --- 5. Save heatmap safely ---
-  filename <- paste0("heatmap_celltype_", safe_name, ".pdf")
+  filename <- paste0("heatmap_celltype_", safe_name, ".png")
   full_path <- file.path(outdir, filename)
   
   # If save_plot() is your custom function
