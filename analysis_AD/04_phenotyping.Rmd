@@ -839,50 +839,35 @@ spe$metacluster <-  as.vector(metacelltypes)
 ```
 
 ## Assign colors
-Finally, we assign colors to all celltypes and metaclusters. The color vectors below are kept from the neuroblastoma reference analysis as a template — adapt the celltype/metacluster names and colors to match the celltypes obtained from the AD annotation above.
+Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (the SCPs are green, not brown), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
 
 ```{r colors-celltypes raw_k30}
 col_celltype <- c(
 
-  ## ---- Tumor ----
-  "Ki67+ Tu"     = rgb(128, 128,   0, maxColorValue = 255),   # olive (dark yellow-green)
-  "CD44+ Tu"      = rgb(50,  205,  50, maxColorValue = 255),   # bright lime green
-  "GD2neg Tu"      = rgb(189, 183, 107, maxColorValue = 255),  # khaki
-  "early neuroblast-like Tu"   = rgb(152, 251, 152, maxColorValue = 255),  # pale green
-  "adrenergic marker-low Tu"  = rgb(34,  100,  60, maxColorValue = 255),   # dark green
-  "neuroblast-like Tu" = rgb(0, 145, 150, maxColorValue = 255),    # teal / blue-green
+  ## ---- Neural crest lineage (green tones) ----
+  "SOX10+ S100B+ SCPs"                           = rgb(34,  100,  60, maxColorValue = 255),  # dark green
+  "ELAVL4+ early progenitors"                    = rgb(152, 251, 152, maxColorValue = 255),  # pale green
+  "ELAVL4+ GD2+ sympathoblasts"                  = rgb(50,  205,  50, maxColorValue = 255),  # bright lime green
+  "CHGA- CD15+ chromaffin progenitors"           = rgb(0,   145, 150, maxColorValue = 255),  # teal / blue-green
+  "CHGA+ CD15+ chromaffin differentiating cells" = rgb(128, 128,   0, maxColorValue = 255),  # olive
+  "CHGA+ CD15- chromaffin mature cells"          = rgb(189, 183, 107, maxColorValue = 255),  # khaki
 
-  ## ---- Proliferation ----
-  "Ki67+ cells" = rgb(255, 200,   0, maxColorValue = 255),
-  "CXCR4+ cells" = rgb(255, 245, 160, maxColorValue = 255),
+  ## ---- Mesenchymal (brown tones) ----
+  "CD10+ fibroblasts"                 = rgb(166, 97,  26, maxColorValue = 255),  # brown
+  "LUM+ mesenchymal"                  = rgb(140, 81,  10, maxColorValue = 255),  # dark brown
+  "CD44+ progenitor mesnchymal cells" = rgb(101, 67,  33, maxColorValue = 255),  # deep brown
 
-  ## ---- Progenitor ----
-  "CD34+ HSPCs" = rgb(255,  95,   0, maxColorValue = 255),
+  ## ---- Immune ----
+  "CD45+ immune cells" = rgb(220,  20,  60, maxColorValue = 255),   # crimson
 
-  ## ---- T cells ----
-  "CD8+ T cells"        = rgb(220,  20,  60, maxColorValue = 255),   # crimson
-  "CD4+ T cells"        = rgb(255, 127,  80, maxColorValue = 255),   # coral
-  "CD3+ T cells"        = rgb(139,   0,   0, maxColorValue = 255),   # dark red
-  "CD8+ S100B+ T cells"      = rgb(230,  20, 210, maxColorValue = 255),  # fuchsia
-  "CD8+ GZMB+ T cells"       = rgb(255, 182, 193, maxColorValue = 255),  # light pink
-  "dense T cell region" = rgb(199,  21, 133, maxColorValue = 255),   # magenta / medium violet red
+  ## ---- Endothelial ----
+  "CD34+ endothelial cells" = rgb(255,  95,   0, maxColorValue = 255),  # orange
 
-  ## ---- Myeloid ----
-  "granulocytes"       = rgb(8,   48, 107, maxColorValue = 255),
-  "CD14+ MO"           = rgb(33, 102, 172, maxColorValue = 255),
-  "myeloid cells"     = rgb(64, 180, 170, maxColorValue = 255),
-  "GZMB+ DC/NK cells"  = rgb(107,174, 214, maxColorValue = 255),
-
-  ## ---- B cells ----
-  "CD20+ B cells" = rgb(136, 86, 167, maxColorValue = 255),
-
-  ## ---- Stromal ----
-  "S100B+ schwann cells" = rgb(166, 97,  26, maxColorValue = 255),
-  "fibroblast/endothel"  = rgb(101, 67,  33, maxColorValue = 255),
-
-
-  ## ---- Other ----
-  "other" = rgb(120, 120, 120, maxColorValue = 255)
+  ## ---- Other (greyish tones) ----
+  "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
+  "other (Ki67+)"  = rgb(80,  80,  80,  maxColorValue = 255),  # dark grey
+  "other (CXCR4+)" = rgb(150, 150, 150, maxColorValue = 255),  # mid grey
+  "CXCR4+ cells"   = rgb(195, 195, 195, maxColorValue = 255)   # light grey
 )
 
 metadata(spe)$color_vectors$col_celltype <- col_celltype
@@ -890,15 +875,11 @@ metadata(spe)$color_vectors$col_celltype <- col_celltype
 
 ```{r colors-metaclusters}
 col_metacluster <- c(
-  "tumor" = "#238B45",
-  "T cells" = "#E34A33",
-  "granulocytes" = "#08306B",  
-  "MO/DC/NK" = "#41B6C4",
-  "B cells" = "#88419D",
-  "mesenchymal" = "#8C510A",
-  "proliferating cells" = "#FFD700",
-  "progenitors" = "#F59E0B",   
-  "other" = "#969696"
+  "neural crest lineage" = "#238B45",  # green
+  "mesenchymal"          = "#8C510A",  # brown
+  "immune cells"         = "#E34A33",  # red
+  "endothelial"          = "#F59E0B",  # orange
+  "other"                = "#969696"   # grey
 )
 metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
