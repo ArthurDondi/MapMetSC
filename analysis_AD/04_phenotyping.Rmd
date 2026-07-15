@@ -612,7 +612,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
   pdf(full_path, width = 16, height = 14)
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
-                   padding = unit(c(2, 30, 2, 2), "mm"))
+                   padding = unit(c(2, 55, 2, 2), "mm"))
   add_break_marks("ncells_AD", ad_info, hp_drawn)
   dev.off()
   message("Saved: ", full_path)
@@ -622,7 +622,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   # does not trigger a third, undecorated re-draw via the
   # ComplexHeatmap show() method.
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
-                   padding = unit(c(2, 30, 2, 2), "mm"))
+                   padding = unit(c(2, 55, 2, 2), "mm"))
   add_break_marks("ncells_AD", ad_info, hp_drawn)
 
   invisible(structure(list(), class = "heatmap_drawn"))
