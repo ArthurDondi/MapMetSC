@@ -58,8 +58,8 @@ knitr::opts_chunk$set(
   warning = FALSE,
   dev = "png",
   dpi = 300,
-  fig.width = 10,
-  fig.height = 5
+  fig.width = 7,
+  fig.height = 2.5
 )
 ```
 
@@ -110,11 +110,15 @@ meta <- sample_spec_metadata %>%
 We keep one row per patient with a diagnostic primary tumor sample
 (`Timepoint == "DE"`, primary-tumor tissue), mirroring the cohort defined in
 [chapter 1](#read-data) (Patient_018 is excluded there as a lymph-node, not a PT,
-sample). Age and sex come from the clinical table (`age_at_diag`, `sex_aab`); MYCN
-amplification, 1p loss and progression from the genetic / clinical tables
+sample). Age and sex come from the clinical table (`age_at_diag`, `sex_aab`) — age
+is recorded in weeks and converted to whole months for the plot — while MYCN
+amplification, 1p loss and progression come from the genetic / clinical tables
 (`MYCN_amp`, `X1p_loss`, `efs`).
 
 ```{r cohort-table}
+# age_at_diag is recorded in weeks; convert to whole months for the figure.
+weeks_per_month <- 365.25 / 12 / 7  # ~4.348 weeks per average month
+
 # Diagnostic primary tumor cohort: one row per patient. Tissue is coded "PT" in
 # the metadata ("TU" is also accepted for robustness); Patient_018 is dropped to
 # match 01_read_data (lymph-node, not a PT sample).
@@ -125,7 +129,7 @@ cohort <- meta %>%
   distinct(Patient_ID, .keep_all = TRUE) %>%  # collapse multiple ROIs -> one row / patient
   transmute(
     patient_id = as.character(Patient_ID),
-    age        = as.numeric(age_at_diag),  # age at diagnosis (months)
+    age        = round(as.numeric(age_at_diag) / weeks_per_month),  # weeks -> months (rounded)
     sex        = as.character(sex_aab),    # sex (AAB)
     mycn       = as.character(MYCN_amp),
     loss1p     = as.character(X1p_loss),
@@ -176,7 +180,7 @@ the right (displayed normally, not horizontally). The three genetic / clinical
 tracks use an identical fill scale, so `guides = "collect"` merges them into one
 `MNA / 1p loss / prog.` legend; sex keeps its own `f / m` legend.
 
-```{r cohort-overview-figure, fig.width=10, fig.height=5}
+```{r cohort-overview-figure, fig.width=7, fig.height=2.5}
 # ---- Colors (shared with the rest of the analysis) ----
 col_ynh <- c("yes" = rgb(202,   0,  32, maxColorValue = 255),  # red
              "no"  = rgb(  5, 113, 176, maxColorValue = 255),  # blue
@@ -200,8 +204,8 @@ p_age <- ggplot(cohort, aes(x = patient_id, y = age)) +
     axis.text.x  = element_blank(),
     axis.ticks.x = element_blank(),
     axis.title.x = element_blank(),
-    axis.text.y  = element_text(size = 8),
-    axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 9),
+    axis.text.y  = element_text(size = 7),
+    axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 8),
     panel.grid   = element_blank(),
     plot.margin  = margin(2, 2, 0, 2)
   )
@@ -221,10 +225,10 @@ tile_track <- function(var, fill_vals, breaks, legend_name, y_lab) {
     theme(
       legend.position  = "right",
       legend.direction = "vertical",
-      legend.key.size  = unit(0.4, "cm"),
-      legend.text      = element_text(size = 9),
-      legend.title     = element_text(size = 10, face = "bold"),
-      axis.title.y     = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 9),
+      legend.key.size  = unit(0.3, "cm"),
+      legend.text      = element_text(size = 7),
+      legend.title     = element_text(size = 8, face = "bold"),
+      axis.title.y     = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 8),
       plot.margin      = margin(0, 2, 0, 2)
     )
 }
@@ -239,14 +243,14 @@ p_cohort <- (p_age / p_sex / p_mycn / p_1p / p_prog) +
   plot_layout(heights = c(2, 0.5, 0.5, 0.5, 0.5), guides = "collect") +
   plot_annotation(
     title = "a) Patient cohort overview",
-    theme = theme(plot.title = element_text(face = "bold", size = 13))
+    theme = theme(plot.title = element_text(face = "bold", size = 11))
   ) &
   theme(legend.direction = "vertical", legend.box = "vertical",
         legend.justification = "top")
 
 p_cohort
 
-save_plot(p_cohort, "Fig1a_patient_cohort_overview.png", width = 10, height = 5)
+save_plot(p_cohort, "Fig1a_patient_cohort_overview.pdf", width = 7, height = 2.5)
 ```
 
 ## Session Info
