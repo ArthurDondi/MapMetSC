@@ -72,13 +72,16 @@ colored tiles — one column per patient. The tile tracks reuse the same
 `geom_tile` technique as the metadata strips in
 [chapter 6](#pt-dx); age is shown as a bar plot instead of a tile.
 
+The table is built directly from the sample- and patient-level metadata (the
+same Supplementary Table 1 sheets read in [chapter 1](#read-data)), so this
+figure does not depend on any processed single-cell object.
+
 ## Load libraries
 <details>
    <summary>Load libraries</summary>
 
 ```{r load-libraries}
-library(SpatialExperiment)
-library(SingleCellExperiment)
+library(readxl)
 library(dplyr)
 library(ggplot2)
 library(patchwork)
@@ -89,48 +92,52 @@ library(grid)  # for unit()
 ## Read data
 
 ```{r read-data}
-# Load the SPE object. Prefer the base object written by 01_read_data (which
-# still contains every patient); fall back to the phenotyped / clustered objects
-# used by the downstream scripts if the base object is not present.
-candidates <- c("spe.rds", "spe_final_communities.rds", "spe_final_clustering.rds")
-spe_file   <- candidates[file.exists(file.path(params$output, candidates))][1]
-spe <- readRDS(file.path(params$output, spe_file))
+# Read Supplementary Table 1 (the same sheets used in 01_read_data) and merge the
+# sample-level metadata with the patient-level clinical and genetic tables.
+file_path <- file.path(params$input, "Supplementary_Tables/20260526_Suppl_Table1.xlsx")
+
+sample_spec_metadata  <- read_excel(file_path, sheet = "sample_spec_metadata")
+patient_spec_clinical <- read_excel(file_path, sheet = "patient_spec_clinical")
+patient_spec_genetic  <- read_excel(file_path, sheet = "patient_spec_genetic")
+
+meta <- sample_spec_metadata %>%
+  left_join(patient_spec_clinical, by = "Patient_ID") %>%
+  left_join(patient_spec_genetic,  by = "Patient_ID")
 ```
 
 ## Build the per-patient cohort table
 
-Each column of the overview is one patient's diagnostic primary tumor sample.
-Because the metadata is patient / sample level, we collapse the single-cell
-object to one row per patient.
+We keep one row per patient with a diagnostic primary tumor sample
+(`Timepoint == "DE"`, primary-tumor tissue), mirroring the cohort defined in
+[chapter 1](#read-data) (Patient_018 is excluded there as a lymph-node, not a PT,
+sample). Age and sex come from the clinical table (`age_at_diag`, `sex_aab`); MYCN
+amplification, 1p loss and progression from the genetic / clinical tables
+(`MYCN_amp`, `X1p_loss`, `efs`).
 
 ```{r cohort-table}
-# Restrict to primary tumor (diagnostic) samples: one column per patient.
-spe_pt <- spe[, which(spe$tissue == "PT")]
-
-# Age (in months) and sex are stored in spe$age / spe$sex. If an object still
-# carries the raw metadata column names from 01_read_data (age_diag / sex_aab),
-# fall back to those so the figure builds regardless of which object is loaded.
-cd      <- colData(spe_pt)
-age_vec <- if ("age" %in% colnames(cd)) spe_pt$age else spe_pt$age_diag
-sex_vec <- if ("sex" %in% colnames(cd)) spe_pt$sex else spe_pt$sex_aab
-
-cohort <- data.frame(
-  patient_id = as.character(spe_pt$patient_id),
-  age        = as.numeric(age_vec),
-  sex        = as.character(sex_vec),
-  mycn       = as.character(spe_pt$MYCN_amp),
-  loss1p     = as.character(spe_pt$X1p_loss),
-  prog       = as.character(spe_pt$progression),
-  stringsAsFactors = FALSE
-) %>%
-  distinct(patient_id, .keep_all = TRUE) %>%  # collapse cells -> one row / patient
+# Diagnostic primary tumor cohort: one row per patient. Tissue is coded "PT" in
+# the metadata ("TU" is also accepted for robustness); Patient_018 is dropped to
+# match 01_read_data (lymph-node, not a PT sample).
+cohort <- meta %>%
+  filter(Timepoint == "DE",
+         Tissue %in% c("PT", "TU"),
+         Patient_ID != "Patient_018") %>%
+  distinct(Patient_ID, .keep_all = TRUE) %>%  # collapse multiple ROIs -> one row / patient
+  transmute(
+    patient_id = as.character(Patient_ID),
+    age        = as.numeric(age_at_diag),  # age at diagnosis (months)
+    sex        = as.character(sex_aab),    # sex (AAB)
+    mycn       = as.character(MYCN_amp),
+    loss1p     = as.character(X1p_loss),
+    prog       = as.character(efs)         # event-free survival event: 0 = no, 1 = yes
+  ) %>%
   arrange(patient_id)
 
 # ---- Recode tracks ----
 # MYCN amp. and 1p loss share a yes / no / het / unknown coding. We recode both
 # to a common yes / no / het scheme (unknown -> NA -> white tile) so that the
 # three genetic / clinical tracks can share a single legend, as in the reference
-# figure. The mappings cover both the raw numeric codes carried by spe and the
+# figure. The mappings cover both the raw numeric codes in the metadata and the
 # character labels used elsewhere in the analysis.
 recode_ynh <- function(x) dplyr::recode(as.character(x),
   "1" = "yes", "0" = "no", "2" = "het", "9" = NA_character_,
