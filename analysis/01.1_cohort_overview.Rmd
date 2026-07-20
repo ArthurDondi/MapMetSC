@@ -111,14 +111,11 @@ We keep one row per patient with a diagnostic primary tumor sample
 (`Timepoint == "DE"`, primary-tumor tissue), mirroring the cohort defined in
 [chapter 1](#read-data) (Patient_018 is excluded there as a lymph-node, not a PT,
 sample). Age and sex come from the clinical table (`age_at_diag`, `sex_aab`) — age
-is recorded in weeks and converted to whole months for the plot — while MYCN
-amplification, 1p loss and progression come from the genetic / clinical tables
+is in months and rounded to whole months for the plot — while MYCN amplification,
+1p loss and progression come from the genetic / clinical tables
 (`MYCN_amp`, `X1p_loss`, `efs`).
 
 ```{r cohort-table}
-# age_at_diag is recorded in weeks; convert to whole months for the figure.
-weeks_per_month <- 365.25 / 12 / 7  # ~4.348 weeks per average month
-
 # Diagnostic primary tumor cohort: one row per patient. Tissue is coded "PT" in
 # the metadata ("TU" is also accepted for robustness); Patient_018 is dropped to
 # match 01_read_data (lymph-node, not a PT sample).
@@ -129,7 +126,7 @@ cohort <- meta %>%
   distinct(Patient_ID, .keep_all = TRUE) %>%  # collapse multiple ROIs -> one row / patient
   transmute(
     patient_id = as.character(Patient_ID),
-    age        = round(as.numeric(age_at_diag) / weeks_per_month),  # weeks -> months (rounded)
+    age        = round(as.numeric(age_at_diag)),  # age at diagnosis (months), rounded
     sex        = as.character(sex_aab),    # sex (AAB)
     mycn       = as.character(MYCN_amp),
     loss1p     = as.character(X1p_loss),
