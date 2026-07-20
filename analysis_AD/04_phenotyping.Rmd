@@ -1013,7 +1013,7 @@ for (cl in clusters) {
 
 ```{r save-objects}
 
-saveRDS(spe, file.path(params$output, "spe_final_clustering.rds"))
+saveRDS(spe, file.path(params$output, "spe_final_clustering_AD.rds"))
 
 ```
 

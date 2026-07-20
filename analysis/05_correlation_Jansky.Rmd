@@ -7,16 +7,59 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
-  public: "/mnt/Multimodal_Imaging_Daria/Publication/public_datasets"
+  input: "/home/rstudio/data/input_all/Publication/20240811_Zenodo-Upload"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  public: "/home/rstudio/data/input_all/Publication/public_datasets"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/05_correlation_Jansky")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj, ...)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Validation using scRNA-seq data by Jansky et al. {#jansky}
@@ -43,7 +86,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 
 ```{r read-data, message=FALSE}
 # IMC data
-protein <- readRDS(file.path(params$output,"spe_final.rds"))
+protein <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[,protein$metacluster=="tumor"]
@@ -90,15 +133,19 @@ rna_mean_scaled <- t(apply(rna_mean_t, 1, RESCALE, to=0:1))
 column_ha = HeatmapAnnotation(ncells=anno_barplot(as.data.frame(table(rna_clusters))[,"Freq"], height = unit(1, "cm")),
                               show_legend=F)
 
-Heatmap(rna_mean_scaled, 
+h_rna <- Heatmap(rna_mean_scaled,
         column_title = "Mean per cluster (scRNA-seq data)",
-        top_annotation = column_ha, 
+        top_annotation = column_ha,
         cluster_columns=T,
         show_column_dend = T,
         show_column_names=T,
         show_row_names=T,
         col=viridis(100)
         )
+
+save_plot(h_rna, "Jansky_rna_mean_per_cluster_heatmap.pdf", width = 8, height = 8)
+
+h_rna
 ```
 
 ```{r umap-rna}
@@ -107,13 +154,17 @@ set.seed(230712)
 col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
 col_rna_clusters = setNames(sample(col_vector_433, length(unique(rna@active.ident))), unique(rna@active.ident))
 
-DimPlot(rna, reduction="umap", cols=col_rna_clusters)
+p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_rna_clusters)
+
+save_plot(p_umap_rna, "Jansky_rna_umap.pdf", width = 8, height = 6)
+
+p_umap_rna
 ```
 
 ### Combined visualizations
 We will next plot the two together to look at similarity.
 
-```{r mean-per-cluster-combined, fig.height=8, fig.width=10}
+```{r mean-per-cluster-combined, fig.height=10, fig.width=12}
 #Mean expression per cluster
 protein_clusters <- protein$celltype
 protein_data <- assay(protein, "counts")[common_features, ]
@@ -215,9 +266,12 @@ hp <- Heatmap(exp_mat,
         row_names_gp = gpar(fontsize = 10),
         column_names_gp = gpar(fontsize = 10),
         column_names_rot = 45,
+        column_names_max_height = max_text_width(colnames(exp_mat), gp = gpar(fontsize = 10)),
         border = "black")
 
-d1 <- draw( hp, annotation_legend_list = lgd_list)
+d1 <- draw( hp, annotation_legend_list = lgd_list, padding = unit(c(8, 8, 2, 2), "mm"))
+
+save_plot(hp, "Jansky_dotplot_expression_percent.pdf", width = 12, height = 10, annotation_legend_list = lgd_list, padding = unit(c(8, 8, 2, 2), "mm"))
 ```
 ...and plot mean expression profiles per clusters (IMC & scRNA-seq) in a PCA plot.
 
@@ -231,6 +285,8 @@ data$modality <- as.factor(modality)
 
 set.seed(20231215)
 pca <- fviz_pca_ind(data.pca, repel=T, habillage=data$modality) + scale_color_manual(values=c("lightcoral", "ivory4"))
+
+save_plot(pca, "Jansky_pca_meanexpression.pdf", width = 10, height = 8)
 
 pca
 ```

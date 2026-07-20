@@ -40,7 +40,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     dev.off()
   } else {
     # Base R plots or other objects - assume already rendered, save via dev.copy
-    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
@@ -93,6 +93,11 @@ library(pheatmap)
 
 spe_AD <- readRDS(file.path(params$output,"spe_final_AD.rds"))
 spe_PTBM <- readRDS(file.path(params$output,"spe_final_PTBM.rds"))
+
+# Celltype colors from the AD reference object. Plots colored by the
+# transferred (predicted fetal) labels reuse this vector so they follow the
+# spe_AD color scheme.
+col_celltype_AD <- metadata(spe_AD)$color_vectors$col_celltype
 ```
 
 ```{r}
@@ -171,15 +176,19 @@ sim_matrix <- cor(t(heatmap_matrix), use = "pairwise.complete.obs")
 sim_matrix[is.na(sim_matrix)] <- 0
 
 # Plot
-pheatmap(sim_matrix,
+ph <- pheatmap(sim_matrix,
          clustering_distance_rows = "euclidean",
          clustering_distance_cols = "euclidean",
          main = "Neuroblastoma clusters vs Fetal progenitors")
+save_plot(ph, "correlation-clusters-vs-fetal.pdf", width = 8, height = 6)
 
 # ------------------------------
 # 6. UMAP colored by predicted fetal labels
 # ------------------------------
-plotUMAP(spe_PTBM, colour_by = "predicted_fetal")
+p_umap_fetal <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal") +
+  scale_color_manual(values = col_celltype_AD)
+save_plot(p_umap_fetal, "umap-predicted-fetal.pdf", width = 8, height = 6)
+p_umap_fetal
 
 # ------------------------------
 # 7. Spatial plot colored by predicted fetal labels
@@ -187,10 +196,13 @@ plotUMAP(spe_PTBM, colour_by = "predicted_fetal")
 coords <- as.data.frame(spatialCoords(spe_PTBM))
 coords$predicted_fetal <- spe_PTBM$predicted_fetal
 
-ggplot(coords, aes(x = Pos_X, y = Pos_Y, color = predicted_fetal)) +
+p_spatial_fetal <- ggplot(coords, aes(x = Pos_X, y = Pos_Y, color = predicted_fetal)) +
   geom_point(alpha = 0.6) +
+  scale_color_manual(values = col_celltype_AD) +
   labs(title = "Spatial mapping of predicted fetal progenitors") +
   theme_minimal()
+save_plot(p_spatial_fetal, "spatial-predicted-fetal.pdf", width = 8, height = 6)
+p_spatial_fetal
 
 ```
 ```{r}
@@ -204,7 +216,7 @@ library(dplyr)
 library(forcats)
 
 # 1. Read ordered cluster names
-clusternames_ordered <- read.csv(file.path(params$input, "celltype_order_PTBM.csv"),
+clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"),
                                 sep = ";", colClasses = c("order" = "character"))
 ordered_clusters <- clusternames_ordered$celltype
 
@@ -230,13 +242,15 @@ score_df <- as.data.frame(score_matrix) %>%
 score_df$Neuroblastoma_cluster <- factor(score_df$Neuroblastoma_cluster, levels = ordered_clusters)
 
 # 8. Plot heatmap
-ggplot(score_df, aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = score)) +
+p_singler_scores <- ggplot(score_df, aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = score)) +
   geom_tile() +
   scale_fill_gradient(low = "white", high = "red") +
   scale_y_discrete(limits = ordered_clusters) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(x = "Fetal AD celltype", y = "Neuroblastoma cluster", fill = "SingleR score")
+save_plot(p_singler_scores, "singler-scores-heatmap.pdf", width = 8, height = 6)
+p_singler_scores
 ```
 ```{r}
 
@@ -244,7 +258,6 @@ ref_counts <- assay(spe_AD, "counts")
 ref_labels <- spe_AD$celltype
 
 query_counts <- assay(spe_PTBM, "counts")
-
 
 # ------------------------------
 # Run SingleR at CELL LEVEL
@@ -262,11 +275,9 @@ spe_PTBM$predicted_fetal_cell <- singleR_cell$labels
 ```
 
 ```{r}
-plotUMAP(spe_PTBM, colour_by = "predicted_fetal_cell",point_size = 0.05) + guides(colour = guide_legend(override.aes = list(size = 3)))
-```
-
-```{r}
-
-saveRDS(spe_PTBM, file.path(params$output, "spe_PTBM_ADlabels.rds"))
-
+p_umap_fetal_cell <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal_cell", point_size = 0.05) +
+  scale_color_manual(values = col_celltype_AD) +
+  guides(colour = guide_legend(override.aes = list(size = 3)))
+save_plot(p_umap_fetal_cell, "umap-predicted-fetal-cell.pdf", width = 8, height = 6)
+p_umap_fetal_cell
 ```

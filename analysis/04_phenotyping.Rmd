@@ -228,10 +228,28 @@ plot_cluster_bubble <- function(cluster_col, save_name,
                                 annotation_level = c("cluster", "metacluster"),
                                 col_annotation  = NULL,
                                 metacluster_col = "metacluster",
-                                ncells_break_at = 50000) {
+                                ncells_break_at = 50000,
+                                plot_width      = 16,
+                                plot_height     = 14,
+                                barplot_height  = NULL) {
   annotation_level <- match.arg(annotation_level)
-  barplot_height <- unit(4, "cm")
-  
+
+  # ----------------------------
+  # Plot size
+  # ----------------------------
+  # `plot_width` / `plot_height` (inches) set the size of the saved plot.
+  # Elements measured in absolute units are scaled from `plot_height` so the
+  # whole plot grows or shrinks proportionally; at the default height of 14
+  # they reproduce the original 4 cm bar / 1.5 cm dendrogram heights. Pass an
+  # explicit `barplot_height` (a grid unit, or a number interpreted as cm) to
+  # override the automatic scaling.
+  if (is.null(barplot_height)) {
+    barplot_height <- unit(plot_height * 4 / 14, "cm")
+  } else if (!inherits(barplot_height, "unit")) {
+    barplot_height <- unit(barplot_height, "cm")
+  }
+  dend_height <- unit(plot_height * 1.5 / 14, "cm")
+
   # ----------------------------
   # Cluster vector
   # ----------------------------
@@ -521,10 +539,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
     heatmap_legend_param = list(title = "expression"),
 
-    column_title = paste0(
-      "Bubble plot - ",
-      cluster_col
-    ),
+    column_title = '',
 
     top_annotation = column_ha,
 
@@ -546,7 +561,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
     show_row_dend = FALSE,
 
-    column_dend_height = unit(1.5, "cm"),
+    column_dend_height = dend_height,
 
     row_names_gp = gpar(fontsize = 15),
 
@@ -620,7 +635,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   # Draw, decorate, and save
   # ----------------------------
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
-  pdf(full_path, width = 16, height = 14)
+  pdf(full_path, width = plot_width, height = plot_height)
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
                    padding = unit(c(2, 55, 2, 2), "mm"))
   add_break_marks("ncells_PT", pt_info, hp_drawn)
@@ -1108,36 +1123,6 @@ names(metadata(spe)$color_vectors$col_celltype_ordered) <- recode(names(metadata
 
 As a last step, we generate UMAP and bubble plots for the final celltypes/metaclusters.
 
-```{r umap-final-celltypes, fig.width=10}
-p1 <- dittoDimPlot(spe, var = "celltype_ordered", 
-             reduction.use = "UMAP", size = 0.3, 
-             do.label = F,
-             order = "randomize",
-             legend.show=T) +
-  scale_color_manual(values = metadata(spe)$color_vectors$col_celltype_ordered) +
-  theme(legend.title = element_blank()) +
-  ggtitle("Celltypes on UMAP")
-
-save_plot(p1, "umap-celltypes.pdf", width = 16, height = 8)
-
-p1
-```
-
-```{r vis-metacluster}
-p2 <- dittoDimPlot(spe, var = "metacluster", 
-             reduction.use = "UMAP", size = 0.3, labels.size=4,
-             do.label = F,
-             order = "randomize",
-             legend.show=T) +
-  scale_color_manual(values = metadata(spe)$color_vectors$col_metacluster) +
-  theme(legend.title = element_blank()) +
-  ggtitle("Metaclusters on UMAP")
-
-save_plot(p2, "umap-metaclusters.pdf", width = 13, height = 8)
-
-p2
-```
-
 
 ```{r bubbleplot-celltypes, fig.width=16, fig.height=14}
 
@@ -1145,9 +1130,66 @@ plot_cluster_bubble(
   cluster_col = "celltype",
   save_name = "bubbleplot-celltypes.pdf",
   annotation_level = "metacluster",
-  ncells_break_at = 60000,
+  ncells_break_at = 65000,
+  plot_width      = 13,
+  plot_height     = 11.5
 )
 
+```
+
+```{r umap-final-celltypes, fig.width=10}
+# aspect.ratio = 1 fixes the UMAP panel to a square, independent of the legend
+# width, so the celltype and metacluster UMAPs render identically. The celltype
+# plot is only wider overall because its legend has more entries.
+p1 <- dittoDimPlot(spe, var = "celltype_ordered",
+             reduction.use = "UMAP", size = 0.3,
+             do.label = F,
+             order = "randomize",
+             legend.show=T) +
+  scale_color_manual(values = metadata(spe)$color_vectors$col_celltype_ordered) +
+  theme(legend.title = element_blank(), aspect.ratio = 1) +
+  ggtitle("Celltypes on UMAP")
+
+save_plot(p1, "umap-celltypes.pdf", width = 16, height = 8)
+
+p1
+```
+
+We also plot the same celltype UMAP but colour only the primary tumor (PT)
+cells, showing all other tissues as light-grey background dots.
+
+```{r umap-celltype-PT-only, fig.width=10}
+# cells.use restricts colouring to PT cells; show.others draws the remaining
+# cells as light-grey background dots. Same square-panel format as above.
+p1_pt <- dittoDimPlot(spe, var = "celltype_ordered",
+             reduction.use = "UMAP", size = 0.3,
+             cells.use = spe$tissue == "PT",
+             show.others = TRUE,
+             do.label = F,
+             order = "randomize",
+             legend.show=T) +
+  scale_color_manual(values = metadata(spe)$color_vectors$col_celltype_ordered) +
+  theme(legend.title = element_blank(), aspect.ratio = 1) +
+  ggtitle("Celltypes on UMAP (PT only)")
+
+save_plot(p1_pt, "umap-celltype-PT-only.pdf", width = 16, height = 8)
+
+p1_pt
+```
+
+```{r vis-metacluster}
+p2 <- dittoDimPlot(spe, var = "metacluster",
+             reduction.use = "UMAP", size = 0.3, labels.size=4,
+             do.label = F,
+             order = "randomize",
+             legend.show=T) +
+  scale_color_manual(values = metadata(spe)$color_vectors$col_metacluster) +
+  theme(legend.title = element_blank(), aspect.ratio = 1) +
+  ggtitle("Metaclusters on UMAP")
+
+save_plot(p2, "umap-metaclusters.pdf", width = 13, height = 8)
+
+p2
 ```
 
 
