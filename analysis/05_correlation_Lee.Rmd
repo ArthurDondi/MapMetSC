@@ -7,16 +7,65 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_Zenodo-Upload"
-  output: "/mnt/Multimodal_Imaging_Daria/Publication/20240811_R_output"
-  public: "/mnt/Multimodal_Imaging_Daria/Publication/public_datasets"
+  input: "/home/rstudio/data/input_all"
+  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  public: "/home/rstudio/daria/public_datasets"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      error=FALSE,
-                      messages=FALSE,
-                      warning=FALSE)
+# ================================
+# Create plots directory
+# ================================
+plot_dir <- file.path(params$output, "plots/05_correlation_Lee")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+
+# Date prefix for descriptive filenames
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# ================================
+# Helper function to save plots
+# ================================
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+
+  if (inherits(plot_obj, "ggplot")) {
+    # ggplot2 objects
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj, ...)
+    dev.off()
+  } else if (inherits(plot_obj, "pheatmap")) {
+    # pheatmap objects (e.g. SingleR::plotScoreHeatmap) - save as PDF
+    pdf(full_path, width = width, height = height)
+    grid::grid.newpage()
+    grid::grid.draw(plot_obj$gtable)
+    dev.off()
+  } else {
+    # Base R plots or other objects - assume already rendered, save via dev.copy
+    dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+# ================================
+# Global chunk options
+# ================================
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
 ```
 
 # Validation using scRNA-seq data by Lee et al. {#lee}
@@ -43,7 +92,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 
 ```{r read-data}
 # IMC data
-protein <- readRDS(file.path(params$output,"spe_final.rds"))
+protein <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[,protein$metacluster!="tumor" & protein$metacluster!="other"]
@@ -95,19 +144,29 @@ rna_mean_scaled <- t(apply(rna_mean_t, 1, RESCALE, to=0:1))
 column_ha = HeatmapAnnotation(ncells=anno_barplot(as.data.frame(table(rna_clusters))[,"Freq"], height = unit(1, "cm")),
                               show_legend=F)
 
-Heatmap(rna_mean_scaled, 
+h_rna <- Heatmap(rna_mean_scaled,
         column_title = "Mean per cluster (scRNA-seq data)",
-        top_annotation = column_ha, 
+        top_annotation = column_ha,
         cluster_columns=T,
         show_column_dend = T,
         show_column_names=T,
         show_row_names=T,
-        col=viridis(100)
+        col=viridis(100),
+        column_names_gp = gpar(fontsize = 10),
+        column_names_max_height = max_text_width(colnames(rna_mean_scaled), gp = gpar(fontsize = 10))
         )
+
+save_plot(h_rna, "Lee_rna_mean_per_cluster_heatmap.pdf", width = 12, height = 10)
+
+h_rna
 ```
 
 ```{r umap-rna, fig.width=15, fig.height=10}
-DimPlot(rna, reduction="umap", cols=col_clust)
+p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_clust)
+
+save_plot(p_umap_rna, "Lee_rna_umap.pdf", width = 15, height = 10)
+
+p_umap_rna
 ```
 
 ## Transfer labels with singleR
@@ -123,7 +182,9 @@ rm(rna)
 rm(protein)
 
 predicted_labels <- SingleR(test = protein_mat, ref = rna_mat, labels = rna_clusters, BPPARAM = MulticoreParam(workers=16, RNGseed=20231030))
-plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 2000),],annotation_colors=list(Labels = col_clust), annotation_legend=F, treeheight_row=0) #define colors first
+p_score <- plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 2000),],annotation_colors=list(Labels = col_clust), annotation_legend=F, treeheight_row=0) #define colors first
+
+save_plot(p_score, "Lee_singleR_labeltransfer_scoreheatmap.pdf", width = 13, height = 9)
 ```
 
 We will plot the predicted metalabels in a UMAP.
@@ -143,6 +204,8 @@ p1 <- dittoDimPlot(protein, var = "celltype_predicted",
   scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label) +
   theme(legend.title = element_blank()) +
   ggtitle("Predicted celltype on UMAP")
+
+save_plot(p1, "Lee_predicted_celltype_umap.pdf", width = 8, height = 6)
 
 p1
 ```

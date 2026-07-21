@@ -28,16 +28,22 @@ date_prefix <- format(Sys.Date(), "%Y%m%d")
 # ================================
 # Helper function to save plots
 # ================================
-save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
     # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
+    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
     pdf(full_path, width = width, height = height)
-    draw(plot_obj)
+    draw(plot_obj, ...)
+    dev.off()
+  } else if (inherits(plot_obj, "pheatmap")) {
+    # pheatmap objects (e.g. SingleR::plotScoreHeatmap) - save as PDF
+    pdf(full_path, width = width, height = height)
+    grid::grid.newpage()
+    grid::grid.draw(plot_obj$gtable)
     dev.off()
   } else {
     # Base R plots or other objects - assume already rendered, save via dev.copy
@@ -160,19 +166,29 @@ rna_mean_scaled <- t(apply(rna_mean_t, 1, RESCALE, to=0:1))
 column_ha = HeatmapAnnotation(ncells=anno_barplot(as.data.frame(table(rna_clusters))[,"Freq"], height = unit(1, "cm")),
                               show_legend=F)
 
-Heatmap(rna_mean_scaled, 
+h_rna <- Heatmap(rna_mean_scaled,
         column_title = "Mean per cluster (scRNA-seq data)",
-        top_annotation = column_ha, 
+        top_annotation = column_ha,
         cluster_columns=T,
         show_column_dend = T,
         show_column_names=T,
         show_row_names=T,
-        col=viridis(100)
+        col=viridis(100),
+        column_names_gp = gpar(fontsize = 10),
+        column_names_max_height = max_text_width(colnames(rna_mean_scaled), gp = gpar(fontsize = 10))
         )
+
+save_plot(h_rna, "Fetahu_rna_mean_per_cluster_heatmap.pdf", width = 8, height = 8)
+
+h_rna
 ```
 
 ```{r umap-rna}
-DimPlot(rna, reduction="UMAP", cols=col_clusters)
+p_umap_rna <- DimPlot(rna, reduction="UMAP", cols=col_clusters)
+
+save_plot(p_umap_rna, "Fetahu_rna_umap.pdf", width = 8, height = 6)
+
+p_umap_rna
 ```
 
 ## Transfer labels with singleR
@@ -195,7 +211,7 @@ p<- plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 20
 
 protein$predicted_celltype <- predicted_labels$labels
 
-save_plot(p, "SupplFig3a_Fetahu_labeltransfer.png", width = 8, height = 6)
+save_plot(p, "SupplFig3a_Fetahu_labeltransfer.pdf", width = 8, height = 6)
 ```
 
 For visualization purposes, we rename the predicted celltypes to their metacluster and assign colors.
@@ -230,7 +246,7 @@ p1 <- dittoDimPlot(protein, var = "predicted_metacluster",
   theme(legend.title = element_blank()) +
   ggtitle("Predicted celltype on UMAP")
 
-save_plot(p1, "Fig2b_Fetahu_labeltransfer.png", width = 8, height = 6)
+save_plot(p1, "Fig2b_Fetahu_labeltransfer.pdf", width = 8, height = 6)
 
 p1
 ```
