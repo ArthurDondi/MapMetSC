@@ -90,28 +90,35 @@ From: rocker/rstudio:4.4.0
     # would otherwise default to 3.20, whose packages need CRAN packages newer
     # than the frozen snapshot (e.g. matrixStats >= 1.4.1) and fail to resolve.
     # Bioc 3.19 also provides imcRtools 1.10.0 (which has the testInteractions
-    # fix). Bioc packages are fetched resiliently: Posit's Bioconductor mirror
-    # first (the reliable host that already serves this image's CRAN binaries),
-    # then bioconductor.org as a fallback, retrying only the still-missing
-    # packages so an intermittent download (e.g. a 504 from bioconductor.org)
-    # self-heals instead of cascading. A final completeness check aborts the
-    # build if anything is still missing.
+    # fix). The Bioconductor 3.19 repos are added to options(repos) directly and
+    # installed with plain install.packages() - this deliberately avoids
+    # BiocManager's version-switch handshake, which on a proxied HPC fails twice
+    # over: it must download BiocVersion from bioconductor.org (which 504s), and
+    # it wants to "downgrade" packages - and it blocks before downloading
+    # anything. install.packages() has no such handshake, so only the
+    # intermittent 504s on real tarballs remain, which the retry-only-missing
+    # loop absorbs. A final completeness check aborts the build if anything is
+    # still missing.
     # ---------------------------------------------------------------------
     Rscript - <<'RSCRIPT'
 options(
     Ncpus   = min(parallel::detectCores(), 8L),  # parallel, capped to avoid OOM
     timeout = 600                                 # big tarballs on slow mirrors
 )
+Sys.setenv(R_BIOC_VERSION = "3.19")   # also pins BiocManager for interactive use
 
 installed_ok <- function(pkgs)
     vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)
 
 # Retry an installer, each round attempting only the packages that are still
-# missing, so a transient download failure does not abort the whole build.
-retry_install <- function(pkgs, installer, tries = 12L, label = "install") {
+# missing (optionally sleeping between rounds), so intermittent download
+# failures - e.g. 504s from bioconductor.org behind an HPC egress proxy -
+# self-heal instead of aborting the whole build.
+retry_install <- function(pkgs, installer, tries = 12L, label = "install", sleep = 0) {
     for (i in seq_len(tries)) {
         todo <- pkgs[!installed_ok(pkgs)]
         if (!length(todo)) return(invisible(TRUE))
+        if (i > 1L && sleep > 0) Sys.sleep(sleep)
         message(sprintf("[%s] attempt %d/%d - %d remaining: %s",
                         label, i, tries, length(todo),
                         paste(todo, collapse = ", ")))
@@ -124,30 +131,22 @@ retry_install <- function(pkgs, installer, tries = 12L, label = "install") {
 retry_install(c("remotes", "BiocManager"), install.packages, tries = 4L,
               label = "bootstrap")
 
-## Pin Bioconductor to 3.19 (matches the rocker CRAN snapshot; imcRtools 1.10.0).
-## Every BiocManager::install below also passes version= explicitly.
-BIOC_VERSION <- "3.19"
-try(BiocManager::install(version = BIOC_VERSION, update = FALSE, ask = FALSE),
-    silent = TRUE)
-
-## Bioconductor installer with mirror choice. Posit hosts the same reliable
-## service that serves this image's CRAN binaries; bioconductor.org is the
-## fallback. try() (in retry_install) swallows transient download failures.
-POSIT_BIOC     <- "https://packagemanager.posit.co/bioconductor"
-POSIT_BIOC_CFG <- "https://packagemanager.posit.co/bioconductor/config.yaml"
-bioc_installer <- function(use_posit) function(pkgs) {
-    if (use_posit) {
-        options(BioC_mirror = POSIT_BIOC, BIOCONDUCTOR_CONFIG_FILE = POSIT_BIOC_CFG)
-        Sys.setenv(BIOCONDUCTOR_CONFIG_FILE = POSIT_BIOC_CFG)
-    } else {
-        options(BioC_mirror = NULL, BIOCONDUCTOR_CONFIG_FILE = NULL)
-        Sys.unsetenv("BIOCONDUCTOR_CONFIG_FILE")
-    }
-    BiocManager::install(pkgs, version = BIOC_VERSION, update = FALSE, ask = FALSE)
-}
+## Add the Bioconductor 3.19 repositories next to the rocker CRAN snapshot so a
+## plain install.packages() resolves the whole tree. This deliberately does NOT
+## call BiocManager::install(version=): that handshake must fetch BiocVersion
+## from bioconductor.org (which 504s here) and "downgrade" packages, so it
+## blocks before downloading anything. install.packages() has no such handshake.
+options(repos = c(
+    getOption("repos"),                                  # CRAN = rocker snapshot
+    BioCsoft      = "https://bioconductor.org/packages/3.19/bioc",
+    BioCann       = "https://bioconductor.org/packages/3.19/data/annotation",
+    BioCexp       = "https://bioconductor.org/packages/3.19/data/experiment",
+    BioCworkflows = "https://bioconductor.org/packages/3.19/workflows"
+))
 
 ## Bioconductor first: some CRAN packages (e.g. tidyHeatmap) depend on Bioc
-## packages, so install those before the CRAN-only batch.
+## packages, so install those before the CRAN-only batch. Many retries plus a
+## short sleep ride out bioconductor.org's intermittent 504s.
 bioc_pkgs <- c(
     "SingleCellExperiment", "SpatialExperiment", "SummarizedExperiment",
     "imcRtools", "cytomapper", "CATALYST", "scater", "scuttle",
@@ -155,8 +154,7 @@ bioc_pkgs <- c(
     "ComplexHeatmap", "BiocParallel", "BioQC", "edgeR", "EBImage",
     "tidyHeatmap"                     # CRAN pkg, but needs ComplexHeatmap (Bioc)
 )
-retry_install(bioc_pkgs, bioc_installer(use_posit = TRUE),  tries = 6L, label = "bioc/posit")
-retry_install(bioc_pkgs, bioc_installer(use_posit = FALSE), tries = 8L, label = "bioc/bioc.org")
+retry_install(bioc_pkgs, install.packages, tries = 25L, label = "bioc", sleep = 8)
 
 ## --- CRAN -----------------------------------------------------------------
 cran_pkgs <- c(
@@ -194,7 +192,7 @@ if (length(missing)) {
 
 ## The whole point of a single image: the fixed testInteractions.
 imc_v <- as.character(utils::packageVersion("imcRtools"))
-cat("Bioconductor:", as.character(BiocManager::version()),
+cat("Bioconductor:", Sys.getenv("R_BIOC_VERSION"),
     "| imcRtools:", imc_v, "\n")
 if (utils::packageVersion("imcRtools") < "1.6.0") {
     message("imcRtools ", imc_v, " is older than 1.6.0 and still has the ",
@@ -220,6 +218,9 @@ write.csv(ip, "/opt/mapmetsc-packages.csv", row.names = FALSE)'
     export LANG=C.UTF-8
     # Headless rendering: no X server inside the container.
     export R_ENABLE_JIT=0
+    # Keep interactive BiocManager use pinned to the release the image was built
+    # against (matches the frozen CRAN snapshot; imcRtools 1.10.0).
+    export R_BIOC_VERSION=3.19
 
 %runscript
     # `apptainer run img.sif`            -> interactive R
