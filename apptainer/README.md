@@ -48,12 +48,15 @@ systems). Expect a multi-GB `.sif` and a build time dominated by compiling the
 Bioconductor stack.
 
 Bioconductor is pinned to release **3.19** (the one matching the rocker image's
-frozen CRAN snapshot, which avoids CRAN/Bioc version conflicts). The Bioconductor
-packages are fetched from Posit's mirror first and fall back to `bioconductor.org`,
-retrying only the still-missing packages — so a cluster where `bioconductor.org`
-is slow or intermittently blocked (e.g. returns `504`s behind an egress proxy)
-still builds. If a package genuinely can't be fetched, the build fails loudly at
-the completeness check rather than shipping a half-installed image.
+frozen CRAN snapshot, which avoids CRAN/Bioc version conflicts). The 3.19
+repositories are added to `options(repos)` and installed with plain
+`install.packages()` — deliberately *not* via `BiocManager::install(version=)`,
+whose version-switch handshake needs a `bioconductor.org` download and package
+downgrades that fail behind a strict HPC egress proxy. Packages are installed
+with a retry-only-missing loop (many rounds, short sleeps), so a cluster where
+`bioconductor.org` returns intermittent `504`s still builds. If a package
+genuinely can't be fetched, the build fails loudly at the completeness check
+rather than shipping a half-installed image.
 
 No local Apptainer? A manual GitHub Actions workflow
 ([`.github/workflows/build-apptainer.yml`](../.github/workflows/build-apptainer.yml))
