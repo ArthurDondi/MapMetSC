@@ -47,6 +47,14 @@ CRAN/Bioconductor packages, so run it somewhere with outbound network access.
 systems). Expect a multi-GB `.sif` and a build time dominated by compiling the
 Bioconductor stack.
 
+Bioconductor is pinned to release **3.19** (the one matching the rocker image's
+frozen CRAN snapshot, which avoids CRAN/Bioc version conflicts). The Bioconductor
+packages are fetched from Posit's mirror first and fall back to `bioconductor.org`,
+retrying only the still-missing packages — so a cluster where `bioconductor.org`
+is slow or intermittently blocked (e.g. returns `504`s behind an egress proxy)
+still builds. If a package genuinely can't be fetched, the build fails loudly at
+the completeness check rather than shipping a half-installed image.
+
 No local Apptainer? A manual GitHub Actions workflow
 ([`.github/workflows/build-apptainer.yml`](../.github/workflows/build-apptainer.yml))
 builds the image and uploads it as an artifact — run it from the repo's

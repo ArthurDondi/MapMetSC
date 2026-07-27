@@ -18,9 +18,10 @@ From: rocker/rstudio:4.4.0
 # ----------------------------------------------------
 # The project historically shipped a SECOND image (`lazdaria/mapmetsc_spatial`)
 # only because of a bug in imcRtools::testInteractions in versions < 1.5.5. That
-# fix first appears in the released imcRtools 1.6.0 (Bioconductor 3.17). The
-# rocker/rstudio:4.4.0 base resolves to Bioconductor 3.19, which provides
-# imcRtools 1.10.0 — well past the fix. The only imcRtools function the
+# fix first appears in the released imcRtools 1.6.0 (Bioconductor 3.17). This
+# image pins Bioconductor to 3.19 (the release matching the base image's frozen
+# CRAN snapshot), which provides imcRtools 1.10.0 — well past the fix. The only
+# imcRtools function the
 # non-spatial scripts use is read_steinbock(), whose API is unchanged across
 # these versions, so upgrading to the fixed imcRtools does not affect the rest
 # of the pipeline. The %post section asserts imcRtools >= 1.6.0 so a build can
@@ -82,24 +83,82 @@ From: rocker/rstudio:4.4.0
     rm -rf /var/lib/apt/lists/*
 
     # ---------------------------------------------------------------------
-    # R packages. CRAN installs use the rocker base's pinned Posit Package
-    # Manager snapshot (reproducible, mostly binary -> fast). Bioconductor
-    # installs are resolved by the base image's BiocManager (Bioc 3.19 for
-    # R 4.4.0). All installation runs through a single Rscript that ends with a
-    # completeness check: if any required package is not installable the script
-    # exits non-zero and aborts the build.
+    # R packages. CRAN installs come from the rocker base's pinned Posit
+    # Package Manager snapshot (2024-06-13; reproducible, mostly binary).
+    #
+    # Bioconductor is PINNED to 3.19 to match that CRAN snapshot. BiocManager
+    # would otherwise default to 3.20, whose packages need CRAN packages newer
+    # than the frozen snapshot (e.g. matrixStats >= 1.4.1) and fail to resolve.
+    # Bioc 3.19 also provides imcRtools 1.10.0 (which has the testInteractions
+    # fix). Bioc packages are fetched resiliently: Posit's Bioconductor mirror
+    # first (the reliable host that already serves this image's CRAN binaries),
+    # then bioconductor.org as a fallback, retrying only the still-missing
+    # packages so an intermittent download (e.g. a 504 from bioconductor.org)
+    # self-heals instead of cascading. A final completeness check aborts the
+    # build if anything is still missing.
     # ---------------------------------------------------------------------
     Rscript - <<'RSCRIPT'
-# Parallel compile, capped so large C++ Bioc builds don't OOM small builders.
-options(Ncpus = min(parallel::detectCores(), 8L))
+options(
+    Ncpus   = min(parallel::detectCores(), 8L),  # parallel, capped to avoid OOM
+    timeout = 600                                 # big tarballs on slow mirrors
+)
 
-install_or_die <- function(expr) tryCatch(expr, error = function(e) {
-    message("INSTALL ERROR: ", conditionMessage(e)); quit(status = 1L)
-})
+installed_ok <- function(pkgs)
+    vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)
 
-## --- CRAN (helpers first) ------------------------------------------------
-install_or_die(install.packages(c("remotes", "BiocManager")))
+# Retry an installer, each round attempting only the packages that are still
+# missing, so a transient download failure does not abort the whole build.
+retry_install <- function(pkgs, installer, tries = 12L, label = "install") {
+    for (i in seq_len(tries)) {
+        todo <- pkgs[!installed_ok(pkgs)]
+        if (!length(todo)) return(invisible(TRUE))
+        message(sprintf("[%s] attempt %d/%d - %d remaining: %s",
+                        label, i, tries, length(todo),
+                        paste(todo, collapse = ", ")))
+        try(installer(todo), silent = FALSE)
+    }
+    invisible(!length(pkgs[!installed_ok(pkgs)]))
+}
 
+## --- helpers first --------------------------------------------------------
+retry_install(c("remotes", "BiocManager"), install.packages, tries = 4L,
+              label = "bootstrap")
+
+## Pin Bioconductor to 3.19 (matches the rocker CRAN snapshot; imcRtools 1.10.0).
+## Every BiocManager::install below also passes version= explicitly.
+BIOC_VERSION <- "3.19"
+try(BiocManager::install(version = BIOC_VERSION, update = FALSE, ask = FALSE),
+    silent = TRUE)
+
+## Bioconductor installer with mirror choice. Posit hosts the same reliable
+## service that serves this image's CRAN binaries; bioconductor.org is the
+## fallback. try() (in retry_install) swallows transient download failures.
+POSIT_BIOC     <- "https://packagemanager.posit.co/bioconductor"
+POSIT_BIOC_CFG <- "https://packagemanager.posit.co/bioconductor/config.yaml"
+bioc_installer <- function(use_posit) function(pkgs) {
+    if (use_posit) {
+        options(BioC_mirror = POSIT_BIOC, BIOCONDUCTOR_CONFIG_FILE = POSIT_BIOC_CFG)
+        Sys.setenv(BIOCONDUCTOR_CONFIG_FILE = POSIT_BIOC_CFG)
+    } else {
+        options(BioC_mirror = NULL, BIOCONDUCTOR_CONFIG_FILE = NULL)
+        Sys.unsetenv("BIOCONDUCTOR_CONFIG_FILE")
+    }
+    BiocManager::install(pkgs, version = BIOC_VERSION, update = FALSE, ask = FALSE)
+}
+
+## Bioconductor first: some CRAN packages (e.g. tidyHeatmap) depend on Bioc
+## packages, so install those before the CRAN-only batch.
+bioc_pkgs <- c(
+    "SingleCellExperiment", "SpatialExperiment", "SummarizedExperiment",
+    "imcRtools", "cytomapper", "CATALYST", "scater", "scuttle",
+    "dittoSeq", "batchelor", "lisaClust", "diffcyt", "SingleR",
+    "ComplexHeatmap", "BiocParallel", "BioQC", "edgeR", "EBImage",
+    "tidyHeatmap"                     # CRAN pkg, but needs ComplexHeatmap (Bioc)
+)
+retry_install(bioc_pkgs, bioc_installer(use_posit = TRUE),  tries = 6L, label = "bioc/posit")
+retry_install(bioc_pkgs, bioc_installer(use_posit = FALSE), tries = 8L, label = "bioc/bioc.org")
+
+## --- CRAN -----------------------------------------------------------------
 cran_pkgs <- c(
     # rendering / project
     "rmarkdown", "knitr", "workflowr",
@@ -112,30 +171,22 @@ cran_pkgs <- c(
     "pheatmap", "gridExtra", "gridGraphics", "hexbin",
     # stats / clustering / models
     "mclust", "harmony", "lme4", "gtools", "rstatix",
-    "factoextra", "FactoMineR", "bruceR", "tidyHeatmap",
+    "factoextra", "FactoMineR", "bruceR",
     # single cell (CRAN side)
     "Seurat", "SeuratObject", "uwot", "tiff", "Matrix"
 )
-install_or_die(install.packages(cran_pkgs))
-
-## --- Bioconductor (Bioc 3.19 via base BiocManager) -----------------------
-bioc_pkgs <- c(
-    "SingleCellExperiment", "SpatialExperiment", "SummarizedExperiment",
-    "imcRtools", "cytomapper", "CATALYST", "scater", "scuttle",
-    "dittoSeq", "batchelor", "lisaClust", "diffcyt", "SingleR",
-    "ComplexHeatmap", "BiocParallel", "BioQC", "edgeR", "EBImage"
-)
-install_or_die(BiocManager::install(bioc_pkgs, update = FALSE, ask = FALSE))
+retry_install(cran_pkgs, install.packages, tries = 6L, label = "cran")
 
 ## --- GitHub (pinned commit, as in the original Dockerfile) ---------------
-install_or_die(remotes::install_github(
-    "stuchly/Rphenoannoy@8b81e2e7fb0599f45070e2cba1b28ac219b7c472",
-    upgrade = "never"
-))
+retry_install("Rphenoannoy", function(pkgs)
+    remotes::install_github(
+        "stuchly/Rphenoannoy@8b81e2e7fb0599f45070e2cba1b28ac219b7c472",
+        upgrade = "never"),
+    tries = 4L, label = "github")
 
 ## --- Completeness + version assertions -----------------------------------
-required <- c(cran_pkgs, bioc_pkgs, "Rphenoannoy")
-missing  <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]
+required <- unique(c(cran_pkgs, bioc_pkgs, "Rphenoannoy"))
+missing  <- required[!installed_ok(required)]
 if (length(missing)) {
     message("MISSING PACKAGES: ", paste(missing, collapse = ", "))
     quit(status = 1L)
