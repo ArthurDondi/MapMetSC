@@ -39,7 +39,34 @@ docker run -p 8787:8787 -e PASSWORD=mapmetsc -v <path/to/MapMetSC>:/home/rstudio
  ```
  An RStudio server session can then be accessed via your browser at `localhost:8787` with the `username: rstudio` and `password: mapmetsc`. Due to a bug fix for the `testInteractions` function in later versions of imcRtools, we provide another docker image ([lazdaria/mapmetsc_spatial:v1.0](https://hub.docker.com/repository/docker/lazdaria/mapmetsc_spatial/general)) for [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/10_spatial_analysis.Rmd).
 
-To reproduce results from Lazic et al., proceed with the provided [RMD files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis). Alternatively, already rendered [html files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) are provided to demonstrate each step of the pipeline. 
+### Reproducing the analysis
+
+The scripts expect the extracted single-cell data (and the small annotation/metadata files) under the Docker mount point `/mnt/data`, organised as:
+
+```
+/mnt/data
+├── input_all           # main cohort (MapMetIP_ProcessedDataset: intensities-*, regionprops, masks, img, neighbors),
+│                       #   plus NB_Panel.csv, celltype_order.csv, protein2gene.csv and Supplementary_Tables/*.xlsx
+├── input_AD            # adrenal-gland (AD) reference cohort (same layout as input_all)
+├── public_datasets     # public scRNA-seq references (Fetahu/, Jansky/, Lee/)
+└── output              # created automatically: intermediate spe_*.rds objects and figures
+```
+
+All scripts are parameterised through this single mount, so the only paths a user has to set are the four in [`run_analysis.R`](https://github.com/TaschnerMandlGroup/MapMetSC/blob/main/run_analysis.R). To render the whole pipeline in order, run from the repository root:
+
+```bash
+Rscript run_analysis.R
+```
+
+The steps run in the following order (see the [rendered site](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) for each step):
+
+1. `analysis_AD/` — read → QC → phenotyping for the AD reference cohort (produces the reference object used in step 6.1).
+2. `analysis/` main pipeline — `01_read_data` → `02_QC_1` → `03_QC_2` → `04_phenotyping` → `05.1_PT_DE_cellularcomm` → `05.2_PT_DE_DA`.
+3. `analysis/` correlation/validation (run last) — `06.1_correlation_AD`, `06.2_correlation_Fetahu`, `06.3_correlation_Jansky`, `06.4_correlation_Lee`.
+
+Each script reads the `spe_*.rds` object written by the previous step and writes its own, so the steps must be run in order. Alternatively, the individual [RMD files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis) can be knit one by one, and already-rendered [html files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) demonstrate each step.
+
+The [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/10_spatial_analysis.Rmd) is kept separate from `run_analysis.R`: it requires the `lazdaria/mapmetsc_spatial:v1.0` image and a tumor-only cellular-community step (see the note at the top of the script).
 
  ### Cell-cell communication (CCC) analysis
  

@@ -7,16 +7,16 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
-  public: "/home/rstudio/daria/public_datasets"
+  input: "/mnt/data/input_all"
+  output: "/mnt/data/output"
+  public: "/mnt/data/public_datasets"
 ---
 
 ```{r setup, include=FALSE}
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/05_correlation_Fetahu")
+plot_dir <- file.path(params$output, "plots/06.2_correlation_Fetahu")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -92,7 +92,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 
 ```{r read-data}
 #read IMC data
-protein <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
+protein <- readRDS(file.path(params$output,"spe_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
 
@@ -107,10 +107,10 @@ DefaultAssay(rna) <- "RNA"
 ```
 
 ## Set common features 
-Next, we will set common features between the reference and query dataset. Therefore, we have to rename the features in the imaging dataset to the names of the corresponding genes. A csv files with protein-gene mappings can be obtained from Zenodo [(R_intermediary/protein2gene.csv)](https://doi.org/10.5281/zenodo.13220634)
+Next, we will set common features between the reference and query dataset. Therefore, we have to rename the features in the imaging dataset to the names of the corresponding genes. A csv files with protein-gene mappings can be obtained from Zenodo [(protein2gene.csv)](https://doi.org/10.5281/zenodo.13220634)
 
 ```{r set-common-features}
-protein2gene <- read.csv(file.path(params$input,"R_intermediary/protein2gene.csv"), sep=";")
+protein2gene <- read.csv(file.path(params$input,"protein2gene.csv"), sep=";")
 
 code <- setNames(protein2gene$genes, protein2gene$protein)
 rownames(protein) <- recode(rownames(protein), !!!code)

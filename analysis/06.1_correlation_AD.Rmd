@@ -7,16 +7,16 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  public: "/home/rstudio/daria/public_datasets"
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  public: "/mnt/data/public_datasets"
+  input: "/mnt/data/input_all"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/05.0_correlation_AD")
+plot_dir <- file.path(params$output, "plots/06.1_correlation_AD")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -91,8 +91,8 @@ library(dplyr)
 library(ggplot2)
 library(pheatmap)
 
-spe_AD <- readRDS(file.path(params$output,"spe_final_AD.rds"))
-spe_PTBM <- readRDS(file.path(params$output,"spe_final_PTBM.rds"))
+spe_AD <- readRDS(file.path(params$output,"spe_phenotyping_AD.rds"))
+spe_PTBM <- readRDS(file.path(params$output,"spe_phenotyping.rds"))
 
 # Celltype colors from the AD reference object. Plots colored by the
 # transferred (predicted fetal) labels reuse this vector so they follow the

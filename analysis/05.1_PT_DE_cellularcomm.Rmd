@@ -7,15 +7,15 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  input: "/mnt/data/input_all"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/06.1_PT_DE_cellularcom_allcelltypes")
+plot_dir <- file.path(params$output, "plots/05.1_PT_DE_cellularcomm")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -65,7 +65,7 @@ knitr::opts_chunk$set(
 ```
 
 # Identifying cellular communities in diagnostic primary tumors (all cell types) {#pt-dx-allct}
-This is a variant of the [primary-tumor cellular community analysis](06_PT_DE_cellularcomm.html). Instead of clustering on tumor cell types only, here we cluster diagnostic PT samples on the composition of **all cell types** (tumor and microenvironment together). The combined figure therefore shows the all-cell-type abundance on top, the tumor-only abundance in place of the metacluster panel, and keeps the immune abundance below.
+Here we identify cellular communities by clustering diagnostic PT samples on the composition of **all cell types** (tumor and microenvironment together). The combined figure shows the all-cell-type abundance on top, the tumor-only abundance in place of the metacluster panel, and the immune abundance below.
 
 ## Load libraries
 <details>
@@ -94,14 +94,8 @@ library(patchwork)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping).
 
 ```{r read-data}
-# Build on an existing communities object if one is present (e.g. the tumor-only
-# cellular-community script has already been run) so that the community columns
-# created by both cellular-community scripts accumulate into a single object.
-# Otherwise start from the clustering object. The scripts can therefore be run
-# sequentially in either order.
-comm_path  <- file.path(params$output, "spe_final_communities.rds")
-clust_path <- file.path(params$output, "spe_final_clustering.rds")
-spe <- readRDS(if (file.exists(comm_path)) comm_path else clust_path)
+# Start from the phenotyped clustering object produced by 04_phenotyping.Rmd.
+spe <- readRDS(file.path(params$output, "spe_phenotyping.rds"))
 ```
 
 We will then transform the SPE object into a catalyst-compatible object.
@@ -239,8 +233,7 @@ rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_co
 
 # Add the all-cell-type-clustering community column to spe. This is the community
 # assignment obtained by clustering samples on the composition of all cell types
-# (tumor and microenvironment, including "other"). It is kept distinct from the
-# tumor-only `tumor_community` column created in 06_PT_DE_cellularcomm.Rmd.
+# (tumor and microenvironment, including "other").
 spe_key <- paste0(spe$fm_id, "_", spe$tissue)
 spe$allcelltype_community <- cellular_communities[spe_key, "community_cluster"]
 ```
@@ -613,10 +606,9 @@ save_plot(p_fig3a, "Fig3aBis_combined_stacked.pdf", width = 8, height = 15)
 ## Save SPE
 
 ```{r save-spe}
-# Persist to the shared communities object so that both the all-cell-type
-# (spe$allcelltype_community) and tumor-only (spe$tumor_community) community
-# columns are available together for the downstream DA analyses.
-#saveRDS(spe, file.path(params$output, "spe_final_communities.rds"))
+# Persist the object carrying the all-cell-type community assignment
+# (spe$allcelltype_community) for the downstream DA analysis (05.2_PT_DE_DA.Rmd).
+saveRDS(spe, file.path(params$output, "spe_cellularcomm.rds"))
 ```
 
 ## Session Info

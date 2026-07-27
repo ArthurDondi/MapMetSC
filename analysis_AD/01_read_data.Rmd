@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/home/rstudio/data/input_AD"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc_AD"
+  input: "/mnt/data/input_AD"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
@@ -77,7 +77,7 @@ library(circlize)
 library(paletteer)
 library(dittoSeq)
 library(readxl)
-library(writexl)
+#library(writexl)   # only needed to (re)generate the cluster-annotation template; commented out so writexl is not required
 library(dplyr)
 library(patchwork)
 ```
@@ -170,7 +170,7 @@ Finally, the generated SPE object can be saved for further downstream processing
 
 ```{r save-objects-read-data}
 
-saveRDS(spe, file.path(params$output, "spe.rds"))
+saveRDS(spe, file.path(params$output, "spe_read_data_AD.rds"))
 ```
 
 ## Session Info

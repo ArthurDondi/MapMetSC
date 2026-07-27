@@ -6,10 +6,9 @@ output:
   workflowr::wflow_html
 editor_options:
   chunk_output_type: inline
-params: 
+params:
   input: "/mnt/data/input_all"
-  input_docker: "/mnt/scratch/rstudio/mapmetsc"
-  output: "/mnt/scratch/rstudio_spatial"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
@@ -114,7 +113,13 @@ For the spatial interaction analysis, we will use the metaclusters for non-tumor
 Once the data is read into a SPE object, the folder `intensities-0px-TU` can be removed. 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$input_docker,"spe_final_communities.rds"))
+# NOTE: this spatial analysis is kept separate from the main pipeline (it requires
+# the `lazdaria/mapmetsc_spatial` Docker image for the imcRtools testInteractions
+# fix). It also expects a tumor-only community column (`spe$tumor_community`),
+# which is not produced by the streamlined pipeline (05.1 produces
+# `allcelltype_community`). Re-add a tumor-only cellular-community step, or adapt
+# the code to `allcelltype_community`, before running this script.
+spe <- readRDS(file.path(params$output,"spe_cellularcomm.rds"))
 spe <- spe[,spe$tissue=="PT"]
 
 spe_neighbors <- read_steinbock(path=file.path(params$input), image_file=NULL, panel_file = NULL, intensities_folder = "intensities-0px-TU",regionprops_folder = NULL, graphs_folder="neighbors") 

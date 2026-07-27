@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/home/rstudio/data/input_AD"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc_AD"
+  input: "/mnt/data/input_AD"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
@@ -90,7 +90,7 @@ We will first read the spatial experiment object (SPE) generated in the [read da
 ```{r read-steinbock}
 
 path <- params$output
-spe <- readRDS(file.path(path,"spe.rds"))
+spe <- readRDS(file.path(path,"spe_read_data_AD.rds"))
 ```
 
 ## Exclude lost cells
@@ -551,7 +551,7 @@ Finally, we exclude the lost cells from the SPE object and save the latter.
 
 ```{r save-objects-read-data}
 
-saveRDS(spe, file.path(params$output, "spe_qc1.rds"))
+saveRDS(spe, file.path(params$output, "spe_QC_1_AD.rds"))
 ```
 
 ## Session Info

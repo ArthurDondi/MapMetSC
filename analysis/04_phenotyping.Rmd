@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  input: "/mnt/data/input_all"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
@@ -94,7 +94,7 @@ library(mclust)
 library(SingleR)
 library(circlize)
 library(readxl)
-library(writexl)
+#library(writexl)   # only needed to (re)generate the cluster-annotation template; commented out so writexl is not required
 library(ggplot2)
 library(patchwork)
 library(harmony)
@@ -107,7 +107,7 @@ library(cluster)
 We will first read the data that passed the [second quality control step](#qc-2) and save the count data as a matrix. Low-quality markers (low SNR in a lot of samples) as well as all IF and nuclear IMC markers will be excluded for clustering. Moreover, mean intensity will be used to represent marker expression, to average out the signals arising from lateral spillover or artifacts. As explained in [the previous chapter](#qc2-save), we are using counts measured with respect to dilated masks in downstream analysis do capture membrane signal. 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_qc2.rds"))
+spe <- readRDS(file.path(params$output,"spe_QC_2.rds"))
 
 #computing matrix
 intensity_mat <- assay(spe, "counts")
@@ -1018,20 +1018,23 @@ annotation_template <- percent_within_cluster %>%
 # -----------------------------
 # 4. Write Excel
 # -----------------------------
-write_xlsx(
-  annotation_template,
-  file.path(params$output, "cluster_annotation_template.xlsx")
-)
+# The cluster-annotation template is generated once and then annotated manually
+# (assignments published on Zenodo as a Supplementary Table, read below). The
+# write step is left commented out so the pipeline does not depend on `writexl`.
+# writexl::write_xlsx(
+#   annotation_template,
+#   file.path(params$output, "cluster_annotation_template.xlsx")
+# )
 ```
 
 
 ## Annotation and merging of clusters
 
-Next, we read assigned celltype and metacluster-labels for clusters from the metadata file provided on Zenodo [(Supplementary_Tables/20240808_Suppl_Table3.xlsx)](https://doi.org/10.5281/zenodo.13220634 ). These have been assigned based on thorough examination of images and co-expressions and using literature.
+Next, we read assigned celltype and metacluster-labels for clusters from the Supplementary Table provided on Zenodo [(Supplementary_Tables/20260526_Suppl_Table3.xlsx)](https://doi.org/10.5281/zenodo.13220634). These have been assigned based on thorough examination of images and co-expressions and using literature. The sheet must contain the columns `cluster`, `celltype` and `metacluster`.
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-file_path <- file.path('/home/rstudio/data/output', 'cluster_annotation_completed.xlsx')
+file_path <- file.path(params$input, "Supplementary_Tables", "20260526_Suppl_Table3.xlsx")
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)
@@ -1110,7 +1113,7 @@ metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
 
 ## Visualizations
-For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(R_intermediary/celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
+For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
 
 ```{r order-celltypes}
 clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"), sep=";", colClasses = c("order" = "character"))
@@ -1256,7 +1259,7 @@ for (cl in clusters) {
 
 ```{r save-objects}
 
-saveRDS(spe, file.path(params$output, "spe_final_clustering.rds"))
+saveRDS(spe, file.path(params$output, "spe_phenotyping.rds"))
 
 ```
 

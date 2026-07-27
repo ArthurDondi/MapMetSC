@@ -7,15 +7,15 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  input: "/mnt/data/input_all"
+  output: "/mnt/data/output"
 ---
 
 ```{r setup, include=FALSE}
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/06_PT_DE_DA")
+plot_dir <- file.path(params$output, "plots/05.2_PT_DE_DA")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -89,7 +89,7 @@ library(grid)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_final_communities.rds"))
+spe <- readRDS(file.path(params$output,"spe_cellularcomm.rds"))
 ```
 
 We will then build a base catalyst-compatible object from all diagnostic PT cells, and run differential abundance analyses across multiple compartments and comparisons.
@@ -118,10 +118,11 @@ sce$metacluster    <- factor(spe[keep_rows, keep_cols]$metacluster)
 sce$celltype_ordered <- factor(spe[keep_rows, keep_cols]$celltype_ordered)
 sce$condition      <- 'na'
 
-# Community assignments produced by the cellular-community scripts. Each script
-# contributes its own column; the DA analyses below use whichever are present:
-#   tumor_community       - 06_PT_DE_cellularcomm.Rmd            (tumor-only clustering)
-#   allcelltype_community - 06.1_PT_DE_cellularcomm_allcelltypes.Rmd (all cell types)
+# Community assignment produced by the cellular-community script. The DA analyses
+# below use whichever community columns are present in the object:
+#   allcelltype_community - 05.1_PT_DE_cellularcomm.Rmd (all cell types)
+#   tumor_community       - optional tumor-only clustering (not produced by the
+#                           streamlined pipeline; supported if present).
 if ("tumor_community" %in% colnames(colData(spe))) {
   sce$tumor_community <- spe[keep_rows, keep_cols]$tumor_community
 }
