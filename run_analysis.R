@@ -61,13 +61,14 @@ render_step("analysis_AD/03_QC_2.Rmd",        ad_params)
 render_step("analysis_AD/04_phenotyping.Rmd", ad_params)
 
 # --- Main single-cell pipeline ----------------------------------------------
-# render_step("analysis/00_cohort_overview.Rmd",      main_params)  # add once 00_cohort_overview.Rmd is in the repo
-render_step("analysis/01_read_data.Rmd",              main_params)
+# Shared colors live in analysis/00_MapMet_color_code.R, which each script
+# sources automatically - it is a helper, not a rendered step.
+render_step("analysis/01_read_data.Rmd",              main_params)   # incl. patient cohort overview
 render_step("analysis/02_QC_1.Rmd",                   main_params)
 render_step("analysis/03_QC_2.Rmd",                   main_params)
-render_step("analysis/04_phenotyping.Rmd",            main_params)   # writes spe_phenotyping.rds
-render_step("analysis/05.1_PT_DE_cellularcomm.Rmd",   main_params)   # writes spe_cellularcomm.rds
-render_step("analysis/05.2_PT_DE_DA.Rmd",             main_params)   # reads  spe_cellularcomm.rds
+render_step("analysis/04_phenotyping.Rmd",            main_params)   # writes spe_04_phenotyping.rds
+render_step("analysis/05.1_PT_DE_cellularcomm.Rmd",   main_params)   # writes spe_05.1_PT_DE_cellularcomm.rds
+render_step("analysis/05.2_PT_DE_DA.Rmd",             main_params)   # reads  spe_05.1_PT_DE_cellularcomm.rds
 
 # --- Validation by correlation with reference datasets (run last) ------------
 render_step("analysis/06.1_correlation_AD.Rmd",       corr_params)   # needs AD + main phenotyping objects

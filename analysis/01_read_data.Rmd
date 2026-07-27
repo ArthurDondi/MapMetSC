@@ -77,9 +77,10 @@ library(circlize)
 library(paletteer)
 library(dittoSeq)
 library(readxl)
-#library(writexl)   # only needed to (re)generate the cluster-annotation template; commented out so writexl is not required
 library(dplyr)
 library(patchwork)
+library(ggplot2)
+library(grid)  # for unit() in the cohort overview figure
 ```
 </details>
 
@@ -191,13 +192,137 @@ p
 save_plot(p, "DNA_markers_rawdata.png", width = 24, height = 12)
 
 ```
+
+# Patient cohort overview {#cohort-overview}
+
+We summarise the diagnostic primary tumor (PT, DE) cohort in a single overview figure: patient age at diagnosis as a bar plot, together with sex and the key genetic / clinical tracks (MYCN amplification, 1p loss and progression) drawn as colored tiles — one column per patient. The table is built directly from the sample- and patient-level metadata (`meta`, read above), so this figure does not depend on any processed single-cell object.
+
+```{r cohort-table}
+# Diagnostic primary tumor cohort: one row per patient. Tissue is coded "PT" in
+# the metadata ("TU" is also accepted for robustness); Patient_018 is dropped to
+# match the single-cell object (lymph-node, not a PT sample).
+cohort <- meta %>%
+  filter(Timepoint == "DE",
+         Tissue %in% c("PT", "TU"),
+         Patient_ID != "Patient_018") %>%
+  distinct(Patient_ID, .keep_all = TRUE) %>%  # collapse multiple ROIs -> one row / patient
+  transmute(
+    patient_id = as.character(Patient_ID),
+    age        = round(as.numeric(age_at_diag)),  # age at diagnosis (months), rounded
+    sex        = as.character(sex_aab),    # sex (AAB)
+    mycn       = as.character(MYCN_amp),
+    loss1p     = as.character(X1p_loss),
+    prog       = as.character(efs)         # event-free survival event: 0 = no, 1 = yes
+  ) %>%
+  arrange(patient_id)
+
+# ---- Recode tracks ----
+# MYCN amp. and 1p loss share a yes / no / het / unknown coding, recoded to a
+# common yes / no / het scheme (unknown -> NA -> white tile) so the three
+# genetic / clinical tracks can share a single legend.
+recode_ynh <- function(x) dplyr::recode(as.character(x),
+  "1" = "yes", "0" = "no", "2" = "het", "9" = NA_character_,
+  "MNA" = "yes", "nMNA" = "no", "het" = "het", "unknown" = NA_character_,
+  "yes" = "yes", "no" = "no",
+  .default = NA_character_)
+
+cohort$mycn   <- recode_ynh(cohort$mycn)
+cohort$loss1p <- recode_ynh(cohort$loss1p)
+
+# progression is coded 0 (no) / 1 (yes)
+cohort$prog <- dplyr::recode(as.character(cohort$prog),
+  "1" = "yes", "0" = "no", "9" = NA_character_,
+  "Prog" = "yes", "NoProg" = "no", "yes" = "yes", "no" = "no",
+  .default = NA_character_)
+
+# sex -> f / m (handle the most common encodings, otherwise keep as-is)
+cohort$sex <- dplyr::recode(as.character(cohort$sex),
+  "1" = "f", "2" = "m", "female" = "f", "male" = "m", "F" = "f", "M" = "m",
+  .default = as.character(cohort$sex))
+
+# Fix column (patient) order and factor levels
+lvl_ynh <- c("yes", "no", "het")
+cohort$patient_id <- factor(cohort$patient_id, levels = cohort$patient_id)
+cohort$mycn   <- factor(cohort$mycn,   levels = lvl_ynh)
+cohort$loss1p <- factor(cohort$loss1p, levels = lvl_ynh)
+cohort$prog   <- factor(cohort$prog,   levels = lvl_ynh)
+cohort$sex    <- factor(cohort$sex,    levels = c("f", "m"))
+```
+
+The panels share the same discrete x-axis (one column per patient) and are stacked with `patchwork`, with the genetic / clinical tracks collected into a single legend.
+
+```{r cohort-overview-figure, fig.width=7, fig.height=2.5}
+# Cohort-track colors are defined centrally in 00_MapMet_color_code.R
+for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(p)) { source(p); break }
+col_ynh <- COL_YNH
+col_sex <- COL_SEX
+
+# Shared discrete x-axis expansion so every panel aligns column-by-column.
+X_EXPAND <- expansion(add = 0.5)
+
+# ---- Age bar plot (top panel) ----
+max_age <- max(cohort$age, na.rm = TRUE)
+p_age <- ggplot(cohort, aes(x = patient_id, y = age)) +
+  geom_col(fill = "grey35", width = 0.8) +
+  scale_x_discrete(expand = X_EXPAND) +
+  scale_y_continuous(breaks = c(0, max_age),
+                     expand = expansion(mult = c(0, 0.05))) +
+  labs(y = "age[months]") +
+  theme_minimal() +
+  theme(
+    axis.text.x  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.y  = element_text(size = 7),
+    axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 8),
+    panel.grid   = element_blank(),
+    plot.margin  = margin(2, 2, 0, 2)
+  )
+
+# ---- Tile track helper ----
+tile_track <- function(var, fill_vals, breaks, legend_name, y_lab) {
+  ggplot(cohort, aes(x = patient_id, y = 1, fill = .data[[var]])) +
+    geom_tile(color = "white", linewidth = 0.4) +
+    scale_x_discrete(expand = X_EXPAND) +
+    scale_fill_manual(values = fill_vals, breaks = breaks, name = legend_name,
+                      na.value = "white", drop = FALSE) +
+    labs(y = y_lab) +
+    theme_void() +
+    theme(
+      legend.position  = "right",
+      legend.direction = "vertical",
+      legend.key.size  = unit(0.3, "cm"),
+      legend.text      = element_text(size = 7),
+      legend.title     = element_text(size = 8, face = "bold"),
+      axis.title.y     = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 8),
+      plot.margin      = margin(0, 2, 0, 2)
+    )
+}
+
+p_sex  <- tile_track("sex",    col_sex, c("f", "m"), "sex (AAB)",             "sex (AAB)")
+p_mycn <- tile_track("mycn",   col_ynh, lvl_ynh,     "MNA / 1p loss / prog.", "MYCN amp.")
+p_1p   <- tile_track("loss1p", col_ynh, lvl_ynh,     "MNA / 1p loss / prog.", "1p loss")
+p_prog <- tile_track("prog",   col_ynh, lvl_ynh,     "MNA / 1p loss / prog.", "progression")
+
+# ---- Stack panels; collect legends into a single vertical column on the right ----
+p_cohort <- (p_age / p_sex / p_mycn / p_1p / p_prog) +
+  plot_layout(heights = c(2, 0.5, 0.5, 0.5, 0.5), guides = "collect") &
+  theme(legend.direction = "vertical", legend.box = "vertical",
+        legend.justification = "top")
+
+p_cohort
+
+save_plot(p_cohort, "Fig1a_patient_cohort_overview.pdf", width = 7, height = 2.5)
+```
+
 ## Save object
 
 Finally, the generated SPE object can be saved for further downstream processing and analysis.
 
 ```{r save-objects-read-data}
 
-saveRDS(spe, file.path(params$output, "spe_read_data.rds"))
+saveRDS(spe, file.path(params$output, "spe_01_read_data.rds"))
 ```
 
 ## Session Info

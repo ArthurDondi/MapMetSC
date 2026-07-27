@@ -89,7 +89,7 @@ library(grid)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_cellularcomm.rds"))
+spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
 ```
 
 We will then build a base catalyst-compatible object from all diagnostic PT cells, and run differential abundance analyses across multiple compartments and comparisons.

@@ -82,7 +82,7 @@ We will first read the spatial experiment object (SPE) that passed the [first qu
 
 ```{r read-steinbock}
 path <- params$output
-spe <- readRDS(file.path(path,"spe_QC_1.rds"))
+spe <- readRDS(file.path(path,"spe_02_QC_1.rds"))
 ```
 
 For the exclusion of segmentation artifacts, we will examine three morphological features (area, solidity and aspect ratio). This step will be done for primary tumor and bone marrow samples separately, since these two tissue types have distinct morphological appearances. Bone marrow samples were collected in the form of cytospin samples from bone marrow aspirates (cells in suspension) and hence present inherently different nuclear morphologies.
@@ -366,7 +366,7 @@ From now on, we will use intensity measurements computed based on the dilated ma
 assay(spe, "counts") <- assay(spe, "counts_1px")
 assay(spe, "counts_1px") <- NULL
 
-saveRDS(spe, file.path(params$output, "spe_QC_2.rds"))
+saveRDS(spe, file.path(params$output, "spe_03_QC_2.rds"))
 ```
 
 ## Session Info

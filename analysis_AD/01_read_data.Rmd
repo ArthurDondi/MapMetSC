@@ -77,7 +77,6 @@ library(circlize)
 library(paletteer)
 library(dittoSeq)
 library(readxl)
-#library(writexl)   # only needed to (re)generate the cluster-annotation template; commented out so writexl is not required
 library(dplyr)
 library(patchwork)
 ```
@@ -170,7 +169,7 @@ Finally, the generated SPE object can be saved for further downstream processing
 
 ```{r save-objects-read-data}
 
-saveRDS(spe, file.path(params$output, "spe_read_data_AD.rds"))
+saveRDS(spe, file.path(params$output, "spe_01_read_data_AD.rds"))
 ```
 
 ## Session Info

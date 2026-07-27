@@ -52,7 +52,7 @@ The scripts expect the extracted single-cell data (and the small annotation/meta
 └── output              # created automatically: intermediate spe_*.rds objects and figures
 ```
 
-All scripts are parameterised through this single mount, so the only paths a user has to set are the four in [`run_analysis.R`](https://github.com/TaschnerMandlGroup/MapMetSC/blob/main/run_analysis.R). To render the whole pipeline in order, run from the repository root:
+All scripts are parameterised through this single mount, so the only paths a user has to set are the four in [`run_analysis.R`](https://github.com/TaschnerMandlGroup/MapMetSC/blob/main/run_analysis.R). Shared figure colors are defined once in `analysis/00_MapMet_color_code.R`, which every script sources. To render the whole pipeline in order, run from the repository root:
 
 ```bash
 Rscript run_analysis.R

@@ -15,12 +15,12 @@ The workflow accompanies the image-processing pipeline
 
 The steps below are run in order. To reproduce the whole pipeline, set the four
 data paths in `run_analysis.R` (in the repository root) and run it; each step
-reads the object saved by the previous step.
+reads the object saved by the previous step. Shared colors are defined once in
+the helper script `00_MapMet_color_code.R`, which every step sources.
 
 ## Main pipeline
 
-0. [Cohort overview](00_cohort_overview.html)
-1. [Read single-cell and meta-data](01_read_data.html)
+1. [Read single-cell and meta-data, and patient cohort overview](01_read_data.html)
 2. [Quality control – part 1](02_QC_1.html)
 3. [Quality control – part 2](03_QC_2.html)
 4. [Cell phenotyping](04_phenotyping.html)

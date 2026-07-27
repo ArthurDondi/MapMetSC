@@ -82,7 +82,7 @@ We will first read the spatial experiment object (SPE) that passed the [first qu
 
 ```{r read-steinbock}
 path <- params$output
-spe <- readRDS(file.path(path,"spe_QC_1_AD.rds"))
+spe <- readRDS(file.path(path,"spe_02_QC_1_AD.rds"))
 ```
 
 For the exclusion of segmentation artifacts, we will examine three morphological features (area, solidity and aspect ratio). All samples here are adrenal gland (AD) tissue, so — unlike the combined primary tumor / bone marrow analysis — we process all samples together with a single set of thresholds.
@@ -338,7 +338,7 @@ From now on, we will use intensity measurements computed based on the dilated ma
 assay(spe, "counts") <- assay(spe, "counts_1px")
 assay(spe, "counts_1px") <- NULL
 
-saveRDS(spe, file.path(params$output, "spe_QC_2_AD.rds"))
+saveRDS(spe, file.path(params$output, "spe_03_QC_2_AD.rds"))
 ```
 
 ## Session Info

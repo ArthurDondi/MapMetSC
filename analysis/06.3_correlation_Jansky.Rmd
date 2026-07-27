@@ -86,7 +86,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 
 ```{r read-data, message=FALSE}
 # IMC data
-protein <- readRDS(file.path(params$output,"spe_phenotyping.rds"))
+protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[,protein$metacluster=="tumor"]

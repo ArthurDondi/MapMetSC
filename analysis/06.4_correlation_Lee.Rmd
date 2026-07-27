@@ -92,7 +92,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 
 ```{r read-data}
 # IMC data
-protein <- readRDS(file.path(params$output,"spe_phenotyping.rds"))
+protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[,protein$metacluster!="tumor" & protein$metacluster!="other"]
@@ -126,9 +126,12 @@ common_features <- intersect(rownames(rna@assays$RNA@data), row.names(protein))
 Will will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq. 
 
 ```{r define-colors}
+# Extra label colors are defined centrally in 00_MapMet_color_code.R
+for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(p)) { source(p); break }
 col_clusters <- read.csv(file.path(params$public, "Lee/celltype_metacluster.csv"), sep=";")
 col_clust <- setNames(col_clusters$color, col_clusters$celltype)
-col_clust <- c(col_clust, c("tumor" = "snow2", "other"="goldenrod1"))
+col_clust <- c(col_clust, COL_LEE_EXTRA)
 ```
 
 
@@ -191,7 +194,7 @@ We will plot the predicted metalabels in a UMAP.
 
 ```{r predicted-umap}
 #save predicted labels in separate slot
-protein <- readRDS(file.path(params$output,"spe_phenotyping.rds"))
+protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein$celltype_predicted <- "tumor"
 protein[,protein$metacluster=="other"]$celltype_predicted <- "other"
 protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labels

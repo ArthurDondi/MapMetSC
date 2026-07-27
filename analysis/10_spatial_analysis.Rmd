@@ -113,13 +113,11 @@ For the spatial interaction analysis, we will use the metaclusters for non-tumor
 Once the data is read into a SPE object, the folder `intensities-0px-TU` can be removed. 
 
 ```{r read-data}
-# NOTE: this spatial analysis is kept separate from the main pipeline (it requires
-# the `lazdaria/mapmetsc_spatial` Docker image for the imcRtools testInteractions
-# fix). It also expects a tumor-only community column (`spe$tumor_community`),
-# which is not produced by the streamlined pipeline (05.1 produces
-# `allcelltype_community`). Re-add a tumor-only cellular-community step, or adapt
-# the code to `allcelltype_community`, before running this script.
-spe <- readRDS(file.path(params$output,"spe_cellularcomm.rds"))
+# NOTE: this spatial analysis is kept separate from the automated pipeline because
+# it requires the `lazdaria/mapmetsc_spatial` Docker image (imcRtools
+# testInteractions fix). It reads the cellular-community object from 05.1 and uses
+# its `allcelltype_community` column for the community annotations below.
+spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
 spe <- spe[,spe$tissue=="PT"]
 
 spe_neighbors <- read_steinbock(path=file.path(params$input), image_file=NULL, panel_file = NULL, intensities_folder = "intensities-0px-TU",regionprops_folder = NULL, graphs_folder="neighbors") 
@@ -259,7 +257,7 @@ sce$mna <- factor(spe$MYCN_amp)
 mna <- recode(sce$mna, `1` = 'MNA', `2` = 'het', `0` = 'nMNA', `9` = 'unknown')
 sce$mna <- as.factor(mna)
 
-sce$tumor_community <- factor(spe$tumor_community)
+sce$allcelltype_community <- factor(spe$allcelltype_community)
 
 sce$patient <- factor(spe$patient_id)
 sce$fm_id <- spe$fm_id
@@ -324,7 +322,7 @@ sample_summary <- as.data.frame(colData(sce)) %>%
   group_by(sample_id) %>%
   summarize(mna = first(mna), 
             progress=first(progress),
-            tumor_community=first(tumor_community),
+            allcelltype_community=first(allcelltype_community),
   )
 
 sample_summary <- as.data.frame(sample_summary)
@@ -333,20 +331,16 @@ sample_summary <- sample_summary %>% select(-sample_id)
 
 
 #assign color codes
-col_code <- c("MNA"=rgb(202,0,32, maxColorValue = 255),
-              "het"=rgb(146,197,222, maxColorValue = 255),
-              "nMNA"=rgb(5,113,176, maxColorValue = 255),
-              "unknown"="white",
-              "Prog"=rgb(202,0,32, maxColorValue = 255),
-              "NoProg"=rgb(5,113,176, maxColorValue = 255),
-              "1"="blue","2"="red","3"="green"
-              )
+# Sample-annotation colors are defined centrally in 00_MapMet_color_code.R
+for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(p)) { source(p); break }
+col_code <- COL_CODE
 
 
 # Plot metadata
 p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
-  columnAnnotation(patient_group=sample_summary$tumor_community, col=list(patientgroup=col_code))
+  columnAnnotation(patient_group=sample_summary$allcelltype_community, col=list(patientgroup=col_code))
 
 save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.pdf", width = 8, height = 4)
 
@@ -373,13 +367,13 @@ p_dendro <- ggplot(segs) +
   ) +
   labs(title = "Sample clustering")
 
-meta_df <- sample_summary[clustered_samples, c("mna", "progress", "tumor_community")]
+meta_df <- sample_summary[clustered_samples, c("mna", "progress", "allcelltype_community")]
 meta_df$sample_id <- factor(rownames(meta_df), levels = clustered_samples)
 
 meta_long <- meta_df %>%
-  pivot_longer(cols = c(mna, progress, tumor_community), names_to = "annotation", values_to = "value") %>%
+  pivot_longer(cols = c(mna, progress, allcelltype_community), names_to = "annotation", values_to = "value") %>%
   mutate(
-    annotation = factor(annotation, levels = c("mna", "progress", "tumor_community"),
+    annotation = factor(annotation, levels = c("mna", "progress", "allcelltype_community"),
                         labels = c("MYCN", "Progression", "Patient Group"))
   )
 
@@ -714,7 +708,7 @@ p_box
 ```
 
 ```{r patch-freq-comm, fig.width=14, fig.height=7}
-variable <- "tumor_community"
+variable <- "allcelltype_community"
 plot_list <- list()
 celltypes <- unique(spe$metacluster)
 
@@ -1742,7 +1736,7 @@ for (cells in c("tumor", "immune")) {
 Finally, we save the R object.
 
 ```{r save-rds}
-saveRDS(spe, file.path(params$output,"spe_spatial.rds"))
+saveRDS(spe, file.path(params$output,"spe_10_spatial_analysis.rds"))
 ```
 
 

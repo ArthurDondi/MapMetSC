@@ -94,7 +94,6 @@ library(mclust)
 library(SingleR)
 library(circlize)
 library(readxl)
-#library(writexl)   # only needed to (re)generate the cluster-annotation template; commented out so writexl is not required
 library(ggplot2)
 library(patchwork)
 library(harmony)
@@ -107,7 +106,7 @@ library(cluster)
 We will first read the data that passed the [second quality control step](#qc-2) and save the count data as a matrix. Low-quality markers (low SNR in a lot of samples) as well as all IF and nuclear IMC markers will be excluded for clustering. Moreover, mean intensity will be used to represent marker expression, to average out the signals arising from lateral spillover or artifacts. As explained in [the previous chapter](#qc2-save), we are using counts measured with respect to dilated masks in downstream analysis do capture membrane signal. 
 
 ```{r read-data}
-spe <- readRDS(file.path(params$output,"spe_QC_2_AD.rds"))
+spe <- readRDS(file.path(params$output,"spe_03_QC_2_AD.rds"))
 
 #computing matrix
 intensity_mat <- assay(spe, "counts")
@@ -797,7 +796,10 @@ for (cl in clusters) {
 
 ## Write cluster proportions for manual annotation (Excel)
 
-```{r cluster-annotation-excel}
+The chunk below regenerates the cluster-annotation template that is filled in manually and published on Zenodo as a Supplementary Table (read back in the next section). The whole block is disabled with `eval=FALSE` so the pipeline does not depend on `writexl`; enable it only if you need to regenerate the template.
+
+```{r cluster-annotation-excel, eval=FALSE}
+library(writexl)
 
 # Ensure cluster is character
 spe$pg_clusters <- as.character(spe$pg_clusters)
@@ -822,13 +824,10 @@ annotation_template <- count_wide %>%
 # -----------------------------
 # 3. Write Excel
 # -----------------------------
-# The cluster-annotation template is generated once and then annotated manually
-# (assignments published on Zenodo as a Supplementary Table, read below). The
-# write step is left commented out so the pipeline does not depend on `writexl`.
-# writexl::write_xlsx(
-#   annotation_template,
-#   file.path(params$output, "cluster_annotation_template.xlsx")
-# )
+write_xlsx(
+  annotation_template,
+  file.path(params$output, "cluster_annotation_template.xlsx")
+)
 ```
 
 
@@ -855,44 +854,17 @@ spe$metacluster <-  as.vector(metacelltypes)
 Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (the SCPs are green, not brown), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
 
 ```{r colors-celltypes raw_k30}
-col_celltype <- c(
+# Cell-type and metacluster colors are defined centrally in 00_MapMet_color_code.R
+for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(p)) { source(p); break }
 
-  ## ---- Neural crest lineage (green tones) ----
-  "SOX10+ S100B+ SCPs"                           = rgb(34,  100,  60, maxColorValue = 255),  # dark green
-  "ELAVL4+ early progenitors"                    = rgb(152, 251, 152, maxColorValue = 255),  # pale green
-  "ELAVL4+ GD2+ sympathoblasts"                  = rgb(50,  205,  50, maxColorValue = 255),  # bright lime green
-  "CHGA- CD15+ chromaffin progenitors"           = rgb(0,   145, 150, maxColorValue = 255),  # teal / blue-green
-  "CHGA+ CD15+ chromaffin differentiating cells" = rgb(128, 128,   0, maxColorValue = 255),  # olive
-  "CHGA+ CD15- chromaffin mature cells"          = rgb(189, 183, 107, maxColorValue = 255),  # khaki
-
-  ## ---- Mesenchymal (brown tones) ----
-  "CD10+ fibroblasts"                 = rgb(166, 97,  26, maxColorValue = 255),  # brown
-  "LUM+ mesenchymal"                  = rgb(140, 81,  10, maxColorValue = 255),  # dark brown
-  "CD44+ progenitor mesnchymal cells" = rgb(101, 67,  33, maxColorValue = 255),  # deep brown
-
-  ## ---- Immune ----
-  "CD45+ immune cells" = rgb(220,  20,  60, maxColorValue = 255),   # crimson
-
-  ## ---- Endothelial ----
-  "CD34+ endothelial cells" = rgb(255,  95,   0, maxColorValue = 255),  # orange
-
-  ## ---- Other (greyish tones) ----
-  "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
-  "other (Ki67+)"  = rgb(80,  80,  80,  maxColorValue = 255),  # dark grey
-  "other (CXCR4+)" = rgb(195, 195, 195, maxColorValue = 255)  # mid grey
-)
+col_celltype <- COL_CELLTYPE_AD
 
 metadata(spe)$color_vectors$col_celltype <- col_celltype
 ```
 
 ```{r colors-metaclusters}
-col_metacluster <- c(
-  "neural crest lineage" = "#238B45",  # green
-  "mesenchymal"          = "#8C510A",  # brown
-  "immune cells"         = "#E34A33",  # red
-  "endothelial"          = "#F59E0B",  # orange
-  "other"                = "#969696"   # grey
-)
+col_metacluster <- COL_METACLUSTER_AD
 metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
 
@@ -1016,7 +988,7 @@ for (cl in clusters) {
 
 ```{r save-objects}
 
-saveRDS(spe, file.path(params$output, "spe_phenotyping_AD.rds"))
+saveRDS(spe, file.path(params$output, "spe_04_phenotyping_AD.rds"))
 
 ```
 
