@@ -1,0 +1,232 @@
+Bootstrap: docker
+From: rocker/rstudio:4.4.0
+
+# =============================================================================
+# MapMetSC — Apptainer image for the R-based single-cell analysis (Lazic et al.)
+# =============================================================================
+#
+# This definition builds the full R environment "from scratch" on top of the
+# same pinned base the project's Dockerfile uses (rocker/rstudio:4.4.0), rather
+# than wrapping the pre-built `lazdaria/mapmetsc:v1.0` image on Docker Hub. That
+# choice is what lets a SINGLE image run everything:
+#
+#   * analysis/            (01_read_data ... 06.*_correlation)
+#   * analysis_AD/         (01_read_data ... 04_phenotyping)
+#   * analysis/10_spatial_analysis.Rmd
+#
+# Why one image is enough (the testInteractions story)
+# ----------------------------------------------------
+# The project historically shipped a SECOND image (`lazdaria/mapmetsc_spatial`)
+# only because of a bug in imcRtools::testInteractions in versions < 1.5.5. That
+# fix first appears in the released imcRtools 1.6.0 (Bioconductor 3.17). The
+# rocker/rstudio:4.4.0 base resolves to Bioconductor 3.19, which provides
+# imcRtools 1.10.0 — well past the fix. The only imcRtools function the
+# non-spatial scripts use is read_steinbock(), whose API is unchanged across
+# these versions, so upgrading to the fixed imcRtools does not affect the rest
+# of the pipeline. The %post section asserts imcRtools >= 1.6.0 so a build can
+# never silently produce the buggy version.
+#
+# Build:   apptainer build mapmetsc.sif mapmetsc.def
+# Run:     apptainer exec --bind <singlecelldata>:/mnt/data mapmetsc.sif \
+#              Rscript run_analysis.R
+# (see apptainer/README.md and %help for RStudio + spatial-analysis usage)
+# =============================================================================
+
+%labels
+    Maintainer      TaschnerMandl / Lazic Group (Apptainer port)
+    Description     MapMetSC single-cell + spatial analysis (Lazic et al.)
+    Base            rocker/rstudio:4.4.0 (R 4.4.0, Bioconductor 3.19)
+    imcRtools       >= 1.6.0 (testInteractions fix; base provides 1.10.0)
+
+%post
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+
+    # ---------------------------------------------------------------------
+    # System libraries. Superset of the project Dockerfile plus the extra
+    # dev headers needed by packages that image never installed:
+    #   EBImage        -> libtiff, libjpeg, libpng, libfftw3
+    #   ggrastr/ragg   -> libpng, libfreetype6, libharfbuzz, libfribidi, fontconfig
+    #   tiff            -> libtiff
+    #   sf/terra (spatial deps) -> libgdal, libproj, libudunits2
+    #   igraph          -> libglpk
+    #   magick (cytomapper) -> libmagick++
+    # ---------------------------------------------------------------------
+    apt-get -y update
+    apt-get install -y --no-install-recommends \
+        apt-utils \
+        ca-certificates curl git \
+        libarchive-dev \
+        libcairo2-dev \
+        libcurl4-openssl-dev \
+        libfftw3-dev \
+        libfontconfig1-dev \
+        libfreetype6-dev \
+        libfribidi-dev \
+        libgdal-dev \
+        libglpk-dev \
+        libgsl-dev \
+        libharfbuzz-dev \
+        libjpeg-dev \
+        libmagick++-dev \
+        libpng-dev \
+        libproj-dev \
+        libssl-dev \
+        libtiff-dev \
+        libudunits2-dev \
+        libxml2-dev \
+        libxt-dev \
+        libzstd-dev \
+        zlib1g-dev
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # ---------------------------------------------------------------------
+    # R packages. CRAN installs use the rocker base's pinned Posit Package
+    # Manager snapshot (reproducible, mostly binary -> fast). Bioconductor
+    # installs are resolved by the base image's BiocManager (Bioc 3.19 for
+    # R 4.4.0). All installation runs through a single Rscript that ends with a
+    # completeness check: if any required package is not installable the script
+    # exits non-zero and aborts the build.
+    # ---------------------------------------------------------------------
+    Rscript - <<'RSCRIPT'
+# Parallel compile, capped so large C++ Bioc builds don't OOM small builders.
+options(Ncpus = min(parallel::detectCores(), 8L))
+
+install_or_die <- function(expr) tryCatch(expr, error = function(e) {
+    message("INSTALL ERROR: ", conditionMessage(e)); quit(status = 1L)
+})
+
+## --- CRAN (helpers first) ------------------------------------------------
+install_or_die(install.packages(c("remotes", "BiocManager")))
+
+cran_pkgs <- c(
+    # rendering / project
+    "rmarkdown", "knitr", "workflowr",
+    # io
+    "readxl", "writexl", "openxlsx",
+    # tidyverse + plotting
+    "tidyverse", "patchwork", "cowplot", "ggrepel", "ggridges",
+    "ggrastr", "ggdendro", "ggpubr", "scales", "viridis",
+    "RColorBrewer", "paletteer", "circlize", "colorspace",
+    "pheatmap", "gridExtra", "gridGraphics", "hexbin",
+    # stats / clustering / models
+    "mclust", "harmony", "lme4", "gtools", "rstatix",
+    "factoextra", "FactoMineR", "bruceR", "tidyHeatmap",
+    # single cell (CRAN side)
+    "Seurat", "SeuratObject", "uwot", "tiff", "Matrix"
+)
+install_or_die(install.packages(cran_pkgs))
+
+## --- Bioconductor (Bioc 3.19 via base BiocManager) -----------------------
+bioc_pkgs <- c(
+    "SingleCellExperiment", "SpatialExperiment", "SummarizedExperiment",
+    "imcRtools", "cytomapper", "CATALYST", "scater", "scuttle",
+    "dittoSeq", "batchelor", "lisaClust", "diffcyt", "SingleR",
+    "ComplexHeatmap", "BiocParallel", "BioQC", "edgeR", "EBImage"
+)
+install_or_die(BiocManager::install(bioc_pkgs, update = FALSE, ask = FALSE))
+
+## --- GitHub (pinned commit, as in the original Dockerfile) ---------------
+install_or_die(remotes::install_github(
+    "stuchly/Rphenoannoy@8b81e2e7fb0599f45070e2cba1b28ac219b7c472",
+    upgrade = "never"
+))
+
+## --- Completeness + version assertions -----------------------------------
+required <- c(cran_pkgs, bioc_pkgs, "Rphenoannoy")
+missing  <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]
+if (length(missing)) {
+    message("MISSING PACKAGES: ", paste(missing, collapse = ", "))
+    quit(status = 1L)
+}
+
+## The whole point of a single image: the fixed testInteractions.
+imc_v <- as.character(utils::packageVersion("imcRtools"))
+cat("Bioconductor:", as.character(BiocManager::version()),
+    "| imcRtools:", imc_v, "\n")
+if (utils::packageVersion("imcRtools") < "1.6.0") {
+    message("imcRtools ", imc_v, " is older than 1.6.0 and still has the ",
+            "testInteractions bug; refusing to build.")
+    quit(status = 1L)
+}
+if (!"testInteractions" %in% getNamespaceExports("imcRtools")) {
+    message("imcRtools::testInteractions not found; refusing to build.")
+    quit(status = 1L)
+}
+cat("All", length(required), "packages installed; imcRtools OK.\n")
+RSCRIPT
+
+    # Leave a lightweight manifest in the image for provenance.
+    # (statements separated by real newlines - backslash-continuations inside a
+    #  single-quoted -e string are passed verbatim to R and are a syntax error.)
+    Rscript -e 'writeLines(capture.output(sessionInfo()), "/opt/mapmetsc-sessionInfo.txt")
+ip <- as.data.frame(installed.packages()[, c("Package", "Version")])
+write.csv(ip, "/opt/mapmetsc-packages.csv", row.names = FALSE)'
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    # Headless rendering: no X server inside the container.
+    export R_ENABLE_JIT=0
+
+%runscript
+    # `apptainer run img.sif`            -> interactive R
+    # `apptainer run img.sif Rscript x`  -> runs the given command
+    if [ $# -eq 0 ]; then
+        exec R --no-save
+    else
+        exec "$@"
+    fi
+
+%test
+    # Sanity check executed at the end of `apptainer build`.
+    Rscript -e '
+        pkgs <- c("imcRtools","cytomapper","CATALYST","lisaClust","diffcyt",
+                  "SingleR","ComplexHeatmap","Seurat","harmony","batchelor",
+                  "EBImage","ggdendro","ggrastr","tidyverse","Rphenoannoy")
+        ok <- vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)
+        if (any(!ok)) { cat("FAILED to load:", paste(pkgs[!ok], collapse=", "), "\n"); quit(status=1) }
+        stopifnot(utils::packageVersion("imcRtools") >= "1.6.0")
+        cat("OK: imcRtools", as.character(utils::packageVersion("imcRtools")),
+            "and", length(pkgs), "key packages load.\n")
+    '
+
+%help
+    MapMetSC single-cell + spatial analysis image (Lazic et al.).
+
+    A single image for the whole R workflow: analysis/, analysis_AD/ and
+    analysis/10_spatial_analysis.Rmd. It bundles imcRtools 1.10.0
+    (Bioconductor 3.19), which already contains the testInteractions fix that
+    previously required a separate `lazdaria/mapmetsc_spatial` image.
+
+    Data layout (see README): the scripts expect the extracted single-cell
+    data under /mnt/data (input_all, input_AD, public_datasets, output).
+
+    Render the full pipeline (headless):
+      apptainer exec --bind /path/to/singlecelldata:/mnt/data \
+          mapmetsc.sif Rscript run_analysis.R
+
+    Render one script:
+      apptainer exec --bind /path/to/singlecelldata:/mnt/data mapmetsc.sif \
+          Rscript -e 'rmarkdown::render("analysis/10_spatial_analysis.Rmd",
+                        output_dir="docs",
+                        params=list(input="/mnt/data/input_all",
+                                    output="/mnt/data/output"))'
+
+    Interactive R:
+      apptainer run --bind /path/to/singlecelldata:/mnt/data mapmetsc.sif
+
+    RStudio Server (optional; the base image ships it). Apptainer containers
+    are read-only, so redirect the server's writable dirs to a bind mount:
+      mkdir -p rstudio-run/{tmp,var,run}
+      PASSWORD=mapmetsc apptainer exec \
+          --bind rstudio-run/var:/var/lib/rstudio-server \
+          --bind rstudio-run/run:/var/run/rstudio-server \
+          --bind rstudio-run/tmp:/tmp \
+          --bind /path/to/MapMetSC:/home/rstudio/MapMetSC \
+          --bind /path/to/singlecelldata:/mnt/data \
+          mapmetsc.sif \
+          /usr/lib/rstudio-server/bin/rserver --www-port 8787 \
+              --auth-none 0 --auth-pam-helper-path=pam-helper --server-user=$(whoami)
+      then open http://localhost:8787
