@@ -57,11 +57,17 @@ From: rocker/rstudio:4.4.0
     #   git2r (needed by workflowr, loaded from .Rprofile) -> libgit2
     #   sf (imcRtools / lisaClust)                          -> libgeos
     #   V8 (transitive dependency)                          -> libnode
+    # Plus the rendering toolchain the pipeline needs from a bare Rscript:
+    #   rmarkdown::render -> pandoc (rocker bundles it with RStudio Server, but
+    #                        it is NOT on PATH outside an RStudio session)
+    #   figures use dev="png" -> the cairo device needs system fonts
     # ---------------------------------------------------------------------
     apt-get -y update
     apt-get install -y --no-install-recommends \
         apt-utils \
         ca-certificates curl git \
+        pandoc \
+        fonts-dejavu-core fonts-liberation \
         libarchive-dev \
         libcairo2-dev \
         libcurl4-openssl-dev \
@@ -207,6 +213,20 @@ for (p in c("git2r", "workflowr", "sf", "imcRtools")) {
     ok <- tryCatch({ suppressPackageStartupMessages(library(p, character.only = TRUE)); TRUE },
                    error = function(e) { message("LOAD ERROR for ", p, ": ", conditionMessage(e)); FALSE })
     if (!ok) quit(status = 1L)
+}
+
+## The pipeline renders every step with rmarkdown::render, which needs pandoc
+## (rocker bundles it with RStudio Server but not on PATH for a bare Rscript)
+## and a cairo-usable font for dev="png". Smoke-test the whole chain at build.
+{
+    td  <- tempfile(fileext = ".Rmd")
+    writeLines(c("---", "title: smoke", "output: html_document", "---", "",
+                 "```{r, dev='png'}", "plot(1:3, main = 'ok'); 1 + 1", "```"), td)
+    ok <- tryCatch({ rmarkdown::render(td, quiet = TRUE, output_dir = tempdir()); TRUE },
+                   error = function(e) { message("RENDER ERROR (pandoc/fonts?): ",
+                                                  conditionMessage(e)); FALSE })
+    if (!ok) quit(status = 1L)
+    cat("rmarkdown render OK (pandoc + png device found).\n")
 }
 
 ## The whole point of a single image: the fixed testInteractions.

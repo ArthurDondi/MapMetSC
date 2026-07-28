@@ -7,8 +7,8 @@
 #SBATCH --time=2-00:00:00      # --time=days-hours:minutes:seconds
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16     # phenotyping (Rphenoannoy/harmony) + Seurat label transfer
-#SBATCH --mem=128000           # the correlation steps load large scRNA-seq refs (Lee/Jansky/Fetahu)
+#SBATCH --cpus-per-task=16     # SingleR steps fork MulticoreParam(workers=10..16)
+#SBATCH --mem=192000           # parallel workers multiply memory (see NOTE below)
 #SBATCH --mail-type=end
 #SBATCH --mail-user=arthur.dondi@cemm.at
 #
@@ -28,6 +28,16 @@
 # Paths can be overridden at submit time, e.g.:
 #   MAPMET_DATA=/nobackup/.../mapmet MAPMET_SIF=/path/to/mapmetsc.sif \
 #       sbatch run_mapmetsc_slurm.sh
+#
+# NOTE on parallelism / memory: the analysis hard-codes its worker counts -
+# 04_phenotyping uses SnowParam(workers=30) for the UMAP, and the SingleR
+# correlation steps use MulticoreParam(workers=10..16). With cpus-per-task=16
+# the 30-worker step just oversubscribes (slower, not fatal), but every worker
+# holds a copy of the data, so memory is the real risk - hence the generous
+# --mem. If a step is OOM-killed, raise --mem (or --cpus-per-task toward 30);
+# if it queues too long, lower both and accept the phenotyping step running
+# slower. RNGseed is fixed in those calls, so results do not depend on the
+# worker count.
 
 set -euo pipefail
 
