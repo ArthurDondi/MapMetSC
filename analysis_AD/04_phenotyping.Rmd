@@ -837,14 +837,15 @@ Next, we read the assigned celltype and metacluster labels for the AD clusters f
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-# Supplementary_Tables can live inside the cohort dir or beside it (Zenodo bundle).
-suppl_dir <- if (dir.exists(file.path(params$input, "Supplementary_Tables"))) file.path(params$input, "Supplementary_Tables") else file.path(dirname(params$input), "Supplementary_Tables")
-file_path <- file.path(suppl_dir, "20260526_Suppl_Table3_AD.xlsx")
-if (!file.exists(file_path))
-  stop("AD cluster annotation not found: ", file_path, "\n",
-       "The AD phenotyping needs a table (sheet 'Sheet1', columns `cluster`, `celltype`, ",
-       "`metacluster`) mapping THIS run's AD clusters to cell types. Create it from this ",
-       "step's cluster heatmaps, or point `file_path` at your annotation file.")
+# Supplementary_Tables may sit inside the cohort dir OR one level up beside it
+# (the Zenodo bundle keeps it next to MapMetIP_ProcessedDataset). Look for the
+# actual file in both, so an empty/stray Supplementary_Tables dir can't mislead.
+.suppl_cands <- file.path(c(params$input, dirname(params$input)), "Supplementary_Tables", "20260526_Suppl_Table3_AD.xlsx")
+file_path <- .suppl_cands[file.exists(.suppl_cands)][1]
+if (is.na(file_path))
+  stop("AD cluster annotation not found. Looked in:\n  ", paste(.suppl_cands, collapse = "\n  "),
+       "\nIt must be a table (sheet 'Sheet1', columns `cluster`, `celltype`, `metacluster`) ",
+       "mapping this run's AD clusters to cell types.")
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)

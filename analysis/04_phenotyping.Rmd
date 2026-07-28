@@ -1035,8 +1035,9 @@ Let's start with celltype assignments...
 ```{r annotations-celltypes}
 # Supplementary_Tables may live inside the cohort dir (container layout) or
 # beside it (the Zenodo bundle keeps it next to MapMetIP_ProcessedDataset).
-suppl_dir <- if (dir.exists(file.path(params$input, "Supplementary_Tables"))) file.path(params$input, "Supplementary_Tables") else file.path(dirname(params$input), "Supplementary_Tables")
-file_path <- file.path(suppl_dir, "20260526_Suppl_Table3.xlsx")
+.suppl_cands <- file.path(c(params$input, dirname(params$input)), "Supplementary_Tables", "20260526_Suppl_Table3.xlsx")
+file_path <- .suppl_cands[file.exists(.suppl_cands)][1]
+if (is.na(file_path)) stop("Supplementary table not found in:\n  ", paste(.suppl_cands, collapse = "\n  "))
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)
