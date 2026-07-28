@@ -197,12 +197,12 @@ p
 ```
 
 We can see a cluster with DAPI expression but without IMC marker expression, representing cells that swam off (DAPI expression without IMC marker expression).
-To be sure that we only exclude cells that are really not present on the IMC channels, we will identify the samples with the highest number of cells from cluster 11.
+To be sure that we only exclude cells that are really not present on the IMC channels, we will identify the samples with the highest number of cells from the lost-cells cluster.
 
 ```{r sanity-check}
 
 # !!! Change cluster depending on the cluster with only DAPI signal and nothing else !!!
-c <- "26"
+c <- "18"
 mat <- t(mat)
 
 data <- data.frame(sample=colnames(mat), clusters)
@@ -233,7 +233,7 @@ if (nrow(clust) == 0 || is.na(max_sample)) {
 write.csv(clust, file.path(params$output,"lost_cells.csv"))
 ```
 
-Sample `r max_sample` has the highest number of cells from cluster 11. For a last sanity check, we will color the lost cells in the segmentation mask of that sample and plot the DAPI and the Iridium image, and the segmentation mask.
+Sample `r max_sample` has the highest number of cells from cluster `r c`. For a last sanity check, we will color the lost cells in the segmentation mask of that sample and plot the DAPI and the Iridium image, and the segmentation mask.
 
 ```{r sanity-check-2, fig.show='hide'}
 
@@ -308,7 +308,7 @@ panel_4
 
 ```
 
-By comparing the DAPI image, the Iridium image and the binary mask (highlighting cells from cluster 11 in blue), we see that cluster 11 definitely represents the cluster of lost cells. We excluded `r dim(spe[, spe$pg_clusters_lostcells==11])[2]` cells in total or `r dim(spe[, spe$pg_clusters_lostcells==11])[2]/649` cells per image.
+By comparing the DAPI image, the Iridium image and the binary mask (highlighting cells from cluster `r c` in blue), we see that cluster `r c` definitely represents the cluster of lost cells. We excluded `r dim(spe[, spe$pg_clusters_lostcells==as.numeric(c)])[2]` cells in total or `r round(dim(spe[, spe$pg_clusters_lostcells==as.numeric(c)])[2]/length(unique(spe$sample_id)), 1)` cells per image.
 
 ```{r}
 library(EBImage)
