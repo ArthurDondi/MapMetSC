@@ -220,6 +220,18 @@ clust$percentage <- lost_cells_perc
 clust <- clust[order(clust$percentage, decreasing=T), ]
 max_sample <- clust$sample[1]
 
+# Guard: `c` (top of this chunk) is a MANUAL choice of the DAPI-only / no-IMC
+# "lost cells" cluster, and it also drives the cell exclusion further down. If it
+# is not a real cluster in THIS cohort's clustering, `clust` is empty and every
+# downstream result is wrong - stop with an actionable message rather than a
+# cryptic error later.
+if (nrow(clust) == 0 || is.na(max_sample)) {
+  stop("Lost-cells cluster '", c, "' is not present in this cohort's clustering. ",
+       "Open ", file.path(params$output, "plots/02_QC_1"),
+       "/*_heatmap_clusters.pdf, identify the cluster with DAPI signal but no IMC ",
+       "markers, and set `c` at the top of this chunk to its number.")
+}
+
 write.csv(clust, file.path(params$output,"lost_cells.csv"))
 ```
 
@@ -227,8 +239,14 @@ Sample `r max_sample` has the highest number of cells from cluster 11. For a las
 
 ```{r sanity-check-2, fig.show='hide'}
 
-masks <- loadImages(file.path(params$input, "masks", paste0(max_sample, ".tif")), as.is = TRUE)
-img <- loadImages(file.path(params$input, "img", paste0(max_sample, ".tif")))
+mask_file <- file.path(params$input, "masks", paste0(max_sample, ".tif"))
+img_file  <- file.path(params$input, "img",   paste0(max_sample, ".tif"))
+if (!file.exists(mask_file) || !file.exists(img_file))
+  stop("Segmentation mask / image for sample '", max_sample, "' not found under '",
+       params$input, "' (masks/ and img/). The intensity tables and the mask/img ",
+       "files must share the same sample names.")
+masks <- loadImages(mask_file, as.is = TRUE)
+img <- loadImages(img_file)
 
 mcols(masks) <- DataFrame(sample_id = names(masks))
 mcols(img) <- DataFrame(sample_id = names(img))
