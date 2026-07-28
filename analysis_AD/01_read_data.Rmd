@@ -116,8 +116,14 @@ In [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP), we exported singl
 ```{r read-steinbock}
 path <- file.path(params$input)
 
-spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL) 
-spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL) 
+# This pipeline processes the adrenal-gland (AD) samples ONLY. All sample types
+# (AD, TU/primary-tumour, BM) share one folder, so we select the AD files with
+# read_steinbock's `pattern` (a regex on the file names) rather than keeping a
+# separate AD folder. Without this the read would pull in every sample.
+sample_pattern <- "AD"    # adjust if your AD files are tokenised differently
+
+spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
+spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
 
 #Combine SPE objects into one object
 spe <- spe_0px

@@ -100,17 +100,16 @@ library(lme4)
 </details>
 
 ## Read data
-First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). We perform spatial analysis only in the primary tumor samples, since the bone marrow samples are aspirates, where the spatial context is lost. Therefore, we first subset the SPE object to the PT samples and then load cell neighbors that were computed in [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP). Therein, we have extracted neighbors by expanding individual high-resolution cell masks by 15 pixels. To be able to load the cell neighbors using the function `read_steinbock`, we will temporarily copy intensities for PT samples into a new folder `intensities-0px-TU`.
+First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). We perform spatial analysis only in the primary tumor samples, since the bone marrow samples are aspirates, where the spatial context is lost. Therefore, we first subset the SPE object to the PT samples and then load cell neighbors that were computed in [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP). Therein, we have extracted neighbors by expanding individual high-resolution cell masks by 15 pixels. We load the cell neighbors for the primary-tumour samples directly with `read_steinbock`, using its `pattern` argument to select the `TU` samples from the shared `intensities-0px` folder (no file duplication needed).
 
 ```{r temp-folder}
-#dir.create(file.path(params$input, "intensities-0px-TU"))
-#files <- list.files(file.path(params$input, "intensities-0px"), pattern = "TU", full.names = TRUE)
-#file.copy(files, file.path(params$input, "intensities-0px-TU"))
+# No temporary folder / file duplication needed: the read_steinbock() call below
+# selects the primary-tumour (TU) samples directly from the shared
+# intensities-0px folder via its `pattern` argument.
 ```
 
 We can now read in the neighbors.
-For the spatial interaction analysis, we will use the metaclusters for non-tumor cells, since these represent the minority in the PT samples, and the celltype level annotations for the tumor cells (majority). 
-Once the data is read into a SPE object, the folder `intensities-0px-TU` can be removed. 
+For the spatial interaction analysis, we will use the metaclusters for non-tumor cells, since these represent the minority in the PT samples, and the celltype level annotations for the tumor cells (majority).
 
 ```{r read-data}
 # NOTE: this spatial analysis is kept separate from the automated pipeline because
@@ -120,7 +119,7 @@ Once the data is read into a SPE object, the folder `intensities-0px-TU` can be 
 spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
 spe <- spe[,spe$tissue=="PT"]
 
-spe_neighbors <- read_steinbock(path=file.path(params$input), image_file=NULL, panel_file = NULL, intensities_folder = "intensities-0px-TU",regionprops_folder = NULL, graphs_folder="neighbors") 
+spe_neighbors <- read_steinbock(path=file.path(params$input), image_file=NULL, panel_file = NULL, intensities_folder = "intensities-0px",regionprops_folder = NULL, graphs_folder="neighbors", pattern = "TU")
 colnames(spe_neighbors) <- paste0(spe_neighbors$sample_id, "_", spe_neighbors$ObjectNumber)
 colPair(spe, "neighborhood") <- colPair(spe_neighbors[,colnames(spe)], "neighborhood")
 
@@ -140,9 +139,6 @@ spe[,spe$metacluster=="T cells" | spe$metacluster=="B cells" | spe$metacluster==
 # generate new color vector
 metadata(spe)$color_vectors$col_celltype_3 <- metadata(spe)$color_vectors$col_metacluster
 metadata(spe)$color_vectors$col_celltype_3 <- c(metadata(spe)$color_vectors$col_celltype_3, "immune" = "red")
-
-# remove temporary folder
-#unlink(file.path(params$input, "intensities-0px-TU"), recursive = TRUE)
 ```
 
 ## Interaction analysis
