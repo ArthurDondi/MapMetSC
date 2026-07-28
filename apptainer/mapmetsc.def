@@ -52,6 +52,11 @@ From: rocker/rstudio:4.4.0
     #   sf/terra (spatial deps) -> libgdal, libproj, libudunits2
     #   igraph          -> libglpk
     #   magick (cytomapper) -> libmagick++
+    # Runtime shared libs that Posit *binary* packages dlopen at load time
+    # (missing these builds fine but fails at runtime, e.g. library(git2r)):
+    #   git2r (needed by workflowr, loaded from .Rprofile) -> libgit2
+    #   sf (imcRtools / lisaClust)                          -> libgeos
+    #   V8 (transitive dependency)                          -> libnode
     # ---------------------------------------------------------------------
     apt-get -y update
     apt-get install -y --no-install-recommends \
@@ -65,11 +70,14 @@ From: rocker/rstudio:4.4.0
         libfreetype6-dev \
         libfribidi-dev \
         libgdal-dev \
+        libgeos-dev \
+        libgit2-dev \
         libglpk-dev \
         libgsl-dev \
         libharfbuzz-dev \
         libjpeg-dev \
         libmagick++-dev \
+        libnode-dev \
         libpng-dev \
         libproj-dev \
         libssl-dev \
@@ -188,6 +196,17 @@ missing  <- required[!installed_ok(required)]
 if (length(missing)) {
     message("MISSING PACKAGES: ", paste(missing, collapse = ", "))
     quit(status = 1L)
+}
+
+## requireNamespace() only loads a namespace; it does NOT dlopen a package's
+## compiled shared object. Posit binary packages link against system libraries
+## (git2r->libgit2, sf->libgeos, V8->libnode), so a missing runtime lib installs
+## fine yet fails on load. Actually ATTACH the startup + shared-lib packages here
+## so any such gap fails the BUILD instead of at `.Rprofile`/render time.
+for (p in c("git2r", "workflowr", "sf", "imcRtools")) {
+    ok <- tryCatch({ suppressPackageStartupMessages(library(p, character.only = TRUE)); TRUE },
+                   error = function(e) { message("LOAD ERROR for ", p, ": ", conditionMessage(e)); FALSE })
+    if (!ok) quit(status = 1L)
 }
 
 ## The whole point of a single image: the fixed testInteractions.

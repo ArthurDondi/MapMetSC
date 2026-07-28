@@ -71,7 +71,11 @@ mkdir -p "$OUTPUT"
 export APPTAINERENV_OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export APPTAINERENV_OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 
+# --cleanenv: do NOT inherit the host shell env (an active conda `base` sets
+# LD_LIBRARY_PATH to conda libs, which can shadow the image's own libraries and
+# break e.g. git2r's libgit2). --env / APPTAINERENV_* still pass through.
 apptainer exec \
+    --cleanenv \
     --bind "$DATA" \
     --bind "$SLURM_SUBMIT_DIR" \
     --pwd "$SLURM_SUBMIT_DIR" \
