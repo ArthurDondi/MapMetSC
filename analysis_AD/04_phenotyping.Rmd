@@ -877,10 +877,10 @@ metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 ```
 
 ## Visualizations
-For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(R_intermediary/celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
+For visualization purpose, we will give the celltypes a meaningful order. This order is read from the adrenal-gland-specific `celltype_order_AD.csv` (next to the processed dataset).
 
 ```{r order-celltypes}
-clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"), sep=";", colClasses = c("order" = "character"))
+clusternames_ordered <- read.csv(file.path(params$input, "celltype_order_AD.csv"), sep=";", colClasses = c("order" = "character"))
 codes <- setNames(paste0(clusternames_ordered$order, "_", clusternames_ordered$celltype), clusternames_ordered$celltype)
 spe$celltype_ordered <- recode(spe$celltype, !!!codes)
 
