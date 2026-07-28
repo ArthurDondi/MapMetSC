@@ -7,9 +7,9 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  public: "/mnt/data/public_datasets"
-  input: "/mnt/data/input_all"
-  output: "/mnt/data/output"
+  public: !r Sys.getenv("MAPMET_PUBLIC", "/mnt/data/public_datasets")
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}

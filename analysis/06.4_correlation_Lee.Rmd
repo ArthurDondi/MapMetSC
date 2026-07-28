@@ -7,9 +7,9 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/data/input_all"
-  output: "/mnt/data/output"
-  public: "/mnt/data/public_datasets"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
+  public: !r Sys.getenv("MAPMET_PUBLIC", "/mnt/data/public_datasets")
 ---
 
 ```{r setup, include=FALSE}
@@ -108,7 +108,7 @@ Next, we will set common markers between the reference and query dataset. Theref
 A csv files with protein-gene mappings can be obtained from Zenodo [(protein2gene.csv)](https://doi.org/10.5281/zenodo.13220634).
 
 ```{r set-common-tumormarkers}
-protein2gene <- read.csv(file.path(params$input,"protein2gene.csv"), sep=";")
+protein2gene <- read.csv(file.path(params$public,"protein2gene.csv"), sep=";")
 
 code <- setNames(protein2gene$genes, protein2gene$protein)
 rownames(protein) <- recode(rownames(protein), !!!code)

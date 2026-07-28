@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/mnt/data/input_all"
-  output: "/mnt/data/output"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}
@@ -142,7 +142,7 @@ metadata(spe)$color_vectors$col_celltype_3 <- metadata(spe)$color_vectors$col_me
 metadata(spe)$color_vectors$col_celltype_3 <- c(metadata(spe)$color_vectors$col_celltype_3, "immune" = "red")
 
 # remove temporary folder
-#unlink(file.path(params$input, "MapMetIP_ProcessedDataset/intensities-0px-TU"), recursive = TRUE)
+#unlink(file.path(params$input, "intensities-0px-TU"), recursive = TRUE)
 ```
 
 ## Interaction analysis

@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/data/input_all"
-  output: "/mnt/data/output"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}
@@ -117,7 +117,10 @@ When then read sample and patient-specific metadata from the metadata file provi
 
 ```{r read-metadata}
 
-file_path <- file.path(params$input, 'Supplementary_Tables/20260526_Suppl_Table1.xlsx')
+# Supplementary_Tables may live inside the cohort dir (container layout) or
+# beside it (the Zenodo bundle keeps it next to MapMetIP_ProcessedDataset).
+suppl_dir <- if (dir.exists(file.path(params$input, "Supplementary_Tables"))) file.path(params$input, "Supplementary_Tables") else file.path(dirname(params$input), "Supplementary_Tables")
+file_path <- file.path(suppl_dir, '20260526_Suppl_Table1.xlsx')
 sample_spec_metadata <- read_excel(file_path, sheet = "sample_spec_metadata")
 patient_spec_clinical <- read_excel(file_path, sheet = "patient_spec_clinical")
 patient_spec_genetic <- read_excel(file_path, sheet = "patient_spec_genetic")

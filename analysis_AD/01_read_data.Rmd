@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/mnt/data/input_AD"
-  output: "/mnt/data/output"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}
@@ -86,8 +86,8 @@ library(patchwork)
 
 ```{r}
 
-# Folders to process
-folders <- c("intensities-0px/", "intensities-1px/")
+# Folders to process (resolve against the input cohort, not the working dir)
+folders <- file.path(params$input, c("intensities-0px", "intensities-1px"))
 
 # Columns to remove
 cols_to_remove <- c("IF4_NEGATIVE_MIX_mean", "IF4_NEGATIVE_MIX_mean-80")

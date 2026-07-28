@@ -27,10 +27,15 @@
 # ============================================================================
 
 # ---------------------------- CONFIG (edit me) ------------------------------
-input    <- "/mnt/data/input_all"        # Zenodo-extracted single-cell data (main cohort)
-input_AD <- "/mnt/data/input_AD"         # Zenodo-extracted adrenal-gland (AD) reference cohort
-public   <- "/mnt/data/public_datasets"  # public scRNA-seq references (Fetahu / Jansky / Lee)
-output   <- "/mnt/data/output"           # writable directory for intermediate objects & figures
+# Point these at your data. Either export the MAPMET_* environment variables
+# (e.g. `export MAPMET_INPUT=/abs/path/to/MapMetIP_ProcessedDataset`), or just
+# replace the fallback strings after the commas below. The same variables drive
+# the per-Rmd `params:` defaults, so `Rscript run_analysis.R` and knitting a
+# single .Rmd interactively both pick them up.
+input    <- Sys.getenv("MAPMET_INPUT",  "/mnt/data/input_all")        # main cohort: the MapMetIP_ProcessedDataset folder (steinbock data + NB_Panel.csv + celltype_order.csv)
+input_AD <- input                                                    # adrenal-gland reference is the SAME dataset; analysis_AD/ filters for the AD samples
+public   <- Sys.getenv("MAPMET_PUBLIC", "/mnt/data/public_datasets")  # public scRNA-seq references (Fetahu / Jansky / Lee) + protein2gene.csv
+output   <- Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")           # writable directory for intermediate objects & figures
 # ----------------------------------------------------------------------------
 
 dir.create(output, showWarnings = FALSE, recursive = TRUE)

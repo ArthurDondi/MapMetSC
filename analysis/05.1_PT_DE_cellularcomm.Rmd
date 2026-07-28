@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/mnt/data/input_all"
-  output: "/mnt/data/output"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}

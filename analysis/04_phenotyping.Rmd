@@ -7,8 +7,8 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/mnt/data/input_all"
-  output: "/mnt/data/output"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}
@@ -1033,7 +1033,10 @@ Next, we read assigned celltype and metacluster-labels for clusters from the Sup
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-file_path <- file.path(params$input, "Supplementary_Tables", "20260526_Suppl_Table3.xlsx")
+# Supplementary_Tables may live inside the cohort dir (container layout) or
+# beside it (the Zenodo bundle keeps it next to MapMetIP_ProcessedDataset).
+suppl_dir <- if (dir.exists(file.path(params$input, "Supplementary_Tables"))) file.path(params$input, "Supplementary_Tables") else file.path(dirname(params$input), "Supplementary_Tables")
+file_path <- file.path(suppl_dir, "20260526_Suppl_Table3.xlsx")
 annotation <- read_excel(file_path, sheet = "Sheet1")
 
 cluster_names <- setNames(annotation$celltype, annotation$cluster)
