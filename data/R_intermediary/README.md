@@ -19,9 +19,9 @@ Each file is a **named character vector** (`names` = unique cell id → cluster)
 
 | file | used by | contents |
 |------|---------|----------|
-| `pg_clusters_lostcells_AD.rds`   | `analysis_AD/02_QC_1.Rmd` | lost-cells cluster (k=45), all post-QC1 cells |
+| `pg_clusters_lostcells_AD.rds`   | `analysis_AD/02_QC_1.Rmd` | lost-cells cluster (k=45), retained cells; ghosts rebuilt at load |
 | `pg_clusters_AD.rds`             | `analysis_AD/04_phenotyping.Rmd` | phenograph cluster (k=30) → `pg_clusters` |
-| `pg_clusters_lostcells_PTBM.rds` | `analysis/02_QC_1.Rmd` | lost-cells cluster (k=45), all post-QC1 cells |
+| `pg_clusters_lostcells_PTBM.rds` | `analysis/02_QC_1.Rmd` | lost-cells cluster (k=45), retained cells; ghosts rebuilt at load |
 | `pg_clusters_PTBM.rds`           | `analysis/04_phenotyping.Rmd` | phenograph cluster (k=30, before GMM subclustering) |
 
 With these loaded, the hard-coded lost-cells cluster is **17** for AD and **26**
@@ -40,9 +40,10 @@ Rscript code/generate_phenograph_intermediary.R      # reads spe_*.rds, writes h
 
 It reads:
 * `pg_clusters_k30` from `spe_04_phenotyping*.rds` → `pg_clusters_*.rds`
-* `pg_clusters_lostcells` from `spe_02_QC_1*.rds`, plus the QC-step-1 cell set
-  from `spe_01_read_data*.rds`, to rebuild the full pre-exclusion labelling
-  (the excluded cells are the ghost cluster) → `pg_clusters_lostcells_*.rds`
+* `pg_clusters_lostcells` (retained cells only) from `spe_02_QC_1*.rds` →
+  `pg_clusters_lostcells_*.rds`. The excluded ghost cells are rebuilt at load
+  time in `02_QC_1.Rmd` (any post-QC1 cell missing from the file is a ghost and
+  is labelled with the lost-cells cluster number, 17 for AD / 26 for PT/BM).
 
 The load lookup order is `params$input/R_intermediary/` first, then
 `params$output/R_intermediary/`. Ship the files next to the input data

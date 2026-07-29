@@ -52,62 +52,39 @@ extract_pheno <- function(spe_path, out_name, col = "pg_clusters_k30") {
                   out_name, length(v), length(unique(v)), col))
 }
 
-## ---- lost cells: reconstruct full post-QC1 labels (retained + ghosts) ------
-# spe_02 stores pg_clusters_lostcells only for the RETAINED cells (the ghost
-# cluster was excluded before saving). The 02 load path needs a label for every
-# post-QC1 cell, so we recompute the deterministic QC-step-1 cell set from
-# spe_01 (no clustering) and label the missing cells - the ghosts - with
-# `ghost_label`. That is exactly what the original clustering assigned them, so
-# the reconstructed vector reproduces the docker `pg_clusters_lostcells`.
-extract_lostcells <- function(spe01_path, spe02_path, out_name, ghost_label) {
-  if (!file.exists(spe01_path) || !file.exists(spe02_path)) {
-    message("skip lost-cells: ", spe01_path, " / ", spe02_path, " not found")
-    return(invisible())
+## ---- lost cells: copy the retained cells' labels out of spe_02 -------------
+# spe_02 stores pg_clusters_lostcells for the RETAINED cells only (the ghost
+# cluster was excluded before saving). That is all we need: 02_QC_1.Rmd rebuilds
+# the ghost cells at load time (colnames(spe) there is still the full post-QC1
+# set, so any cell not in this file is a ghost). `ghost_label` is only used here
+# to assert it is not, in fact, a retained cluster in this object.
+extract_lostcells <- function(spe02_path, out_name, ghost_label) {
+  if (!file.exists(spe02_path)) {
+    message("skip lost-cells: ", spe02_path, " not found"); return(invisible())
   }
-  spe01 <- readRDS(spe01_path)
-  im  <- assay(spe01, "counts")
-  m80 <- im[grepl("mean-80", rownames(im)), ]
-  imc <- m80[!grepl("IF2_GD2|IF3_CD45|DAPI", rownames(m80)), ]
-  nz  <- as.logical(colSums(imc) != 0)
-  post_qc1 <- colnames(spe01)[nz]
-
   spe02 <- readRDS(spe02_path)
   if (!"pg_clusters_lostcells" %in% names(colData(spe02)))
     stop("pg_clusters_lostcells not found in ", spe02_path)
-  retained <- colnames(spe02)
-  if (!all(retained %in% post_qc1))
-    stop("Retained cells in ", spe02_path, " are not a subset of the ",
-         "recomputed QC-step-1 set from ", spe01_path,
-         "; are these the matching AD/PTBM objects?")
-
-  # `ghost_label` (the lost-cells cluster, = `c` in 02_QC_1.Rmd) must be the
-  # cluster that was EXCLUDED in this object, so no retained cell carries it.
-  # If it does, the number is wrong for this object and the labels would collide.
-  if (as.character(ghost_label) %in%
-      as.character(colData(spe02)$pg_clusters_lostcells))
-    stop("ghost_label '", ghost_label, "' also appears among RETAINED cells in ",
-         spe02_path, " - it is not the excluded lost-cells cluster there. Set ",
-         "ghost_label to the actual lost-cells cluster number for this object ",
-         "(and keep `c` in 02_QC_1.Rmd in sync).")
-
-  lab <- setNames(rep(as.character(ghost_label), length(post_qc1)), post_qc1)
-  lab[retained] <- as.character(colData(spe02)$pg_clusters_lostcells)
-  saveRDS(lab, file.path(inter_dir, out_name))
-  message(sprintf("wrote %s  (%d post-QC1 cells = %d retained + %d ghost [= %s])",
-                  out_name, length(lab), length(retained),
-                  length(post_qc1) - length(retained), ghost_label))
+  labs <- as.character(colData(spe02)$pg_clusters_lostcells)
+  if (as.character(ghost_label) %in% labs)
+    stop("ghost_label '", ghost_label, "' is a RETAINED cluster in ", spe02_path,
+         " - it is not the excluded lost-cells cluster there. Set ghost_label to ",
+         "the actual lost-cells cluster number (and keep `c` / lostcells_ghost in ",
+         "02_QC_1.Rmd in sync).")
+  v <- setNames(labs, colnames(spe02))
+  saveRDS(v, file.path(inter_dir, out_name))
+  message(sprintf("wrote %s  (%d retained cells, %d clusters; ghosts rebuilt at load)",
+                  out_name, length(v), length(unique(v))))
 }
 
 # --- AD pipeline ------------------------------------------------------------
-extract_lostcells(file.path(output_dir, "spe_01_read_data_AD.rds"),
-                  file.path(output_dir, "spe_02_QC_1_AD.rds"),
+extract_lostcells(file.path(output_dir, "spe_02_QC_1_AD.rds"),
                   "pg_clusters_lostcells_AD.rds", ghost_label = "17")
 extract_pheno(file.path(output_dir, "spe_04_phenotyping_AD.rds"),
               "pg_clusters_AD.rds")
 
 # --- PT/BM pipeline ---------------------------------------------------------
-extract_lostcells(file.path(output_dir, "spe_01_read_data.rds"),
-                  file.path(output_dir, "spe_02_QC_1.rds"),
+extract_lostcells(file.path(output_dir, "spe_02_QC_1.rds"),
                   "pg_clusters_lostcells_PTBM.rds", ghost_label = "26")
 extract_pheno(file.path(output_dir, "spe_04_phenotyping.rds"),
               "pg_clusters_PTBM.rds")

@@ -167,28 +167,36 @@ mat <- t(mat)
 # are not bit-reproducible across igraph versions, compilers or CPUs - the same
 # caveat as uwot/UMAP. We therefore freeze the clustering: if a precomputed label
 # vector is shipped next to the input data (or was generated earlier under
-# <output>/R_intermediary) we load it; otherwise we compute it here and save it
-# for redistribution. Labels are keyed by the unique cell id (colnames(spe)).
+# <output>/R_intermediary) we load it; otherwise we compute it here and save it.
+#
+# The shipped file only needs the RETAINED cells' labels (extracted from the
+# docker spe_02). colnames(spe) here is still the full post-QC1 set (ghosts are
+# excluded further down), so any cell NOT in the file is a reference ghost cell
+# and is labelled `lostcells_ghost`. That number must equal `c` in the
+# sanity-check chunk below.
+lostcells_ghost <- "26"
 pg_name <- "pg_clusters_lostcells_PTBM.rds"
 pg_file <- Find(file.exists,
                 file.path(c(params$input, params$output), "R_intermediary", pg_name))
 
 if (!is.null(pg_file)) {
-  pg_lostcells <- readRDS(pg_file)
-  if (!all(colnames(spe) %in% names(pg_lostcells)))
-    stop("Frozen lost-cells clustering ", pg_file, " does not cover all cells; ",
-         "regenerate it for this input (code/generate_phenograph_intermediary.R).")
-  lab <- as.integer(pg_lostcells[colnames(spe)])
-  clusters <- factor(lab, levels = sort(unique(lab)))
-  message("Loaded frozen lost-cells clustering: ", pg_file)
+  frozen <- readRDS(pg_file)
+  if (!all(names(frozen) %in% colnames(spe)))
+    stop("Frozen lost-cells labels ", pg_file, " contain cells absent from this ",
+         "input; regenerate them (code/generate_phenograph_intermediary.R).")
+  lab <- as.character(frozen[colnames(spe)])
+  lab[is.na(lab)] <- lostcells_ghost
+  clusters <- factor(lab, levels = as.character(sort(as.integer(unique(lab)))))
+  message("Loaded frozen lost-cells clustering: ", pg_file,
+          " (", sum(is.na(frozen[colnames(spe)])), " ghost cells reconstructed)")
 } else {
   Rphenograph_out <- Rphenoannoy(mat, k = 45)
   clusters <- factor(membership(Rphenograph_out[[2]]))
   pg_out <- file.path(params$output, "R_intermediary")
   dir.create(pg_out, showWarnings = FALSE, recursive = TRUE)
-  pg_lostcells <- setNames(as.character(clusters), colnames(spe))
-  saveRDS(pg_lostcells, file.path(pg_out, pg_name))
-  message("Saved frozen lost-cells clustering: ", file.path(pg_out, pg_name))
+  saveRDS(setNames(as.character(clusters), colnames(spe)),
+          file.path(pg_out, pg_name))
+  message("Saved lost-cells clustering: ", file.path(pg_out, pg_name))
 }
 
 spe$pg_clusters_lostcells <- clusters
