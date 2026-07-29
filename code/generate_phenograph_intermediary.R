@@ -1,15 +1,16 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# Extract the frozen phenograph clusterings from the DOCKER (reference) SPE
-# objects. NOTHING is re-clustered here: the labels already computed in docker
-# (pg_clusters_lostcells and pg_clusters_k30) are copied out and keyed by the
+# Extract the frozen phenograph outputs from the DOCKER (reference) SPE objects.
+# NOTHING is re-clustered here: we copy out the kept-cell list (02) and the k=30
+# phenograph labels (04) that were already produced in docker, keyed by the
 # unique cell id (sample_id_ObjectNumber), so they are immune to the Annoy /
 # igraph::cluster_louvain non-reproducibility across machines (the same caveat
 # uwot documents for calculateUMAP).
 #
 # WHY freeze: Rphenoannoy (Annoy approximate-NN kNN + igraph Louvain) is not
-# bit-reproducible across igraph versions / compilers / CPUs. 02_QC_1.Rmd and
-# 04_phenotyping.Rmd load these files when present instead of recomputing.
+# bit-reproducible across igraph versions / compilers / CPUs. 02_QC_1.Rmd loads
+# the kept-cell list to reproduce the lost-cell exclusion; 04_phenotyping.Rmd
+# loads the k=30 labels instead of re-clustering.
 #
 # HOW TO USE (run once in the docker image that produced the published objects):
 #   1. Point `output_dir` at the folder holding your spe_*.rds (params$output),
@@ -19,9 +20,11 @@
 #      data/R_intermediary/ (they are small) or upload to Zenodo, then place
 #      them in params$input/R_intermediary/ on any machine.
 #
-# Files produced (one named character vector each, names = unique cell id):
-#   pg_clusters_lostcells_AD.rds / _PTBM.rds   (from 02_QC_1: k=45 lost cells)
-#   pg_clusters_AD.rds           / _PTBM.rds   (from 04: k=30 phenograph)
+# Files produced:
+#   kept_cells_AD.rds  / _PTBM.rds   (character vector of kept cell ids, from
+#                                     the columns of the reference spe_02)
+#   pg_clusters_AD.rds / _PTBM.rds   (named vector, cell id -> k=30 phenograph
+#                                     cluster, from spe_04's pg_clusters_k30)
 #
 # NOTE the clustering is frozen as-is from these objects. If you regenerated the
 # objects after changing an upstream step (e.g. the QC area threshold), extract
@@ -52,36 +55,25 @@ extract_pheno <- function(spe_path, out_name, col = "pg_clusters_k30") {
                   out_name, length(v), length(unique(v)), col))
 }
 
-## ---- lost cells: copy the retained cells' labels out of spe_02 -------------
-# spe_02 stores pg_clusters_lostcells for the RETAINED cells only (the ghost
-# cluster was excluded before saving). That is all we need: 02_QC_1.Rmd rebuilds
-# the ghost cells at load time (colnames(spe) there is still the full post-QC1
-# set, so any cell not in this file is a ghost, labelled `lostcells_ghost`).
-# 02_QC_1.Rmd also verifies that ghost number is not itself a retained cluster,
-# so nothing about the ghost number is needed here.
-extract_lostcells <- function(spe02_path, out_name) {
+## ---- lost cells: the kept-cell list is just spe_02's cells -----------------
+# 02_QC_1.Rmd now excludes lost cells by loading this list and keeping those
+# cells, instead of re-identifying the (non-reproducible) lost-cells cluster.
+# The kept-cell list is simply the columns of the reference spe_02.
+extract_kept <- function(spe02_path, out_name) {
   if (!file.exists(spe02_path)) {
-    message("skip lost-cells: ", spe02_path, " not found"); return(invisible())
+    message("skip kept-cells: ", spe02_path, " not found"); return(invisible())
   }
   spe02 <- readRDS(spe02_path)
-  if (!"pg_clusters_lostcells" %in% names(colData(spe02)))
-    stop("pg_clusters_lostcells not found in ", spe02_path)
-  v <- setNames(as.character(colData(spe02)$pg_clusters_lostcells), colnames(spe02))
-  saveRDS(v, file.path(inter_dir, out_name))
-  message(sprintf("wrote %s  (%d retained cells, %d clusters; ghosts rebuilt at load)",
-                  out_name, length(v), length(unique(v))))
+  saveRDS(colnames(spe02), file.path(inter_dir, out_name))
+  message(sprintf("wrote %s  (%d kept cells)", out_name, ncol(spe02)))
 }
 
 # --- AD pipeline ------------------------------------------------------------
-extract_lostcells(file.path(output_dir, "spe_02_QC_1_AD.rds"),
-                  "pg_clusters_lostcells_AD.rds")
-extract_pheno(file.path(output_dir, "spe_04_phenotyping_AD.rds"),
-              "pg_clusters_AD.rds")
+extract_kept(file.path(output_dir, "spe_02_QC_1_AD.rds"), "kept_cells_AD.rds")
+extract_pheno(file.path(output_dir, "spe_04_phenotyping_AD.rds"), "pg_clusters_AD.rds")
 
 # --- PT/BM pipeline ---------------------------------------------------------
-extract_lostcells(file.path(output_dir, "spe_02_QC_1.rds"),
-                  "pg_clusters_lostcells_PTBM.rds")
-extract_pheno(file.path(output_dir, "spe_04_phenotyping.rds"),
-              "pg_clusters_PTBM.rds")
+extract_kept(file.path(output_dir, "spe_02_QC_1.rds"), "kept_cells_PTBM.rds")
+extract_pheno(file.path(output_dir, "spe_04_phenotyping.rds"), "pg_clusters_PTBM.rds")
 
 message("\nDone. Intermediaries written to: ", inter_dir)
