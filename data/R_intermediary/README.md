@@ -7,37 +7,46 @@ versions, compilers or CPUs, so the **same seed and same input data can produce
 different clusters on a different machine or container** — the same caveat the
 `uwot`/UMAP documentation gives for `calculateUMAP`.
 
-To make the published results reproducible everywhere, the clusterings are
-computed once in the reference (docker) environment and shipped as `.rds` files.
+To make the published results reproducible everywhere, the clusterings computed
+in the reference (docker) environment are shipped as `.rds` files.
 `analysis(_AD)/02_QC_1.Rmd` and `analysis(_AD)/04_phenotyping.Rmd` **load** these
 files when present (keyed by unique cell id, `sample_id_ObjectNumber`) instead of
 recomputing, and only fall back to computing (and saving) when they are absent.
 
 ## Files
 
-| file | produced by | contents |
-|------|-------------|----------|
-| `pg_clusters_lostcells_AD.rds`     | `analysis_AD/02_QC_1.Rmd` | named character vector: cell id → lost-cells cluster (k=45) |
-| `pg_clusters_phenotyping_AD.rds`   | `analysis_AD/04_phenotyping.Rmd` | data.frame (rownames = cell id) with `pg_clusters_k15/30/45/60` |
-| `pg_clusters_lostcells_PTBM.rds`   | `analysis/02_QC_1.Rmd` | named character vector: cell id → lost-cells cluster (k=45) |
-| `pg_clusters_phenotyping_PTBM.rds` | `analysis/04_phenotyping.Rmd` | data.frame (rownames = cell id) with `pg_clusters_k15/30/45/60` |
+Each file is a **named character vector** (`names` = unique cell id → cluster):
+
+| file | used by | contents |
+|------|---------|----------|
+| `pg_clusters_lostcells_AD.rds`   | `analysis_AD/02_QC_1.Rmd` | lost-cells cluster (k=45), all post-QC1 cells |
+| `pg_clusters_AD.rds`             | `analysis_AD/04_phenotyping.Rmd` | phenograph cluster (k=30) → `pg_clusters` |
+| `pg_clusters_lostcells_PTBM.rds` | `analysis/02_QC_1.Rmd` | lost-cells cluster (k=45), all post-QC1 cells |
+| `pg_clusters_PTBM.rds`           | `analysis/04_phenotyping.Rmd` | phenograph cluster (k=30, before GMM subclustering) |
 
 With these loaded, the hard-coded lost-cells cluster is **17** for AD and **26**
-for PT/BM, and the manual celltype annotation stays valid because the cluster
-numbers are frozen.
+for PT/BM, and the manual celltype annotation stays valid because the phenograph
+cluster numbers are frozen.
 
-## How to (re)generate
+## How to generate
 
-Run once in the reference docker image (see the header of
-`code/generate_phenograph_intermediary.R` for details):
+The labels already exist in the docker SPE objects (`pg_clusters_lostcells`,
+`pg_clusters_k30`), so nothing is re-clustered. Run once in the reference docker
+image (see `code/generate_phenograph_intermediary.R`):
 
 ```sh
-Rscript code/generate_phenograph_intermediary.R
+Rscript code/generate_phenograph_intermediary.R      # reads spe_*.rds, writes here
 ```
 
-The lookup order at load time is `params$input/R_intermediary/` first, then
-`params$output/R_intermediary/`. Place the shipped files next to the input data
-(`params$input/R_intermediary/`), or download them from Zenodo alongside the
+It reads:
+* `pg_clusters_k30` from `spe_04_phenotyping*.rds` → `pg_clusters_*.rds`
+* `pg_clusters_lostcells` from `spe_02_QC_1*.rds`, plus the QC-step-1 cell set
+  from `spe_01_read_data*.rds`, to rebuild the full pre-exclusion labelling
+  (the excluded cells are the ghost cluster) → `pg_clusters_lostcells_*.rds`
+
+The load lookup order is `params$input/R_intermediary/` first, then
+`params$output/R_intermediary/`. Ship the files next to the input data
+(`params$input/R_intermediary/`) or download them from Zenodo alongside the
 other `R_intermediary` objects.
 
 > These `.rds` files are **not** committed here (they depend on the dataset).
