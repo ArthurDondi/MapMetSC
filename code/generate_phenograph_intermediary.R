@@ -80,6 +80,16 @@ extract_lostcells <- function(spe01_path, spe02_path, out_name, ghost_label) {
          "recomputed QC-step-1 set from ", spe01_path,
          "; are these the matching AD/PTBM objects?")
 
+  # `ghost_label` (the lost-cells cluster, = `c` in 02_QC_1.Rmd) must be the
+  # cluster that was EXCLUDED in this object, so no retained cell carries it.
+  # If it does, the number is wrong for this object and the labels would collide.
+  if (as.character(ghost_label) %in%
+      as.character(colData(spe02)$pg_clusters_lostcells))
+    stop("ghost_label '", ghost_label, "' also appears among RETAINED cells in ",
+         spe02_path, " - it is not the excluded lost-cells cluster there. Set ",
+         "ghost_label to the actual lost-cells cluster number for this object ",
+         "(and keep `c` in 02_QC_1.Rmd in sync).")
+
   lab <- setNames(rep(as.character(ghost_label), length(post_qc1)), post_qc1)
   lab[retained] <- as.character(colData(spe02)$pg_clusters_lostcells)
   saveRDS(lab, file.path(inter_dir, out_name))
