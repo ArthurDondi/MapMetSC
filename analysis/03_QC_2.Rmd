@@ -181,7 +181,7 @@ zoom_only_grid
 ```
 
 
-In the images above, we can see that segmentation artifacts occur, where no clear cell borders can be identified. For BM, we determined an upper threshold of **15,600** and for PT a lower threshold of **250**. To examine nuclei with an area below the lower threshold, it is better to visualize images in napari and use the label and zoom function.
+In the images above, we can see that segmentation artifacts occur, where no clear cell borders can be identified. For BM, we determined an upper threshold of **15,600** and a lower threshold of **333** for both PT and BM samples. To examine nuclei with an area below the lower threshold, it is better to visualize images in napari and use the label and zoom function.
 
 ## Threshold identification for PT samples
 We will now repeat the same worfklow for PT samples.
@@ -220,13 +220,13 @@ outlier_cell <- names(morph_mat_order[1])
 print(paste("The outlier cell with ", feat, "=", morph_mat_order[outlier_cell], " with ID", sub(".*_", "", outlier_cell), "is in image", sub("_[^_]*$", "", outlier_cell),". Check, whether this cell is an artifact by inspecting the large segmentation masks in napari."))
 ```
 
-Using the code above and cross-checking images of corresponding nuclei in napari, we can identify a lower threshold of **100** for nuclear area for PT samples. There is however no upper threshold, since the largest cells are also correctly segmented.
+Using the code above and cross-checking images of corresponding nuclei in napari, we can identify a lower threshold of **333** for nuclear area for PT samples. There is however no upper threshold, since the largest cells are also correctly segmented.
 
 ## Exclusion of segmentation artifacts
 Let's exclude outliers from the SPE object and the morph. feature matrix based on defined thresholds.
 
 ```{r exclude-outliers}
-outliers <- (spe$area <= 100 & spe$tissue == "PT" | spe$area <= 250 & spe$tissue == "BM" | spe$area >= 15600 & spe$tissue == "BM")
+outliers <- (spe$area <= 333 & spe$tissue == "PT" | spe$area <= 333 & spe$tissue == "BM" | spe$area >= 15600 & spe$tissue == "BM")
 
 spe <- spe[,!outliers]
 
