@@ -182,6 +182,15 @@ if (!is.null(pg_file)) {
   if (!all(names(frozen) %in% colnames(spe)))
     stop("Frozen lost-cells labels ", pg_file, " contain cells absent from this ",
          "input; regenerate them (code/generate_phenograph_intermediary.R).")
+  # A retained-cells file must not already contain the ghost number (it would
+  # collide with the ghosts we fill in). A full-coverage file (else branch)
+  # legitimately does, so only check when some cells are missing.
+  if (any(!(colnames(spe) %in% names(frozen))) &&
+      lostcells_ghost %in% as.character(frozen))
+    stop("Frozen file ", pg_file, " already contains lost-cells cluster ",
+         lostcells_ghost, " - it was made from an object whose ghost cluster was ",
+         "a different number. Regenerate from the matching object, or update ",
+         "`lostcells_ghost` / `c`.")
   lab <- as.character(frozen[colnames(spe)])
   lab[is.na(lab)] <- lostcells_ghost
   clusters <- factor(lab, levels = as.character(sort(as.integer(unique(lab)))))

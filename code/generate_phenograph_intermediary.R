@@ -56,22 +56,17 @@ extract_pheno <- function(spe_path, out_name, col = "pg_clusters_k30") {
 # spe_02 stores pg_clusters_lostcells for the RETAINED cells only (the ghost
 # cluster was excluded before saving). That is all we need: 02_QC_1.Rmd rebuilds
 # the ghost cells at load time (colnames(spe) there is still the full post-QC1
-# set, so any cell not in this file is a ghost). `ghost_label` is only used here
-# to assert it is not, in fact, a retained cluster in this object.
-extract_lostcells <- function(spe02_path, out_name, ghost_label) {
+# set, so any cell not in this file is a ghost, labelled `lostcells_ghost`).
+# 02_QC_1.Rmd also verifies that ghost number is not itself a retained cluster,
+# so nothing about the ghost number is needed here.
+extract_lostcells <- function(spe02_path, out_name) {
   if (!file.exists(spe02_path)) {
     message("skip lost-cells: ", spe02_path, " not found"); return(invisible())
   }
   spe02 <- readRDS(spe02_path)
   if (!"pg_clusters_lostcells" %in% names(colData(spe02)))
     stop("pg_clusters_lostcells not found in ", spe02_path)
-  labs <- as.character(colData(spe02)$pg_clusters_lostcells)
-  if (as.character(ghost_label) %in% labs)
-    stop("ghost_label '", ghost_label, "' is a RETAINED cluster in ", spe02_path,
-         " - it is not the excluded lost-cells cluster there. Set ghost_label to ",
-         "the actual lost-cells cluster number (and keep `c` / lostcells_ghost in ",
-         "02_QC_1.Rmd in sync).")
-  v <- setNames(labs, colnames(spe02))
+  v <- setNames(as.character(colData(spe02)$pg_clusters_lostcells), colnames(spe02))
   saveRDS(v, file.path(inter_dir, out_name))
   message(sprintf("wrote %s  (%d retained cells, %d clusters; ghosts rebuilt at load)",
                   out_name, length(v), length(unique(v))))
@@ -79,13 +74,13 @@ extract_lostcells <- function(spe02_path, out_name, ghost_label) {
 
 # --- AD pipeline ------------------------------------------------------------
 extract_lostcells(file.path(output_dir, "spe_02_QC_1_AD.rds"),
-                  "pg_clusters_lostcells_AD.rds", ghost_label = "17")
+                  "pg_clusters_lostcells_AD.rds")
 extract_pheno(file.path(output_dir, "spe_04_phenotyping_AD.rds"),
               "pg_clusters_AD.rds")
 
 # --- PT/BM pipeline ---------------------------------------------------------
 extract_lostcells(file.path(output_dir, "spe_02_QC_1.rds"),
-                  "pg_clusters_lostcells_PTBM.rds", ghost_label = "26")
+                  "pg_clusters_lostcells_PTBM.rds")
 extract_pheno(file.path(output_dir, "spe_04_phenotyping.rds"),
               "pg_clusters_PTBM.rds")
 
