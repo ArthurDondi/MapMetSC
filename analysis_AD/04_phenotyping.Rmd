@@ -233,8 +233,12 @@ k <- 30
 # cell id); otherwise it is computed here and saved for redistribution. Colour
 # helpers come from code/bubbleplot.R (sourced above).
 pg_name <- "pg_clusters_AD.rds"
-pg_file <- Find(file.exists,
-                file.path(c(params$input, params$output), "R_intermediary", pg_name))
+inter_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
+                file.path(params$input,  "R_intermediary"),
+                file.path(dirname(params$input), "R_intermediary"),
+                file.path(params$output, "R_intermediary"))
+inter_dirs <- inter_dirs[nzchar(inter_dirs)]
+pg_file <- Find(file.exists, file.path(inter_dirs, pg_name))
 
 if (!is.null(pg_file)) {
   pg <- readRDS(pg_file)

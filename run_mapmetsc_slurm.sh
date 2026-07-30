@@ -42,19 +42,24 @@
 set -euo pipefail
 
 # Some clusters expose apptainer/singularity through modules; uncomment if so:
-# module load apptainer
+module load apptainer/1.1.9
 
 # ----------------------------- CONFIG (edit me) -----------------------------
 # The built image (see apptainer/build.sh). Defaults to the repo root.
 SIF="${MAPMET_SIF:-$SLURM_SUBMIT_DIR/mapmetsc.sif}"
 
 # The directory that contains Publication/ (your extracted data root).
-DATA="${MAPMET_DATA:-/nobackup/lab_taschner-mandl/CHANGE_ME/mapmet}"
+DATA="${MAPMET_DATA:-/nobackup/lab_taschner-mandl/arthurdondi/projects/mapmet}"
 
 # Derived data paths (match the Zenodo layout; edit if yours differs).
 INPUT="${MAPMET_INPUT:-$DATA/Publication/20240811_Zenodo-Upload/MapMetIP_ProcessedDataset}"
 PUBLIC="${MAPMET_PUBLIC:-$DATA/Publication/public_datasets}"
 OUTPUT="${MAPMET_OUTPUT:-$DATA/Publication/output}"
+# Frozen phenograph intermediaries (kept_cells_*.rds, pg_clusters_*.rds). In the
+# Zenodo layout these live in an R_intermediary/ folder that sits NEXT TO
+# MapMetIP_ProcessedDataset, i.e. one level above $INPUT. Override if yours
+# differs; if you point it outside $DATA, add a matching --bind below.
+INTERMEDIARY="${MAPMET_INTERMEDIARY:-$(dirname "$INPUT")/R_intermediary}"
 # ----------------------------------------------------------------------------
 
 echo "======================"
@@ -67,6 +72,7 @@ echo "sif        : $SIF"
 echo "input      : $INPUT"
 echo "public     : $PUBLIC"
 echo "output     : $OUTPUT"
+echo "intermed.  : $INTERMEDIARY"
 echo "started    : $(date)"
 echo "======================"
 
@@ -74,6 +80,7 @@ echo "======================"
 [[ -f "$SIF" ]]                 || { echo "ERROR: image not found: $SIF (build it with apptainer/build.sh)"; exit 1; }
 [[ -d "$INPUT/regionprops" ]]   || { echo "ERROR: '$INPUT' is not a MapMetIP_ProcessedDataset (no regionprops/)"; exit 1; }
 [[ -d "$PUBLIC" ]]              || { echo "ERROR: public datasets dir not found: $PUBLIC"; exit 1; }
+[[ -d "$INTERMEDIARY" ]]       || echo "WARNING: intermediary dir not found: $INTERMEDIARY (02/04 will stop if the frozen kept_cells_*/pg_clusters_* lists are missing; generate them with code/generate_phenograph_intermediary.R)"
 mkdir -p "$OUTPUT"
 
 # Keep BLAS/OpenMP threads inside the SLURM allocation (APPTAINERENV_* is how
@@ -92,6 +99,7 @@ apptainer exec \
     --env MAPMET_INPUT="$INPUT" \
     --env MAPMET_PUBLIC="$PUBLIC" \
     --env MAPMET_OUTPUT="$OUTPUT" \
+    --env MAPMET_INTERMEDIARY="$INTERMEDIARY" \
     "$SIF" \
     Rscript run_analysis.R
 
