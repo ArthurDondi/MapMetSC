@@ -208,7 +208,7 @@ therefore which cells are lost - can differ between machines. Instead of
 excluding by cluster number, we load the frozen list of kept cells produced in
 the reference environment and continue with those.
 
-```{r load-kept-cells}
+```{r load-kept-cells, message=TRUE}
 kept_name <- "kept_cells_AD.rds"
 inter_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
                 file.path(params$input,  "R_intermediary"),
@@ -223,13 +223,23 @@ if (is.null(kept_file))
        "MAPMET_INTERMEDIARY to the folder that holds it.")
 
 kept_ids <- readRDS(kept_file)
-if (!all(kept_ids %in% colnames(spe)))
-  stop("Kept-cells list ", kept_file, " contains cells absent from this input; ",
-       "regenerate it for this dataset.")
-
 n_before <- ncol(spe)
-spe <- spe[, colnames(spe) %in% kept_ids]
-message("Kept ", ncol(spe), " of ", n_before, " cells from the frozen list ", kept_file)
+keep <- colnames(spe) %in% kept_ids
+n_missing <- length(setdiff(kept_ids, colnames(spe)))
+if (!any(keep))
+  stop("None of the ", length(kept_ids), " cells in ", kept_file, " match this run's ",
+       "cells - wrong file or cell-id scheme (kept e.g. '", head(kept_ids, 1),
+       "', current e.g. '", head(colnames(spe), 1), "').")
+if (n_missing > 0)
+  message(n_missing, " of ", length(kept_ids), " kept-list cells are not in this run's ",
+          "post-QC1 set (they are already excluded here by cell-exclusion-1, e.g. as ",
+          "all-zero cells) - ignoring them. A large count means the list does not ",
+          "match this input.")
+# Keep the intersection: reproduce the reference lost-cell exclusion for the
+# cells that survive this run's QC step 1.
+spe <- spe[, keep]
+message("Lost-cell exclusion via frozen list: kept ", ncol(spe), " of ", n_before,
+        " post-QC1 cells.")
 ```
 
 
