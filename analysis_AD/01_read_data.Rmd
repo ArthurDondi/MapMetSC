@@ -82,47 +82,13 @@ library(patchwork)
 ```
 </details>
 
-## Preprocess adrenal gland (AD) files — supplementary-channel removal (disabled)
+## Preprocess adrenal gland (AD) files
 
-This chunk is **disabled (`eval=FALSE`) to reproduce the main-branch AD analysis
-exactly.** main intended to drop the `IF4_NEGATIVE_MIX` supplementary channels
-here, but its loop used a working-directory-relative path (`intensities-0px/`)
-that does not resolve at render time, so it silently removed nothing and
-`IF4_NEGATIVE_MIX` was retained through the whole pipeline. Because
-`IF4_NEGATIVE_MIX_mean-80` counts toward the `non_zeros` all-zero filter in
-[QC step 1](#qc-1), removing it would drop the cells that are positive *only* for
-it — changing the QC1 cell set so the frozen `kept_cells_AD.rds` (generated on
-main) no longer matches. We therefore keep it and do **not** modify the input
-CSVs.
-
-> Re-enable (`eval=TRUE`) only if you deliberately want to drop
-> `IF4_NEGATIVE_MIX`; that also removes it as a downstream clustering marker and
-> will not match the main-derived intermediaries. This overwrites the input CSVs
-> in place, so run it on a disposable copy.
-
-```{r remove-supplementary-channels, eval=FALSE}
-
-# Folders to process (resolve against the input cohort, not the working dir)
-folders <- file.path(params$input, c("intensities-0px", "intensities-1px"))
-
-# Columns to remove
-cols_to_remove <- c("IF4_NEGATIVE_MIX_mean", "IF4_NEGATIVE_MIX_mean-80")
-
-# Loop through each folder
-for(folder in folders){
-  # List CSVs containing "AD"
-  ad_files <- list.files(folder, pattern="AD.*\\.csv$", full.names = TRUE)
-  print(ad_files)
-
-  # Loop through each file
-  for(f in ad_files){
-    df <- read.csv(f, check.names = FALSE)        # read CSV
-    df <- df %>% select(-any_of(cols_to_remove)) # remove columns if present
-    write.csv(df, f, row.names = FALSE)           # overwrite file
-  }
-}
-
-```
+The AD supplementary channel `IF4_NEGATIVE_MIX` is **retained**, matching the
+main analysis. We do **not** modify the input CSVs here — the pipeline never
+writes to the input data. If you ever want to exclude `IF4_NEGATIVE_MIX` (or any
+other channel), drop it *in memory* after reading (e.g. subset the SPE rows),
+never by overwriting the input files.
 ## Read single-cell measurement
 
 Replace `path` with the path to the folder where you stored the single-cell data (e.g. `path/to/folder/MapMetIP_ProcessedDataset` in case processed data was downloaded from Zenodo). 
