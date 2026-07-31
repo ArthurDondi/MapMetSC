@@ -15,7 +15,7 @@ params:
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/01_read_data")
+plot_dir <- file.path(params$output, "plots_AD/01_read_data")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }

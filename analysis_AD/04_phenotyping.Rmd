@@ -15,7 +15,7 @@ params:
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/04_phenotyping")
+plot_dir <- file.path(params$output, "plots_AD/04_phenotyping")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -380,7 +380,7 @@ annotation_template <- count_wide %>%
 # -----------------------------
 write_xlsx(
   annotation_template,
-  file.path(params$output, "cluster_annotation_template.xlsx")
+  file.path(params$output, "cluster_annotation_template_AD.xlsx")
 )
 ```
 
