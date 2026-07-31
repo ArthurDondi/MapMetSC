@@ -172,7 +172,7 @@ p <- dittoDimPlot(spe, var = "fm_id",
   ggtitle("Sample ID on UMAP")
 
 
-save_plot(p2, "UMAP-vis-sampleID.pdf", width = 8, height = 6)
+save_plot(p, "UMAP-vis-sampleID.pdf", width = 8, height = 6)
 
 p
 
