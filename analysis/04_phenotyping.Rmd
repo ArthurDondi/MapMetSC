@@ -217,7 +217,8 @@ Let's plot the mean marker expressions per cluster in a bubble plot.
 # ~400 lines. The function auto-detects tissue: with a `tissue` column in
 # colData(spe) it draws per-tissue (PT / BM) count barplots, otherwise a single
 # count barplot (the AD, single-tissue case).
-source(if (file.exists("code/bubbleplot.R")) "code/bubbleplot.R" else "../code/bubbleplot.R")
+source(if (file.exists("code/bubbleplot.R")) "code/bubbleplot.R" else "../code/bubbleplot.R",
+       local = TRUE)   # local=TRUE: define into the knit env so plot_cluster_bubble() sees spe/mat
 ```
 
 ```{r phenograph-umap-bubbleplot}
