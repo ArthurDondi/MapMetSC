@@ -82,9 +82,25 @@ library(patchwork)
 ```
 </details>
 
-## Preprocess adrenal gland (AD) files to remove supplementary channels.This does not run in docker and needs to be an in parent folder of intensities.
+## Preprocess adrenal gland (AD) files — supplementary-channel removal (disabled)
 
-```{r}
+This chunk is **disabled (`eval=FALSE`) to reproduce the main-branch AD analysis
+exactly.** main intended to drop the `IF4_NEGATIVE_MIX` supplementary channels
+here, but its loop used a working-directory-relative path (`intensities-0px/`)
+that does not resolve at render time, so it silently removed nothing and
+`IF4_NEGATIVE_MIX` was retained through the whole pipeline. Because
+`IF4_NEGATIVE_MIX_mean-80` counts toward the `non_zeros` all-zero filter in
+[QC step 1](#qc-1), removing it would drop the cells that are positive *only* for
+it — changing the QC1 cell set so the frozen `kept_cells_AD.rds` (generated on
+main) no longer matches. We therefore keep it and do **not** modify the input
+CSVs.
+
+> Re-enable (`eval=TRUE`) only if you deliberately want to drop
+> `IF4_NEGATIVE_MIX`; that also removes it as a downstream clustering marker and
+> will not match the main-derived intermediaries. This overwrites the input CSVs
+> in place, so run it on a disposable copy.
+
+```{r remove-supplementary-channels, eval=FALSE}
 
 # Folders to process (resolve against the input cohort, not the working dir)
 folders <- file.path(params$input, c("intensities-0px", "intensities-1px"))
