@@ -177,7 +177,7 @@ p2 <- ggdraw(mask_plot$plot, clip = "on")
 p <- plot_grid(p1, p2)
 
 save_plot(p, "example_large_cell.png", width = 12, height = 12)
-zoom_only_grid
+p
 ```
 
 

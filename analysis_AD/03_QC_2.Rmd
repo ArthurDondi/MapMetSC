@@ -207,7 +207,7 @@ Let's exclude outliers from the SPE object and the morph. feature matrix based o
 # Adjust these values based on the AD morphology histograms above. Set
 # area_upper_thresh to a finite value if the histograms reveal oversized
 # artifacts (Inf = no upper threshold, as for solid primary-tumor tissue).
-area_lower_thresh <- 333
+area_lower_thresh <- 100
 area_upper_thresh <- Inf
 
 outliers <- (spe$area <= area_lower_thresh | spe$area >= area_upper_thresh)
