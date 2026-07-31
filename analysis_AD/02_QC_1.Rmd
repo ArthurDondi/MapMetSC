@@ -222,7 +222,10 @@ if (is.null(kept_file))
        "environment with code/generate_phenograph_intermediary.R, or set ",
        "MAPMET_INTERMEDIARY to the folder that holds it.")
 
-kept_ids <- readRDS(kept_file)
+kept_raw <- readRDS(kept_file)
+# Accept a plain vector of kept cell ids, or a named vector whose NAMES
+# are the cell ids (an older intermediary format stored cell id -> label).
+kept_ids <- if (!is.null(names(kept_raw))) names(kept_raw) else as.character(kept_raw)
 n_before <- ncol(spe)
 keep <- colnames(spe) %in% kept_ids
 n_missing <- length(setdiff(kept_ids, colnames(spe)))
