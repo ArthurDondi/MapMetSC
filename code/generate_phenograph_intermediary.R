@@ -38,21 +38,29 @@ inter_dir  <- file.path(output_dir, "R_intermediary")
 dir.create(inter_dir, showWarnings = FALSE, recursive = TRUE)
 
 ## ---- phenotyping: copy the k=30 labels out of the 04 object ----------------
-extract_pheno <- function(spe_path, out_name, col = "pg_clusters_k30") {
-  if (!file.exists(spe_path)) {
-    message("skip phenotyping: ", spe_path, " not found"); return(invisible())
+# `spe_paths` is a list of candidate objects (the reference/main name first, the
+# apptainer name second); the first that exists is used. `cols` prefers the base
+# k=30 column (pg_clusters_k30, present in the main objects that also keep k15/45/
+# 60) and falls back to `pg_clusters` (the k=30-only objects). For PT/BM this is
+# the base clustering BEFORE GMM subclustering.
+extract_pheno <- function(spe_paths, out_name,
+                          cols = c("pg_clusters_k30", "pg_clusters")) {
+  spe_path <- spe_paths[file.exists(spe_paths)][1]
+  if (is.na(spe_path)) {
+    message("skip phenotyping: none found of ", paste(spe_paths, collapse = ", "))
+    return(invisible())
   }
   spe <- readRDS(spe_path)
-  if (!col %in% names(colData(spe)))
-    stop(col, " not found in ", spe_path, " (pg_* columns present: ",
+  col <- cols[cols %in% names(colData(spe))][1]
+  if (is.na(col))
+    stop("none of (", paste(cols, collapse = ", "), ") found in ", spe_path,
+         " (pg_* columns present: ",
          paste(grep("pg_clusters", names(colData(spe)), value = TRUE),
-               collapse = ", "), "). ",
-         "For PT/BM use the base k=30 column, not the post-subclustering ",
-         "`pg_clusters`.")
+               collapse = ", "), ")")
   v <- setNames(as.character(colData(spe)[[col]]), colnames(spe))
   saveRDS(v, file.path(inter_dir, out_name))
-  message(sprintf("wrote %s  (%d cells, %d clusters, from column %s)",
-                  out_name, length(v), length(unique(v)), col))
+  message(sprintf("wrote %s  (%d cells, %d clusters; from %s col %s)",
+                  out_name, length(v), length(unique(v)), basename(spe_path), col))
 }
 
 ## ---- lost cells: the kept-cell list is just spe_02's cells -----------------
@@ -70,10 +78,14 @@ extract_kept <- function(spe02_path, out_name) {
 
 # --- AD pipeline ------------------------------------------------------------
 extract_kept(file.path(output_dir, "spe_02_QC_1_AD.rds"), "kept_cells_AD.rds")
-extract_pheno(file.path(output_dir, "spe_04_phenotyping_AD.rds"), "pg_clusters_AD.rds")
+extract_pheno(file.path(output_dir, c("spe_final_clustering_AD.rds",
+                                      "spe_04_phenotyping_AD.rds")),
+              "pg_clusters_AD.rds")
 
 # --- PT/BM pipeline ---------------------------------------------------------
 extract_kept(file.path(output_dir, "spe_02_QC_1.rds"), "kept_cells_PTBM.rds")
-extract_pheno(file.path(output_dir, "spe_04_phenotyping.rds"), "pg_clusters_PTBM.rds")
+extract_pheno(file.path(output_dir, c("spe_final_clustering.rds",
+                                      "spe_04_phenotyping.rds")),
+              "pg_clusters_PTBM.rds")
 
 message("\nDone. Intermediaries written to: ", inter_dir)
