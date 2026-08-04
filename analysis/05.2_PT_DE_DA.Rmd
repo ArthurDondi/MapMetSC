@@ -263,7 +263,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   res_DA <- testDA_voom(d_counts, design, contrast, min_cells = 3, min_samples = min_samples)
   FDR_cutoff <- 0.1
-  print(rowData(res_DA)[rowData(res_DA)$p_adj < FDR_cutoff, ])
+  print(rowData(res_DA)[which(rowData(res_DA)$p_adj < FDR_cutoff), ])
   res <- data.frame(rowData(res_DA))
 
   # --- 8. Combined grouped boxplot (one panel per cluster) ---
