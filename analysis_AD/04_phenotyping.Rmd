@@ -224,12 +224,12 @@ source(if (file.exists("code/bubbleplot.R")) "code/bubbleplot.R" else "../code/b
 ```{r phenograph-umap-bubbleplot}
 set.seed(221228)
 
-k <- 30
+k <- 15
 
 # --- Reproducible phenograph clustering (see the reproducibility note) ---------
 # Rphenoannoy uses Annoy (approximate NN, C++) + igraph::cluster_louvain, which
 # are not bit-reproducible across igraph versions, compilers or CPUs (the same
-# caveat as uwot/UMAP). We run a single k = 30 clustering, stored as `pg_clusters`.
+# caveat as uwot/UMAP). We run a single k = 15 clustering, stored as `pg_clusters`.
 # A frozen labelling is loaded from R_intermediary when present (keyed by unique
 # cell id); otherwise it is computed here and saved for redistribution. Colour
 # helpers come from code/bubbleplot.R (sourced above).
@@ -281,7 +281,7 @@ p <- dittoDimPlot(
   color.panel = col_clusters
 ) +
   theme(legend.title = element_blank()) +
-  ggtitle("pg_clusters (k = 30) on UMAP")
+  ggtitle("pg_clusters (k = 15) on UMAP")
 
 label_layer <- which(
   sapply(p$layers, function(x) class(x$geom)[1]) %in% c("GeomLabelRepel", "GeomLabel")

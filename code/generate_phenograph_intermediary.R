@@ -78,9 +78,12 @@ extract_kept <- function(spe02_path, out_name) {
 
 # --- AD pipeline ------------------------------------------------------------
 extract_kept(file.path(output_dir, "spe_02_QC_1_AD.rds"), "kept_cells_AD.rds")
+# AD's final clustering is k=15 (main's define-final), stored in `pg_clusters` -
+# that is the column used downstream, so take it (not pg_clusters_k30).
 extract_pheno(file.path(output_dir, c("spe_final_clustering_AD.rds",
                                       "spe_04_phenotyping_AD.rds")),
-              "pg_clusters_AD.rds")
+              "pg_clusters_AD.rds",
+              cols = c("pg_clusters", "pg_clusters_k15"))
 
 # --- PT/BM pipeline ---------------------------------------------------------
 extract_kept(file.path(output_dir, "spe_02_QC_1.rds"), "kept_cells_PTBM.rds")
