@@ -192,6 +192,19 @@ clr_df     <- t(apply(cmat_adj, 1, function(x) log(x) - mean(log(x))))
 dist_matrix <- dist(clr_df, method = distance)
 hc <- hclust(dist_matrix, method = linkage)
 
+# Put the LARGER community on the left of the figure: reorder the dendrogram
+# leaves so the bigger cutree cluster sorts first. reorder() only swaps branches
+# at merges - with agglo.FUN = mean it compares the per-leaf community weight
+# (not the size-inflated sum) - and changes neither the clustering nor cutree's
+# membership/labels. Community numbering below is likewise size-based, so the
+# leftmost (largest) community is community 1.
+comm_membership   <- cutree(hc, k = n_communities)
+comm_sizes        <- table(comm_membership)
+comm_rank_by_size <- rank(-as.integer(comm_sizes), ties.method = "first")  # biggest -> 1
+names(comm_rank_by_size) <- names(comm_sizes)
+leaf_weights      <- comm_rank_by_size[as.character(comm_membership)]
+hc <- reorder(hc, wts = leaf_weights, agglo.FUN = mean)
+
 # Order samples by dendrogram leaf order so the barplot follows the CLR clustering
 clustered_order <- rownames(clr_df)[hc$order]
 sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
@@ -221,9 +234,10 @@ clustered_samples <- sapply(strsplit(levels(p$data$sample_id), "_"), function(x)
 #Extract clusters of cellular communities
 cellular_communities <- as.data.frame(cutree(hc, k = n_communities)[levels(p$data$sample_id)])
 colnames(cellular_communities) <- c("community_cluster")
-# Renumber cutree labels to consecutive IDs (1..n_communities) for plotting.
-cluster_values <- sort(unique(cellular_communities$community_cluster))
-cluster_names <- setNames(seq_along(cluster_values), cluster_values)
+# Number communities by size so the LARGEST group is community 1 (leftmost, given
+# the size-based dendrogram reordering above), the next largest is 2, etc.
+size_order <- names(sort(table(cellular_communities$community_cluster), decreasing = TRUE))
+cluster_names <- setNames(seq_along(size_order), size_order)
 cellular_communities$community_cluster <- recode(cellular_communities$community_cluster, !!!cluster_names)
 community_levels <- sort(unique(cellular_communities$community_cluster))
 

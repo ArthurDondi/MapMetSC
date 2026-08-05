@@ -32,7 +32,7 @@
 # replace the fallback strings after the commas below. The same variables drive
 # the per-Rmd `params:` defaults, so `Rscript run_analysis.R` and knitting a
 # single .Rmd interactively both pick them up.
-input    <- Sys.getenv("MAPMET_INPUT",  "/mnt/data/input_all")        # main cohort: the MapMetIP_ProcessedDataset folder (steinbock data + NB_Panel.csv + celltype_order.csv)
+input    <- Sys.getenv("MAPMET_INPUT",  "/mnt/data/input_all")        # main cohort: the MapMetIP_ProcessedDataset folder (steinbock data + NB_Panel.csv; celltype_order.csv lives in R_intermediary)
 input_AD <- input                                                    # adrenal-gland reference is the SAME dataset; analysis_AD/ filters for the AD samples
 public   <- Sys.getenv("MAPMET_PUBLIC", "/mnt/data/public_datasets")  # public scRNA-seq references (Fetahu / Jansky / Lee) + protein2gene.csv
 output   <- Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")           # writable directory for intermediate objects & figures

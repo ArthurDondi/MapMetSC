@@ -598,7 +598,14 @@ metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
 
 ```{r order-celltypes}
-clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"), sep=";", colClasses = c("order" = "character"))
+# celltype_order.csv ships in R_intermediary (searched like the other frozen
+# intermediaries above via `inter_dirs`); fall back to params$input for older
+# data layouts.
+order_dirs <- c(inter_dirs, params$input)
+order_file <- Find(file.exists, file.path(order_dirs, "celltype_order.csv"))
+if (is.null(order_file))
+  stop("celltype_order.csv not found in: ", paste(order_dirs, collapse = ", "))
+clusternames_ordered <- read.csv(order_file, sep=";", colClasses = c("order" = "character"))
 codes <- setNames(paste0(clusternames_ordered$order, "_", clusternames_ordered$celltype), clusternames_ordered$celltype)
 
 # The numeric "NN_" prefix only exists to impose the display order through the

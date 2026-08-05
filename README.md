@@ -61,8 +61,9 @@ The scripts expect the extracted single-cell data (and the small annotation/meta
 ```
 /mnt/data
 ├── input_all           # main cohort (MapMetIP_ProcessedDataset: intensities-*, regionprops, masks, img, neighbors),
-│                       #   plus NB_Panel.csv, celltype_order.csv, protein2gene.csv and Supplementary_Tables/*.xlsx
+│                       #   plus NB_Panel.csv, protein2gene.csv and Supplementary_Tables/*.xlsx
 ├── input_AD            # adrenal-gland (AD) reference cohort (same layout as input_all)
+├── R_intermediary      # celltype_order.csv (+ _AD) and the frozen phenograph .rds (see data/R_intermediary/README.md)
 ├── public_datasets     # public scRNA-seq references (Fetahu/, Jansky/, Lee/)
 └── output              # created automatically: intermediate spe_*.rds objects and figures
 ```

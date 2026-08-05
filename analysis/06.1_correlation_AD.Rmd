@@ -216,7 +216,18 @@ library(dplyr)
 library(forcats)
 
 # 1. Read ordered cluster names
-clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"),
+# celltype_order.csv ships in R_intermediary; search it there (like the other
+# frozen intermediaries) and fall back to params$input for older data layouts.
+order_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
+                file.path(params$input,  "R_intermediary"),
+                file.path(dirname(params$input), "R_intermediary"),
+                file.path(params$output, "R_intermediary"),
+                params$input)
+order_dirs <- order_dirs[nzchar(order_dirs)]
+order_file <- Find(file.exists, file.path(order_dirs, "celltype_order.csv"))
+if (is.null(order_file))
+  stop("celltype_order.csv not found in: ", paste(order_dirs, collapse = ", "))
+clusternames_ordered <- read.csv(order_file,
                                 sep = ";", colClasses = c("order" = "character"))
 ordered_clusters <- clusternames_ordered$celltype
 
