@@ -600,10 +600,21 @@ For visualization purpose, we will give the celltypes a meaningful order. This o
 ```{r order-celltypes}
 clusternames_ordered <- read.csv(file.path(params$input, "celltype_order.csv"), sep=";", colClasses = c("order" = "character"))
 codes <- setNames(paste0(clusternames_ordered$order, "_", clusternames_ordered$celltype), clusternames_ordered$celltype)
-spe$celltype_ordered <- recode(spe$celltype, !!!codes)
 
+# The numeric "NN_" prefix only exists to impose the display order through the
+# default alphabetical factor() sort. Build the prefixed labels to derive that
+# order, then store celltype_ordered as a factor whose levels are the prefix-
+# STRIPPED names in that order, so every downstream plot shows "CD44+ Tu"
+# (not "01_CD44+ Tu") while keeping the intended ordering. Downstream
+# factor()/droplevels() calls preserve this level order.
+strip_order_prefix   <- function(x) sub("^[0-9]+_", "", x)
+celltype_prefixed    <- recode(spe$celltype, !!!codes)            # e.g. "01_CD44+ Tu"
+ordered_levels       <- strip_order_prefix(sort(unique(celltype_prefixed)))
+spe$celltype_ordered <- factor(strip_order_prefix(celltype_prefixed), levels = ordered_levels)
+
+# col_celltype is already keyed by the (unprefixed) celltype names, which now
+# match the stripped celltype_ordered levels, so reuse it directly.
 metadata(spe)$color_vectors$col_celltype_ordered <- metadata(spe)$color_vectors$col_celltype
-names(metadata(spe)$color_vectors$col_celltype_ordered) <- recode(names(metadata(spe)$color_vectors$col_celltype), !!!codes)
 ```
 
 As a last step, we generate UMAP and bubble plots for the final celltypes/metaclusters.

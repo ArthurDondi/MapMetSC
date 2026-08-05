@@ -515,18 +515,8 @@ p_dendro <- ggplot(segs) +
   )
 
 # ---- 2. Metadata strips as geom_tile ggplots ----
-meta_df <- sample_summary[clustered_samples, c("mna", "X1p_loss", "progress", "age_diag")]
-meta_df$TUM_het   <- tumor_het[clustered_samples]
-meta_df$ME_het    <- me_het[clustered_samples]
+meta_df <- sample_summary[clustered_samples, c("mna", "X1p_loss", "progress")]
 meta_df$sample_id <- factor(clustered_samples, levels = lev_fm)
-
-# Colorbar guide for continuous variables
-cbar_guide <- guide_colorbar(
-  barwidth       = unit(0.5,  "cm"),
-  barheight      = unit(2.5,  "cm"),
-  title.position = "top",
-  ticks          = FALSE
-)
 
 # Shared ggplot layers for each metadata strip (drop = FALSE keeps spacer columns)
 meta_layers <- list(
@@ -558,23 +548,6 @@ p_prog_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(progre
   scale_fill_manual(values = col_code, name = "Prog", na.value = "white") +
   labs(y = "Prog")
 
-# Use scale_fill_viridis_c for all continuous metadata (avoids fragile attr() calls
-# on colorRamp2 functions; viridis palette matches the colorRamp2 definitions above)
-p_age_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = age_diag)) +
-  meta_layers +
-  scale_fill_viridis_c(name = "Age", na.value = "white", guide = cbar_guide) +
-  labs(y = "Age")
-
-p_tumhet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = TUM_het)) +
-  meta_layers +
-  scale_fill_viridis_c(name = "TUM_het", na.value = "white", guide = cbar_guide) +
-  labs(y = "TUM_het")
-
-p_mehet_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = ME_het)) +
-  meta_layers +
-  scale_fill_viridis_c(name = "ME_het", na.value = "white", guide = cbar_guide) +
-  labs(y = "ME_het")
-
 # ---- 3. Clean barplots (drop facet, apply spacer levels, remove x-axis) ----
 # Panel order: all cell types (was tumor) -> metadata -> tumor only (was
 # metacluster) -> immune (kept as is).
@@ -586,10 +559,10 @@ p_immune_c <- prep_bar(p_ME,    lev_fm)
 # guides = "collect" consolidates all legends into one area, eliminating overlap
 p_fig3a <- (p_dendro /
   p_allct_c /
-  p_mna_m / p_1p_m / p_prog_m / p_age_m / p_tumhet_m / p_mehet_m /
+  p_mna_m / p_1p_m / p_prog_m /
   p_tumor_c /
   p_immune_c) +
-  plot_layout(ncol = 1, heights = c(2, 4, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 4, 4),
+  plot_layout(ncol = 1, heights = c(2, 4, 0.2, 0.2, 0.2, 4, 4),
               guides = "collect")
 
 p_fig3a
