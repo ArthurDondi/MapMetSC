@@ -349,7 +349,7 @@ community column is present in the object, the tumor-only-clustering community
 (`allcelltype_community`). Each analysis produces one combined boxplot figure.
 
 ```{r run-all-analyses, fig.width=16, fig.height=9}
-immune_metaclusters <- c("granulocytes", "T cells", "B cells", "MO/DC/NK")
+immune_metaclusters <- c("granulocytes", "T cells", "B cells", "myeloid/NK")
 
 # Two communities to compare for every community-based comparison.
 community_comparison <- c("1", "2")

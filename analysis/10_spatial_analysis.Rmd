@@ -134,7 +134,7 @@ metadata(spe)$color_vectors$col_celltype_2 <- c(metadata(spe)$color_vectors$col_
 
 #celltype 3
 spe$celltype_3 <- spe$metacluster
-spe[,spe$metacluster=="T cells" | spe$metacluster=="B cells" | spe$metacluster=="granulocytes" | spe$metacluster=="MO/DC/NK"]$celltype_3 <- "immune"
+spe[,spe$metacluster=="T cells" | spe$metacluster=="B cells" | spe$metacluster=="granulocytes" | spe$metacluster=="myeloid/NK"]$celltype_3 <- "immune"
 
 # generate new color vector
 metadata(spe)$color_vectors$col_celltype_3 <- metadata(spe)$color_vectors$col_metacluster
@@ -1097,7 +1097,7 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 # Canonical cluster orders used consistently throughout compartment analyses
 tumor_order  <- c("marker-lo Tu", "GD2lo Tu", "CD44+ Tu", "CXCR4+ Tu",
                   "Ki67+ Tu", "bridge-like Tu", "early NB Tu")
-immune_order <- c("T cells", "B cells", "MO/DC/NK", "granulocytes")
+immune_order <- c("T cells", "B cells", "myeloid/NK", "granulocytes")
 ```
 
 

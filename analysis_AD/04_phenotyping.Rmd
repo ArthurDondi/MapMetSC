@@ -413,7 +413,7 @@ spe$metacluster <-  as.vector(metacelltypes)
 ```
 
 ## Assign colors
-Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (the SCPs are green, not brown), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
+Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (the Schwann cell progenitors are green, not brown), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
 
 ```{r colors-celltypes raw_k30}
 # Cell-type and metacluster colors are defined centrally in 00_MapMet_color_code.R

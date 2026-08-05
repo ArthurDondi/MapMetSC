@@ -65,7 +65,7 @@ COL_METACLUSTER <- c(
   "tumor"               = "#238B45",
   "T cells"             = "#E34A33",
   "granulocytes"        = "#08306B",
-  "MO/DC/NK"            = "#41B6C4",
+  "myeloid/NK"          = "#41B6C4",
   "B cells"             = "#88419D",
   "mesenchymal"         = "#8C510A",
   "proliferating cells" = "#FFD700",
@@ -76,28 +76,28 @@ COL_METACLUSTER <- c(
 # ---- Adrenal-gland (AD) cohort: cell types (analysis_AD/04_phenotyping.Rmd) -
 COL_CELLTYPE_AD <- c(
   ## Neural crest lineage (green tones)
-  "SOX10+ S100B+ SCPs"                           = rgb( 34, 100,  60, maxColorValue = 255),  # dark green
-  "ELAVL4+ early progenitors"                    = rgb(152, 251, 152, maxColorValue = 255),  # pale green
-  "ELAVL4+ GD2+ sympathoblasts"                  = rgb( 50, 205,  50, maxColorValue = 255),  # bright lime green
-  "CHGA- CD15+ chromaffin progenitors"           = rgb(  0, 145, 150, maxColorValue = 255),  # teal
-  "CHGA+ CD15+ chromaffin differentiating cells" = rgb(128, 128,   0, maxColorValue = 255),  # olive
-  "CHGA+ CD15- chromaffin mature cells"          = rgb(189, 183, 107, maxColorValue = 255),  # khaki
+  "Schwann cell progenitors" = rgb( 34, 100,  60, maxColorValue = 255),  # dark green
+  "early neuroblasts"        = rgb(152, 251, 152, maxColorValue = 255),  # pale green
+  "GD2+ neuroblasts"         = rgb( 50, 205,  50, maxColorValue = 255),  # bright lime green
+  "CD15+ chromaffin cells"   = rgb(128, 128,   0, maxColorValue = 255),  # olive
+  "CD15- chromaffin cells"   = rgb(189, 183, 107, maxColorValue = 255),  # khaki
 
   ## Mesenchymal (brown tones)
-  "CD10+ fibroblasts"                 = rgb(166,  97,  26, maxColorValue = 255),  # brown
-  "LUM+ mesenchymal"                  = rgb(140,  81,  10, maxColorValue = 255),  # dark brown
-  "CD44+ progenitor mesnchymal cells" = rgb(101,  67,  33, maxColorValue = 255),  # deep brown
+  "CD10+ fibroblasts"       = rgb(166,  97,  26, maxColorValue = 255),  # brown
+  "LUM+ mesenchymal cells"  = rgb(140,  81,  10, maxColorValue = 255),  # dark brown
+  "CD44+ mesenchymal cells" = rgb(101,  67,  33, maxColorValue = 255),  # deep brown
 
   ## Immune
-  "CD45+ immune cells"      = rgb(220,  20,  60, maxColorValue = 255),  # crimson
+  "immune cells"            = rgb(220,  20,  60, maxColorValue = 255),  # crimson
 
   ## Endothelial
   "CD34+ endothelial cells" = rgb(255,  95,   0, maxColorValue = 255),  # orange
 
-  ## Other (greyish tones)
+  ## Other (greyish / blue-grey tones)
   "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
   "other (Ki67+)"  = rgb( 80,  80,  80, maxColorValue = 255),  # dark grey
-  "other (CXCR4+)" = rgb(195, 195, 195, maxColorValue = 255)   # mid grey
+  "other (CXCR4+)" = rgb(195, 195, 195, maxColorValue = 255),  # mid grey
+  "other (CD15+)"  = rgb( 96, 125, 139, maxColorValue = 255)   # blue-grey (was CHGA- CD15+ chromaffin progenitors)
 )
 
 # ---- AD cohort: metaclusters (analysis_AD/04_phenotyping.Rmd) ---------------
