@@ -98,6 +98,29 @@ spe_PTBM <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 # transferred (predicted fetal) labels reuse this vector so they follow the
 # spe_AD color scheme.
 col_celltype_AD <- metadata(spe_AD)$color_vectors$col_celltype
+
+# Ordered AD celltype names (celltype_order_AD.csv) so the predicted-fetal plots
+# order their legends/axes by the AD celltype order instead of alphabetically.
+# Searched in R_intermediary like the other intermediaries; falls back to input.
+ad_order_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
+                   file.path(params$input,  "R_intermediary"),
+                   file.path(dirname(params$input), "R_intermediary"),
+                   file.path(params$output, "R_intermediary"),
+                   params$input)
+ad_order_dirs <- ad_order_dirs[nzchar(ad_order_dirs)]
+ad_order_file <- Find(file.exists, file.path(ad_order_dirs, "celltype_order_AD.csv"))
+if (is.null(ad_order_file))
+  stop("celltype_order_AD.csv not found in: ", paste(ad_order_dirs, collapse = ", "))
+ad_order <- read.csv(ad_order_file, sep = ";", colClasses = c("order" = "character"))
+ordered_AD_celltypes <- ad_order$celltype[order(ad_order$order)]
+
+# Order predicted-fetal labels by the AD celltype order (any unexpected label is
+# appended so no cell is dropped to NA).
+order_fetal <- function(x) {
+  x <- as.character(x)
+  factor(x, levels = c(ordered_AD_celltypes,
+                       setdiff(unique(x), ordered_AD_celltypes)))
+}
 ```
 
 ```{r}
@@ -124,7 +147,7 @@ singleR_results <- SingleR(
 # Add predicted fetal labels to neuroblastoma object
 #spe_PTBM$predicted_fetal <- singleR_results$labels
 cluster_to_label <- setNames(singleR_results$labels, rownames(singleR_results))
-spe_PTBM$predicted_fetal <- cluster_to_label[as.character(spe_PTBM$celltype)]
+spe_PTBM$predicted_fetal <- order_fetal(cluster_to_label[as.character(spe_PTBM$celltype)])
 
 ```
 
@@ -256,6 +279,8 @@ score_df$Neuroblastoma_cluster <- factor(score_df$Neuroblastoma_cluster, levels 
 p_singler_scores <- ggplot(score_df, aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = score)) +
   geom_tile() +
   scale_fill_gradient(low = "white", high = "red") +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(score_df$Fetal_AD_celltype)))) +
   scale_y_discrete(limits = ordered_clusters) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
@@ -282,7 +307,7 @@ singleR_cell <- SingleR(
 # ------------------------------
 # Assign labels to each NB cell
 # ------------------------------
-spe_PTBM$predicted_fetal_cell <- singleR_cell$labels
+spe_PTBM$predicted_fetal_cell <- order_fetal(singleR_cell$labels)
 ```
 
 ```{r}
