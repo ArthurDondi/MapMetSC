@@ -78,6 +78,7 @@ To evaluate the validity of metacluster annnotations, we compare the cell expres
 ```{r load-libraries}
 library(SingleR)
 library(Seurat)
+library(SingleCellExperiment)
 library(bruceR)
 library(ComplexHeatmap)
 library(viridis)
@@ -98,6 +99,17 @@ col_celltype <- metadata(protein)$color_vectors$col_celltype
 
 #read scRNA-seq data
 monocle_cell_dataset <- readRDS(file.path(params$public,"Fetahu/rna_integrated_monocle.rds"))
+# The published Fetahu object is a monocle3 `cell_data_set`, which is just a
+# SingleCellExperiment subclass with a few extra slots. We only read its
+# assays / UMAP / metadata here (no monocle3 analysis is run), so rather than
+# depend on the heavy, hard-to-build monocle3 package purely to register the S4
+# class, demote the object to its SingleCellExperiment parent when monocle3 is
+# not installed. as.Seurat() then resolves to the very same SingleCellExperiment
+# method it would use with monocle3 loaded, producing an identical Seurat object.
+if (!requireNamespace("monocle3", quietly = TRUE)) {
+  attr(monocle_cell_dataset, "class") <-
+    structure("SingleCellExperiment", package = "SingleCellExperiment")
+}
 rna <- as.Seurat(monocle_cell_dataset, data=NULL)
 rna <- RenameAssays(object = rna, originalexp = 'RNA')
 celltype_details <- readRDS(file.path(params$public,"Fetahu/metadata.rds"))
