@@ -330,9 +330,11 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   print(p_boxplot)
   n_clusters <- length(cluster_present)
+  # Half the previous figure size so the (point-sized) text reads about twice as
+  # large relative to the plot (was width max(8, n*1.1+1.5), height 9/7).
   save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".pdf"),
-            width  = max(8, n_clusters * 1.1 + 1.5),
-            height = if (long_labels) 9 else 7)
+            width  = max(8, n_clusters * 1.1 + 1.5) / 2,
+            height = (if (long_labels) 9 else 7) / 2)
 
   invisible(list(res = res, abund_data = abund_data,
                  stats = stats_df, p_boxplot = p_boxplot))
