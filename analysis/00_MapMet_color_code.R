@@ -76,7 +76,7 @@ COL_METACLUSTER <- c(
 # ---- Adrenal-gland (AD) cohort: cell types (analysis_AD/04_phenotyping.Rmd) -
 COL_CELLTYPE_AD <- c(
   ## Neural crest lineage (green tones)
-  "Schwann cell progenitors" = rgb( 34, 100,  60, maxColorValue = 255),  # dark green
+  "Schwann cell progenitors" = rgb(166,  97,  26, maxColorValue = 255),  # brown (matches "S100B+ schwann cells" in the main cohort)
   "early neuroblasts"        = rgb(152, 251, 152, maxColorValue = 255),  # pale green
   "GD2+ neuroblasts"         = rgb( 50, 205,  50, maxColorValue = 255),  # bright lime green
   "CD15+ chromaffin cells"   = rgb(128, 128,   0, maxColorValue = 255),  # olive
