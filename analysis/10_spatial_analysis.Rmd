@@ -328,8 +328,8 @@ sample_summary <- sample_summary %>% select(-sample_id)
 
 #assign color codes
 # Sample-annotation colors are defined centrally in 00_MapMet_color_code.R
-for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
-  if (file.exists(p)) { source(p); break }
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 col_code <- COL_CODE
 
 

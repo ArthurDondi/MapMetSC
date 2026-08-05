@@ -264,8 +264,8 @@ The panels share the same discrete x-axis (one column per patient) and are stack
 
 ```{r cohort-overview-figure, fig.width=7, fig.height=2.5}
 # Cohort-track colors are defined centrally in 00_MapMet_color_code.R
-for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
-  if (file.exists(p)) { source(p); break }
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 col_ynh <- COL_YNH
 col_sex <- COL_SEX
 

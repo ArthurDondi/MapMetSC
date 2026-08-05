@@ -581,8 +581,8 @@ Finally, we assign colors to all celltypes and metaclusters.
 
 ```{r colors-celltypes raw_k30}
 # Cell-type and metacluster colors are defined centrally in 00_MapMet_color_code.R
-for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
-  if (file.exists(p)) { source(p); break }
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 
 col_celltype <- COL_CELLTYPE
 

@@ -127,8 +127,8 @@ Will will first visualize the scRNA-seq data. Therefore we first define a color 
 
 ```{r define-colors}
 # Extra label colors are defined centrally in 00_MapMet_color_code.R
-for (p in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
-  if (file.exists(p)) { source(p); break }
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 col_clusters <- read.csv(file.path(params$public, "Lee/celltype_metacluster.csv"), sep=";")
 col_clust <- setNames(col_clusters$color, col_clusters$celltype)
 col_clust <- c(col_clust, COL_LEE_EXTRA)
