@@ -185,6 +185,22 @@ rm(rna)
 rm(protein)
 
 predicted_labels <- SingleR(test = protein_mat, ref = rna_mat, labels = rna_clusters, BPPARAM = MulticoreParam(workers=16, RNGseed=20231030))
+
+# plotScoreHeatmap draws a `Labels` annotation whose factor levels are the SingleR
+# reference labels; pheatmap aborts ("Factor levels on variable Labels do not
+# match with annotation_colors") if annotation_colors does not cover every level.
+# Guarantee coverage by giving any label absent from col_clust (a Lee reference
+# celltype not listed in celltype_metacluster.csv / COL_LEE_EXTRA) a neutral grey
+# - newer, stricter pheatmap versions error on the gap that older ones tolerated.
+score_labels <- union(colnames(predicted_labels$scores),
+                      as.character(predicted_labels$labels))
+missing_labs <- setdiff(score_labels, names(col_clust))
+if (length(missing_labs)) {
+  col_clust[missing_labs] <- "grey80"
+  message("plotScoreHeatmap: filled ", length(missing_labs),
+          " uncolored label(s) with grey: ", paste(missing_labs, collapse = ", "))
+}
+
 p_score <- plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 2000),],annotation_colors=list(Labels = col_clust), annotation_legend=F, treeheight_row=0) #define colors first
 
 save_plot(p_score, "Lee_singleR_labeltransfer_scoreheatmap.pdf", width = 13, height = 9)
