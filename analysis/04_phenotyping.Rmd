@@ -322,18 +322,16 @@ spe$pg_clusters <- as.character(spe$pg_clusters)
 
 # Mapping: original cluster -> new subcluster label for the second component
 subcluster_map <- list(
-  "6" = "35",
-  "7" = "36",
-  "8" = "37",
-  "17" = "38"
+  "5"  = "35",
+  "12" = "36",
+  "17" = "37"
 )
 
 # define marker sets per cluster
 marker_map <- list(
-  "6"  = c("CD3_"),
-  "7"  = c("GD2"),
-  "8"  = c("CD4_"),
-  "17" = c("CD3_",  "CD10")
+  "5"  = c("CD3_"),
+  "12" = c("CD4_"),
+  "17" = c("CD3_", "CD10")
 )
 
 for (cl in names(subcluster_map)) {
@@ -388,10 +386,9 @@ genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H
 
 # Define the pairs: original cluster and its new sibling
 subcluster_pairs <- list(
-  list(orig = "6",  new = "35"),
-  list(orig = "7",  new = "36"),
-  list(orig = "8",  new = "37"),
-  list(orig = "17", new = "38")
+  list(orig = "5",  new = "35"),
+  list(orig = "12", new = "36"),
+  list(orig = "17", new = "37")
 )
 
 
