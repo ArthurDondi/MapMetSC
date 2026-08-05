@@ -83,7 +83,7 @@ COL_CELLTYPE_AD <- c(
   "CD15- chromaffin cells"   = rgb(189, 183, 107, maxColorValue = 255),  # khaki
 
   ## Mesenchymal (brown tones)
-  "CD10+ fibroblasts"       = rgb(166,  97,  26, maxColorValue = 255),  # brown
+  "fibroblasts"             = rgb(166,  97,  26, maxColorValue = 255),  # brown
   "LUM+ mesenchymal cells"  = rgb(140,  81,  10, maxColorValue = 255),  # dark brown
   "CD44+ mesenchymal cells" = rgb(101,  67,  33, maxColorValue = 255),  # deep brown
 
@@ -91,7 +91,7 @@ COL_CELLTYPE_AD <- c(
   "immune cells"            = rgb(220,  20,  60, maxColorValue = 255),  # crimson
 
   ## Endothelial
-  "CD34+ endothelial cells" = rgb(255,  95,   0, maxColorValue = 255),  # orange
+  "endothelial cells"       = rgb(255,  95,   0, maxColorValue = 255),  # orange
 
   ## Other (greyish / blue-grey tones)
   "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
