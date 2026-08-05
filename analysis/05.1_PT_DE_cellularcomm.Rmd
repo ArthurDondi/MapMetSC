@@ -193,17 +193,18 @@ dist_matrix <- dist(clr_df, method = distance)
 hc <- hclust(dist_matrix, method = linkage)
 
 # Put the LARGER community on the left of the figure: reorder the dendrogram
-# leaves so the bigger cutree cluster sorts first. reorder() only swaps branches
-# at merges - with agglo.FUN = mean it compares the per-leaf community weight
-# (not the size-inflated sum) - and changes neither the clustering nor cutree's
-# membership/labels. Community numbering below is likewise size-based, so the
-# leftmost (largest) community is community 1.
+# leaves so the bigger cutree cluster sorts first. reorder() has no hclust
+# method, so round-trip through a dendrogram (reorder.dendrogram) and back with
+# as.hclust(); agglo.FUN = mean compares the per-leaf community weight, not the
+# size-inflated sum. This swaps branches only - it changes neither the clustering
+# nor cutree's membership/labels. Community numbering below is likewise
+# size-based, so the leftmost (largest) community is community 1.
 comm_membership   <- cutree(hc, k = n_communities)
 comm_sizes        <- table(comm_membership)
 comm_rank_by_size <- rank(-as.integer(comm_sizes), ties.method = "first")  # biggest -> 1
 names(comm_rank_by_size) <- names(comm_sizes)
 leaf_weights      <- comm_rank_by_size[as.character(comm_membership)]
-hc <- reorder(hc, wts = leaf_weights, agglo.FUN = mean)
+hc <- as.hclust(reorder(as.dendrogram(hc), wts = unname(leaf_weights), agglo.FUN = mean))
 
 # Order samples by dendrogram leaf order so the barplot follows the CLR clustering
 clustered_order <- rownames(clr_df)[hc$order]
