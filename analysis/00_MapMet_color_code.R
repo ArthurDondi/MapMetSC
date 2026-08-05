@@ -83,7 +83,7 @@ COL_CELLTYPE_AD <- c(
   "CD15- chromaffin cells"   = rgb(189, 183, 107, maxColorValue = 255),  # khaki
 
   ## Mesenchymal (brown tones)
-  "fibroblasts"             = rgb(166,  97,  26, maxColorValue = 255),  # brown
+  "fibroblasts"             = rgb(210, 140,  80, maxColorValue = 255),  # tan (distinct from the Schwann brown)
   "LUM+ mesenchymal cells"  = rgb(140,  81,  10, maxColorValue = 255),  # dark brown
   "CD44+ mesenchymal cells" = rgb(101,  67,  33, maxColorValue = 255),  # deep brown
 
