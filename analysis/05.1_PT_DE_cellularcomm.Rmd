@@ -211,9 +211,12 @@ clustered_order <- rownames(clr_df)[hc$order]
 sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
 
 # All-cell-type abundance barplot in clustered order
+# plotAbundances() sets the fill scale name to "cluster_id"; a scale name beats
+# labs(fill=), so override the legend title via the guide (guide title wins over
+# scale name) to get the descriptive legend heading.
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
                     k_pal = metadata(spe)$color_vectors$col_celltype_ordered) +
-  labs(fill = "All cell types")
+  guides(fill = guide_legend(title = "All cell types"))
 
 p
 
@@ -263,7 +266,7 @@ sce_tumor$sample_id <- factor(as.character(sce_tumor$sample_id), levels = cluste
 
 p_tumor <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = FALSE,
                           k_pal = metadata(spe)$color_vectors$col_celltype_ordered) +
-  labs(fill = "Tumor cell types")
+  guides(fill = guide_legend(title = "Tumor cell types"))
 
 p_tumor
 
@@ -281,7 +284,7 @@ sce$sample_id <- factor(paste0(spe[keep_rows, keep_cols]$fm_id, "_", spe[keep_ro
 sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
 
 p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered) +
-  labs(fill = "Immune celltypes")
+  guides(fill = guide_legend(title = "Immune celltypes"))
 
 p_ME
 
