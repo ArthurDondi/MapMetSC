@@ -318,7 +318,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
                  outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
     geom_jitter(aes(colour = cluster_id), width = 0.15, size = 1, alpha = 0.8,
                 show.legend = FALSE) +
-    facet_grid(cols = vars(cluster_id), switch = "x") +
+    facet_grid(cols = vars(cluster_id), switch = "x", strip.clip = "off") +
     stat_pvalue_manual(stats_df, label = "label", size = 2.6,
                        bracket.size = 0.3, tip.length = 0.01) +
     scale_fill_manual(values = cluster_colors, drop = FALSE) +
@@ -329,12 +329,17 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     theme(
       strip.background = element_blank(),
       strip.placement  = "outside",
-      # Cell-type (facet-strip) labels rotated to 45 deg, right/top-anchored so
-      # each label's end stays where the vertical label ended (no sideways shift).
-      # The group / MNA axis labels (axis.text.x below) are left untouched.
+      # Cell-type (facet-strip) labels at 45 deg, right-anchored (hjust = 1) so
+      # each label's right end sits under its facet and the text hangs down-left.
+      # strip.clip = "off" (on facet_grid) plus the enlarged bottom/left plot
+      # margin keep the rotated labels from being cropped.
       strip.text.x     = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
       panel.spacing    = unit(0.15, "lines"),
-      axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
+      # Group / MNA condition labels stay fully vertical.
+      axis.text.x      = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
+      # Generous bottom room for the down-left-hanging 45 deg strip labels, and a
+      # little left room so the leftmost label does not run off the device edge.
+      plot.margin      = margin(t = 5, r = 10, b = 55, l = 35),
       legend.position  = "none"
     )
 
