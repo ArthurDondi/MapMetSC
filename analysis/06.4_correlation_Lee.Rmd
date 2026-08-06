@@ -217,10 +217,10 @@ protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labe
 metadata(protein)$color_vectors$col_predicted_label <- col_clust
 
 p1 <- dittoDimPlot(protein, var = "celltype_predicted",
-             reduction.use = "UMAP", size = 0.3, labels.size=2,
-             do.label = TRUE,
+             reduction.use = "UMAP", size = 0.3,
+             do.label = FALSE,
              order = "randomize",
-             legend.show=F) +
+             legend.show=TRUE) +
   scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label) +
   theme(legend.title = element_blank(), aspect.ratio = 1) +
   ggtitle("Predicted celltype on UMAP")
