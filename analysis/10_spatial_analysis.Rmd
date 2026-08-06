@@ -666,12 +666,15 @@ for(i in 1:length(unique(celltypes))){
   combined_data <- mean_cell_freq_per_sample %>%
     left_join(progression_per_sample, by = "sample")
   
-  # Calculate log2FC
-  log2fc_df <- combined_data %>%
+  # log2FC = log2(second / first) over the two condition levels present, so it
+  # works whether they are coded 0/1 (e.g. MYCN) or 1/2 (cellular communities).
+  freq_by_cond <- combined_data %>%
     group_by(condition) %>%
-    summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE)) %>%
-    spread(condition, mean_freq) %>%
-    mutate(log2FC = log2(`1` / `0`))
+    summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE))
+  grp <- sort(unique(as.character(freq_by_cond$condition)))
+  log2fc_df <- data.frame(log2FC = log2(
+    freq_by_cond$mean_freq[match(grp[2], as.character(freq_by_cond$condition))] /
+    freq_by_cond$mean_freq[match(grp[1], as.character(freq_by_cond$condition))]))
   
   stats_df <- compare_means(mean_cell_freq ~ condition,  
                             method = "wilcox.test",  
@@ -737,12 +740,15 @@ for(i in 1:length(unique(celltypes))){
   combined_data <- mean_cell_freq_per_sample %>%
     left_join(progression_per_sample, by = "sample")
   
-  # Calculate log2FC
-  log2fc_df <- combined_data %>%
+  # log2FC = log2(second / first) over the two condition levels present, so it
+  # works whether they are coded 0/1 (e.g. MYCN) or 1/2 (cellular communities).
+  freq_by_cond <- combined_data %>%
     group_by(condition) %>%
-    summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE)) %>%
-    spread(condition, mean_freq) %>%
-    mutate(log2FC = log2(`1` / `0`))
+    summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE))
+  grp <- sort(unique(as.character(freq_by_cond$condition)))
+  log2fc_df <- data.frame(log2FC = log2(
+    freq_by_cond$mean_freq[match(grp[2], as.character(freq_by_cond$condition))] /
+    freq_by_cond$mean_freq[match(grp[1], as.character(freq_by_cond$condition))]))
   
   stats_df <- compare_means(mean_cell_freq ~ condition,  
                             method = "wilcox.test",  
@@ -806,12 +812,14 @@ progression_per_sample <- df %>%
 combined_data <- mean_cell_freq_per_sample %>%
   left_join(progression_per_sample, by = "sample")
 
-# Calculate log2FC
-log2fc_df <- combined_data %>%
+# log2FC = log2(second / first) over the two condition levels present.
+freq_by_cond <- combined_data %>%
   group_by(condition) %>%
-  summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE)) %>%
-  spread(condition, mean_freq) %>%
-  mutate(log2FC = log2(`1` / `0`))
+  summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE))
+grp <- sort(unique(as.character(freq_by_cond$condition)))
+log2fc_df <- data.frame(log2FC = log2(
+  freq_by_cond$mean_freq[match(grp[2], as.character(freq_by_cond$condition))] /
+  freq_by_cond$mean_freq[match(grp[1], as.character(freq_by_cond$condition))]))
 
 stats_df <- compare_means(mean_cell_freq ~ condition,  
                           method = "wilcox.test",  
