@@ -156,15 +156,15 @@ CLR_PSEUDO <- 0.5
 # Tumor subset is kept for the tumor-only abundance panel and heterogeneity below
 sce_tumor <- sce[,sce$metacluster=="tumor"]
 
-# ---- Build the all-cell-type composition DIRECTLY from cell counts ----
+# ---- Build the TUMOR cell-type composition DIRECTLY from cell counts ----
 # The clustering input is built from raw cell counts (NOT plotAbundances()$Freq,
-# which CATALYST returns as a percentage 0-100) over ALL cell types INCLUDING
-# "other", per sample. Proportions are n / sum(n); a per-sample pseudocount
-# (CLR_PSEUDO cells / total cells in the sample) is then added on the same 0-1
-# scale before the CLR transform. This mirrors the reference cluster_patients()
-# recipe and keeps the pseudocount on the correct (proportion) scale.
+# which CATALYST returns as a percentage 0-100) over the TUMOR cell types only
+# (metacluster == "tumor"), per sample. Proportions are n / sum(n); a per-sample
+# pseudocount (CLR_PSEUDO cells / total tumor cells in the sample) is then added
+# on the same 0-1 scale before the CLR transform. This mirrors the reference
+# cluster_patients() recipe and keeps the pseudocount on the correct scale.
 md_clust <- as.data.frame(colData(spe)) %>%
-  filter(tissue == "PT", timepoint == "DE") %>%             # keep "other" cells
+  filter(tissue == "PT", timepoint == "DE", metacluster == "tumor") %>%  # tumor cells only
   mutate(
     progress  = recode(factor(progression), `0` = "NoProg", `1` = "Prog"),
     mna       = recode(factor(MYCN_amp), `1` = "MNA", `2` = "het", `0` = "nMNA", `9` = "unknown"),
