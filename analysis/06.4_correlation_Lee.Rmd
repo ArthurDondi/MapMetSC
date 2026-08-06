@@ -216,15 +216,18 @@ protein[,protein$metacluster=="other"]$celltype_predicted <- "other"
 protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labels
 metadata(protein)$color_vectors$col_predicted_label <- col_clust
 
-p1 <- dittoDimPlot(protein, var = "celltype_predicted", 
+p1 <- dittoDimPlot(protein, var = "celltype_predicted",
              reduction.use = "UMAP", size = 0.3, labels.size=2,
-             do.label = F,
+             do.label = TRUE,
+             order = "randomize",
              legend.show=F) +
   scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label) +
-  theme(legend.title = element_blank()) +
+  theme(legend.title = element_blank(), aspect.ratio = 1) +
   ggtitle("Predicted celltype on UMAP")
 
-save_plot(p1, "Lee_predicted_celltype_umap.pdf", width = 8, height = 6)
+# Match the standard UMAP proportions used elsewhere (aspect.ratio = 1 + 16x8),
+# e.g. umap-celltypes.pdf in analysis/04_phenotyping.Rmd.
+save_plot(p1, "Lee_predicted_celltype_umap.pdf", width = 16, height = 8)
 
 p1
 ```

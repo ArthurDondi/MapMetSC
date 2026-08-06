@@ -81,11 +81,10 @@ render_step("analysis/06.2_correlation_Fetahu.Rmd",   corr_params)
 render_step("analysis/06.3_correlation_Jansky.Rmd",   corr_params)
 render_step("analysis/06.4_correlation_Lee.Rmd",      corr_params)
 
-# --- Spatial analysis (SEPARATE — not part of the automated run) -------------
-# Requires the `lazdaria/mapmetsc_spatial:v1.0` Docker image (imcRtools
-# testInteractions fix) and a tumor-only community column that the streamlined
-# pipeline does not currently produce (see the note at the top of the script).
-# Run manually once those prerequisites are in place:
-# render_step("analysis/10_spatial_analysis.Rmd",     main_params)
+# --- Spatial analysis --------------------------------------------------------
+# Uses imcRtools::testInteractions (the fix that once required a separate spatial
+# image is in the imcRtools 1.10.0 / Bioconductor 3.19 this image pins) and the
+# allcelltype_community column produced by 05.1, so it now runs in the same pass.
+render_step("analysis/10_spatial_analysis.Rmd",     main_params)
 
 message("\nAll steps completed. Rendered HTML is in docs/; objects & figures in ", output)

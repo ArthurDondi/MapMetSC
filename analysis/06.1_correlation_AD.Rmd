@@ -209,8 +209,9 @@ save_plot(ph, "correlation-clusters-vs-fetal.pdf", width = 8, height = 6)
 # 6. UMAP colored by predicted fetal labels
 # ------------------------------
 p_umap_fetal <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal") +
-  scale_color_manual(values = col_celltype_AD)
-save_plot(p_umap_fetal, "umap-predicted-fetal.pdf", width = 8, height = 6)
+  scale_color_manual(values = col_celltype_AD) +
+  theme(aspect.ratio = 1)
+save_plot(p_umap_fetal, "umap-predicted-fetal.pdf", width = 16, height = 8)
 p_umap_fetal
 
 # ------------------------------
@@ -312,8 +313,10 @@ spe_PTBM$predicted_fetal_cell <- order_fetal(singleR_cell$labels)
 
 ```{r}
 p_umap_fetal_cell <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal_cell", point_size = 0.05) +
-  scale_color_manual(values = col_celltype_AD) +
-  guides(colour = guide_legend(override.aes = list(size = 3)))
-save_plot(p_umap_fetal_cell, "umap-predicted-fetal-cell.pdf", width = 8, height = 6)
+  scale_color_manual(values = col_celltype_AD,
+                     name = "Predicted foetal adrenal gland celltype") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  theme(aspect.ratio = 1)
+save_plot(p_umap_fetal_cell, "umap-predicted-fetal-cell.pdf", width = 16, height = 8)
 p_umap_fetal_cell
 ```

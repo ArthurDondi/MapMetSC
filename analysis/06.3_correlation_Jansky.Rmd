@@ -89,7 +89,7 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
 col_celltype <- metadata(protein)$color_vectors$col_celltype
-protein <- protein[,protein$metacluster=="tumor"]
+protein <- protein[, protein$metacluster == "tumor" | protein$celltype == "Schwann cells"]
 
 #scRNA-seq data
 rna <- readRDS(file.path(params$public,"Jansky/adrenal_medulla_Seurat.RDS"))
@@ -211,7 +211,7 @@ percent_mat <- cbind(rna_percent_mat, protein_percent_mat)
 modality_col <- setNames(c("ivory4", "lightcoral"), c("RNA", "protein"))
 
 column_ha = HeatmapAnnotation(modality=modality,
-                              ncells=anno_barplot(cell_count, height = unit(0.5, "cm")),
+                              ncells=anno_barplot(cell_count, height = unit(1, "cm")),
                               col=list(modality=modality_col),
                               show_legend=T)
 

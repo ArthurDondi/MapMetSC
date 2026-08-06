@@ -112,10 +112,10 @@ We can now read in the neighbors.
 For the spatial interaction analysis, we will use the metaclusters for non-tumor cells, since these represent the minority in the PT samples, and the celltype level annotations for the tumor cells (majority).
 
 ```{r read-data}
-# NOTE: this spatial analysis is kept separate from the automated pipeline because
-# it requires the `lazdaria/mapmetsc_spatial` Docker image (imcRtools
-# testInteractions fix). It reads the cellular-community object from 05.1 and uses
-# its `allcelltype_community` column for the community annotations below.
+# Reads the cellular-community object from 05.1 and uses its
+# `allcelltype_community` column for the community annotations below. The
+# imcRtools::testInteractions fix (which once required a separate spatial image)
+# is in the imcRtools 1.10.0 / Bioconductor 3.19 that this image pins.
 spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
 spe <- spe[,spe$tissue=="PT"]
 

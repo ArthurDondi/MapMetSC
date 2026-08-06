@@ -229,10 +229,11 @@ p1 <- dittoDimPlot(protein, var = "predicted_metacluster",
              order = "randomize",
              legend.show=T) +
   scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_meta) +
-  theme(legend.title = element_blank()) +
+  theme(legend.title = element_blank(), aspect.ratio = 1) +
   ggtitle("Predicted celltype on UMAP")
 
-save_plot(p1, "Fig2b_Fetahu_labeltransfer.pdf", width = 8, height = 6)
+# Match the standard UMAP proportions (aspect.ratio = 1 + 16x8) used elsewhere.
+save_plot(p1, "Fig2b_Fetahu_labeltransfer.pdf", width = 16, height = 8)
 
 p1
 ```

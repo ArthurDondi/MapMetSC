@@ -20,19 +20,16 @@ if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
-# create phenograph heatmap folder
-outdir <- paste0(plot_dir,"/pg_heatmap")
-dir.create(outdir, showWarnings = FALSE)
-
-
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
 # ================================
 # Helper function to save plots
 # ================================
-save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
-  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, subdir = NULL) {
+  out_dir <- if (is.null(subdir)) plot_dir else file.path(plot_dir, subdir)
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  full_path <- file.path(out_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
     # ggplot2 objects
@@ -341,7 +338,8 @@ for (cl in clusters) {
     p1,
     paste0("heatmap_cluster_", cl, ".pdf"),
     width = 14,
-    height = 6
+    height = 6,
+    subdir = "heatmap_after_subclustering"
   )
 }
 
@@ -413,7 +411,7 @@ spe$metacluster <-  as.vector(metacelltypes)
 ```
 
 ## Assign colors
-Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (except Schwann cell progenitors, colored brown to match the S100B+ schwann cells in the main cohort), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
+Finally, we assign colors to all celltypes and metaclusters. Neural crest lineage celltypes reuse the green tones of the reference tumor palette (except Schwann cell progenitors, colored brown to match the Schwann cells in the main cohort), mesenchymal celltypes use browns, and the `other` celltypes use greyish tones.
 
 ```{r colors-celltypes raw_k30}
 # Cell-type and metacluster colors are defined centrally in 00_MapMet_color_code.R
@@ -513,10 +511,6 @@ library(dittoSeq)
 library(ggplot2)
 library(viridis)
 
-# Ensure output directory exists
-outdir <- file.path(plot_dir)
-dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
-
 # Get cluster IDs
 clusters <- unique(colData(spe)$celltype)
 
@@ -555,10 +549,9 @@ for (cl in clusters) {
   
   # --- 5. Save heatmap safely ---
   filename <- paste0("heatmap_celltype_", safe_name, ".png")
-  full_path <- file.path(outdir, filename)
   
   # If save_plot() is your custom function
-  save_plot(p1, filename = filename, width = 14, height = 6)
+  save_plot(p1, filename = filename, width = 14, height = 6, subdir = "heatmap_celltype")
   
   # Or using ggsave directly:
   # ggsave(full_path, plot = p1, width = 14, height = 6, dpi = 300)
