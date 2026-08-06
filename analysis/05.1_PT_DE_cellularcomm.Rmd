@@ -212,7 +212,8 @@ sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
 
 # All-cell-type abundance barplot in clustered order
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
-                    k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
+                    k_pal = metadata(spe)$color_vectors$col_celltype_ordered) +
+  labs(fill = "All cell types")
 
 p
 
@@ -261,7 +262,8 @@ We plot the tumor cell-type profiles for these samples in the clustered order (t
 sce_tumor$sample_id <- factor(as.character(sce_tumor$sample_id), levels = clustered_order)
 
 p_tumor <- plotAbundances(sce_tumor, k = "celltype", by = "sample", col_clust = FALSE,
-                          k_pal = metadata(spe)$color_vectors$col_celltype_ordered)
+                          k_pal = metadata(spe)$color_vectors$col_celltype_ordered) +
+  labs(fill = "Tumor cell types")
 
 p_tumor
 
@@ -278,7 +280,8 @@ sce$sample_id <- factor(paste0(spe[keep_rows, keep_cols]$fm_id, "_", spe[keep_ro
 
 sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
 
-p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered)
+p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered) +
+  labs(fill = "Immune celltypes")
 
 p_ME
 
@@ -564,8 +567,8 @@ p_prog_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(progre
   labs(y = "Prog")
 
 # ---- 3. Clean barplots (drop facet, apply spacer levels, remove x-axis) ----
-# Panel order: all cell types (was tumor) -> metadata -> tumor only (was
-# metacluster) -> immune (kept as is).
+# Panel order (tumor on top, since the clustering is now tumor-based):
+# tumor cell types -> metadata -> all cell types -> immune.
 p_allct_c  <- prep_bar(p,       lev_allct)
 p_tumor_c  <- prep_bar(p_tumor, lev_allct)
 p_immune_c <- prep_bar(p_ME,    lev_fm)
@@ -573,9 +576,9 @@ p_immune_c <- prep_bar(p_ME,    lev_fm)
 # ---- 4. Stack all panels ----
 # guides = "collect" consolidates all legends into one area, eliminating overlap
 p_fig3a <- (p_dendro /
-  p_allct_c /
-  p_mna_m / p_1p_m / p_prog_m /
   p_tumor_c /
+  p_mna_m / p_1p_m / p_prog_m /
+  p_allct_c /
   p_immune_c) +
   plot_layout(ncol = 1, heights = c(2, 4, 0.2, 0.2, 0.2, 4, 4),
               guides = "collect")
