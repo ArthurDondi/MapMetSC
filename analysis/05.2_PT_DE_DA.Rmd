@@ -294,6 +294,15 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   }))
   stats_df$cluster_id <- factor(stats_df$cluster_id, levels = cluster_present)
 
+  # Community comparisons label the two groups "Group 1"/"Group 2" on the x-axis
+  # (MNA keeps nMNA/MNA). Relabel the condition factor and the p-value bracket
+  # groups together so stat_pvalue_manual still aligns.
+  if (comparison != "mna") {
+    levels(abund_data$condition) <- paste("Group", levels(abund_data$condition))
+    stats_df$group1 <- paste("Group", stats_df$group1)
+    stats_df$group2 <- paste("Group", stats_df$group2)
+  }
+
   # Boxes are coloured by cell type / metacluster (matching the project colour
   # scheme). The two conditions within each panel share the cluster colour and
   # are distinguished by their x-axis label. Missing colours fall back to grey.
@@ -320,9 +329,10 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     theme(
       strip.background = element_blank(),
       strip.placement  = "outside",
-      strip.text.x     = element_text(angle = if (long_labels) 90 else 0,
-                                       hjust = if (long_labels) 1 else 0.5,
-                                       vjust = 0.5, size = 8),
+      # Cell-type (facet-strip) labels rotated to 45 deg, right/top-anchored so
+      # each label's end stays where the vertical label ended (no sideways shift).
+      # The group / MNA axis labels (axis.text.x below) are left untouched.
+      strip.text.x     = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
       panel.spacing    = unit(0.15, "lines"),
       axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
       legend.position  = "none"
@@ -332,7 +342,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   n_clusters <- length(cluster_present)
   # Half the previous figure size so the (point-sized) text reads about twice as
   # large relative to the plot (was width max(8, n*1.1+1.5), height 9/7).
-  save_plot(p_boxplot, paste0("Fig_boxplot_", fig_suffix, ".pdf"),
+  save_plot(p_boxplot, paste0("boxplot_", fig_suffix, ".pdf"),
             width  = max(8, n_clusters * 1.1 + 1.5) / 2,
             height = (if (long_labels) 9 else 7) / 2)
 
@@ -395,6 +405,11 @@ for (cl in cluster_level_configs) {
     } else {
       paste0(cl$key, "_", cm$key, "_", paste(cm$selected_communities, collapse = "_vs_"))
     }
+    # Short figure name for the saved boxplot: <level>_<mna|grp>, e.g.
+    # boxplot_tumor_grp.pdf. The level drops the "celltype_" prefix; every
+    # community comparison is "grp" and MYCN status is "mna".
+    fig_name <- paste0(sub("^celltype_", "", cl$key),
+                       if (cm$comparison == "mna") "_mna" else "_grp")
     analysis_configs[[suffix]] <- list(
       name             = suffix,
       cell_filter      = cl$cell_filter,
@@ -403,7 +418,7 @@ for (cl in cluster_level_configs) {
       ord              = cm$ord,
       selected_communities = cm$selected_communities,
       min_samples_frac = cl$min_samples_frac,
-      fig_suffix       = suffix
+      fig_suffix       = fig_name
     )
   }
 }
