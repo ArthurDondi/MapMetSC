@@ -216,18 +216,33 @@ protein[,protein$metacluster=="other"]$celltype_predicted <- "other"
 protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labels
 metadata(protein)$color_vectors$col_predicted_label <- col_clust
 
-# Plot only the Lee-predicted TME celltypes: drop the PT/BM "tumor"/"other"
-# background cells so the UMAP shows (and the legend lists) just the Lee
-# reference celltypes.
-protein_lee <- protein[, !protein$celltype_predicted %in% c("tumor", "other")]
+# Full UMAP (all cells, original colours), no on-plot labels, with TWO titled
+# legends: the Lee-predicted TME celltypes ("Lee predicted celltype", colour
+# aesthetic) and the PT/BM background categories tumor/other ("PT/BM", fill
+# aesthetic). Two aesthetics give two separate legends without extra packages;
+# tumor/other keep their original col_clust colours.
+col_pred  <- metadata(protein)$color_vectors$col_predicted_label
+bg_types  <- intersect(c("tumor", "other"), as.character(protein$celltype_predicted))
+lee_types <- setdiff(sort(unique(as.character(protein$celltype_predicted))), bg_types)
 
-p1 <- dittoDimPlot(protein_lee, var = "celltype_predicted",
-             reduction.use = "UMAP", size = 0.3,
-             do.label = FALSE,
-             order = "randomize",
-             legend.show=TRUE) +
-  scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label) +
-  theme(legend.title = element_blank(), aspect.ratio = 1) +
+umap_df <- data.frame(
+  UMAP_1 = SingleCellExperiment::reducedDim(protein, "UMAP")[, 1],
+  UMAP_2 = SingleCellExperiment::reducedDim(protein, "UMAP")[, 2],
+  label  = as.character(protein$celltype_predicted)
+)
+umap_df$lee <- factor(ifelse(umap_df$label %in% lee_types, umap_df$label, NA), levels = lee_types)
+umap_df$bg  <- factor(ifelse(umap_df$label %in% bg_types,  umap_df$label, NA), levels = bg_types)
+
+# tumor/other background first (bottom), Lee-predicted celltypes on top.
+p1 <- ggplot(umap_df, aes(UMAP_1, UMAP_2)) +
+  geom_point(data = subset(umap_df, !is.na(bg)),  aes(fill   = bg),  shape = 21, size = 0.3, stroke = 0) +
+  geom_point(data = subset(umap_df, !is.na(lee)), aes(colour = lee), size = 0.3) +
+  scale_fill_manual(name = "PT/BM",                    values = col_pred[bg_types]) +
+  scale_colour_manual(name = "Lee predicted celltype", values = col_pred[lee_types]) +
+  guides(colour = guide_legend(order = 1, override.aes = list(size = 3)),
+         fill   = guide_legend(order = 2, override.aes = list(size = 3))) +
+  theme_classic() +
+  theme(aspect.ratio = 1) +
   ggtitle("Predicted celltype on UMAP")
 
 # Match the standard UMAP proportions used elsewhere (aspect.ratio = 1 + 16x8),
