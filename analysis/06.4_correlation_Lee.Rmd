@@ -216,17 +216,17 @@ protein[,protein$metacluster=="other"]$celltype_predicted <- "other"
 protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labels
 metadata(protein)$color_vectors$col_predicted_label <- col_clust
 
-p1 <- dittoDimPlot(protein, var = "celltype_predicted",
+# Plot only the Lee-predicted TME celltypes: drop the PT/BM "tumor"/"other"
+# background cells so the UMAP shows (and the legend lists) just the Lee
+# reference celltypes.
+protein_lee <- protein[, !protein$celltype_predicted %in% c("tumor", "other")]
+
+p1 <- dittoDimPlot(protein_lee, var = "celltype_predicted",
              reduction.use = "UMAP", size = 0.3,
              do.label = FALSE,
              order = "randomize",
              legend.show=TRUE) +
-  # "tumor"/"other" are PT/BM background labels (not Lee reference celltypes):
-  # keep them plotted as background but drop them from the legend, which then
-  # shows only the Lee-predicted TME celltypes.
-  scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label,
-                     breaks = setdiff(sort(unique(protein$celltype_predicted)),
-                                      c("tumor", "other"))) +
+  scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label) +
   theme(legend.title = element_blank(), aspect.ratio = 1) +
   ggtitle("Predicted celltype on UMAP")
 
