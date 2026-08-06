@@ -186,7 +186,8 @@ p_heatmap <- pheatmap(data_wide,
          cellwidth = 20,
          cellheight = 20,
          fontsize = 10,
-         display_numbers = TRUE)  # Optionally display the values in cells
+         display_numbers = TRUE,
+         number_format = "%.0f")  # display the values in cells as round numbers
 
 save_plot(p_heatmap, "Fig4b_cell-cell_interactions.pdf", width = 6, height = 6)
 ```
