@@ -319,9 +319,12 @@ p_umap_fetal_cell <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal_cell", poin
   # Full square panel border to match the dittoDimPlot (theme_bw) style of
   # 04_phenotyping/umap-celltypes.pdf. plotUMAP draws only the bottom/left axis
   # lines (an L); replace them with a closed rectangle on all four sides.
+  # element_rect uses `size` (not `linewidth`) for compatibility with the older
+  # ggplot2 in the image; `linewidth` on theme elements only exists from 3.4.0
+  # and errors ("unused argument") on earlier versions.
   theme(aspect.ratio = 1,
         axis.line    = element_blank(),
-        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 save_plot(p_umap_fetal_cell, "umap-predicted-fetal-cell.pdf", width = 16, height = 8)
 p_umap_fetal_cell
 ```
