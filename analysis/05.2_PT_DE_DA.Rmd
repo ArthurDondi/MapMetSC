@@ -329,18 +329,18 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     theme(
       strip.background = element_blank(),
       strip.placement  = "outside",
-      # Cell-type (facet-strip) labels at 45 deg, right-anchored (hjust = 1) so
-      # each label's right end sits under its facet and the text hangs down-left.
-      # This ggplot2 version does not clip strip text to its cell (cell clipping
-      # and the strip.clip switch only arrived in 3.4.0), so the enlarged
-      # bottom/left plot margin below is what keeps the rotated labels uncropped.
-      strip.text.x     = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+      # Cell-type (facet-strip) labels: vertical for long names, horizontal for
+      # short ones. (A 45 deg strip rotation did not anchor cleanly in this
+      # ggplot2 version, so the labels are kept vertical.)
+      strip.text.x     = element_text(angle = if (long_labels) 90 else 0,
+                                      hjust = if (long_labels) 1 else 0.5,
+                                      vjust = 0.5, size = 8),
       panel.spacing    = unit(0.15, "lines"),
       # Group / MNA condition labels stay fully vertical.
       axis.text.x      = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
-      # Generous bottom room for the down-left-hanging 45 deg strip labels, and a
-      # little left room so the leftmost label does not run off the device edge.
-      plot.margin      = margin(t = 5, r = 10, b = 55, l = 35),
+      # Bottom room so the vertical strip labels are not cropped at the small
+      # (halved) figure height.
+      plot.margin      = margin(t = 5, r = 5, b = 30, l = 5),
       legend.position  = "none"
     )
 
