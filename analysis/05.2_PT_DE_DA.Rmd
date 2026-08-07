@@ -82,6 +82,7 @@ library(rstatix)
 library(gridExtra)
 library(gtools)
 library(grid)
+library(patchwork)
 ```
 </details>
 
@@ -266,12 +267,11 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   print(rowData(res_DA)[which(rowData(res_DA)$p_adj < FDR_cutoff), ])
   res <- data.frame(rowData(res_DA))
 
-  # --- 8. Combined grouped boxplot (one panel per cluster) ---
-  # Single figure replacing the former per-cluster boxplot grid and the faceted
-  # abundance boxplot. Within each cluster panel the two conditions (e.g. nMNA vs
-  # MNA, or two communities) are drawn side by side with the DA adjusted p-value
-  # on top of the pair. The x-axis carries two layers: the condition (axis text,
-  # upper) and the cluster (facet strip switched to the bottom, lower). White
+  # --- 8. Combined grouped boxplot (one group per cluster) ---
+  # Single figure: for each cell type the two conditions (e.g. nMNA vs MNA, or
+  # two communities) are drawn side by side with the DA adjusted p-value bracket
+  # over the pair. The x-axis carries two layers: the condition (vertical axis
+  # text, upper) and the cell type (45 deg labels in a strip below, lower). White
   # background, as in the previous per-cluster boxplots.
   cluster_present <- levels(abund_data$cluster_id)
 
@@ -310,47 +310,93 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   cluster_colors[is.na(cluster_colors)] <- "gray50"
   names(cluster_colors) <- cluster_present
 
-  # Long cell-type names are rotated vertically; short labels stay horizontal
   long_labels <- any(nchar(cluster_present) > 6)
 
-  p_boxplot <- ggplot(abund_data, aes(x = condition, y = Freq)) +
+  # --- Combined grouped boxplot on a NUMERIC x-axis --------------------------
+  # The cell-type labels must sit at 45 deg with their RIGHT end anchored under
+  # each cell type. Facet-strip text centres rotated labels in this ggplot2
+  # version (hjust is ignored), so instead the cell-type names are drawn with
+  # geom_text() - where hjust = 1 right-anchors reliably - in a thin strip
+  # stacked below the boxplot with patchwork (the same aligned-panel trick used
+  # in 05.1). The boxplot uses manual numeric x positions: cell type i sits at
+  # integer i, its two conditions at i +/- 0.2. The condition (Group/MNA) labels
+  # stay as vertical axis text under each box.
+  n_clusters <- length(cluster_present)
+  ct_idx     <- setNames(seq_along(cluster_present), cluster_present)
+  cond_lev   <- levels(abund_data$condition)          # two levels: g1 then g2
+  cond_off   <- setNames(c(-0.2, 0.2), cond_lev)
+
+  abund_data$xpos <- ct_idx[as.character(abund_data$cluster_id)] +
+                     cond_off[as.character(abund_data$condition)]
+  abund_data$box  <- interaction(abund_data$cluster_id, abund_data$condition,
+                                 drop = TRUE)
+
+  # One row per box, in x order, for the condition (inner) axis tick labels.
+  box_df <- data.frame(
+    x    = as.vector(ct_idx[rep(cluster_present, each = 2)] +
+                     rep(cond_off, times = n_clusters)),
+    cond = rep(cond_lev, times = n_clusters),
+    stringsAsFactors = FALSE
+  )
+  box_df <- box_df[order(box_df$x), ]
+
+  # Bracket geometry, drawn manually at the numeric pair positions.
+  stats_df$xc   <- ct_idx[as.character(stats_df$cluster_id)]
+  stats_df$xmin <- stats_df$xc - 0.2
+  stats_df$xmax <- stats_df$xc + 0.2
+  y_tip <- 0.02 * max(stats_df$y.position, na.rm = TRUE)
+  x_lims <- c(0.5, n_clusters + 0.5)
+
+  # size (not linewidth) for line elements: linewidth on lines/segments only
+  # exists from ggplot2 3.4.0 and errors on the older version in the image.
+  p_main <- ggplot(abund_data, aes(x = xpos, y = Freq, group = box)) +
     geom_boxplot(aes(fill = cluster_id, colour = cluster_id),
-                 outlier.shape = NA, alpha = 0.45, width = 0.7, show.legend = FALSE) +
-    geom_jitter(aes(colour = cluster_id), width = 0.15, size = 1, alpha = 0.8,
+                 position = "identity", width = 0.32,
+                 outlier.shape = NA, alpha = 0.45, show.legend = FALSE) +
+    geom_jitter(aes(colour = cluster_id), width = 0.07, size = 1, alpha = 0.8,
                 show.legend = FALSE) +
-    facet_grid(cols = vars(cluster_id), switch = "x") +
-    stat_pvalue_manual(stats_df, label = "label", size = 2.6,
-                       bracket.size = 0.3, tip.length = 0.01) +
+    geom_segment(data = stats_df, inherit.aes = FALSE, size = 0.3,
+                 aes(x = xmin, xend = xmax, y = y.position, yend = y.position)) +
+    geom_segment(data = stats_df, inherit.aes = FALSE, size = 0.3,
+                 aes(x = xmin, xend = xmin, y = y.position - y_tip, yend = y.position)) +
+    geom_segment(data = stats_df, inherit.aes = FALSE, size = 0.3,
+                 aes(x = xmax, xend = xmax, y = y.position - y_tip, yend = y.position)) +
+    geom_text(data = stats_df, inherit.aes = FALSE, size = 2.6, vjust = -0.3,
+              aes(x = xc, y = y.position, label = label)) +
     scale_fill_manual(values = cluster_colors, drop = FALSE) +
     scale_colour_manual(values = cluster_colors, drop = FALSE) +
+    scale_x_continuous(breaks = box_df$x, labels = box_df$cond,
+                       limits = x_lims, expand = c(0, 0)) +
     scale_y_continuous(expand = expansion(mult = c(0.03, 0.18))) +
     labs(x = NULL, y = "% abundance") +
     theme_pubr(base_size = 11) +
     theme(
-      strip.background = element_blank(),
-      strip.placement  = "outside",
-      # Cell-type (facet-strip) labels: vertical for long names, horizontal for
-      # short ones. (A 45 deg strip rotation did not anchor cleanly in this
-      # ggplot2 version, so the labels are kept vertical.)
-      strip.text.x     = element_text(angle = if (long_labels) 90 else 0,
-                                      hjust = if (long_labels) 1 else 0.5,
-                                      vjust = 0.5, size = 8),
-      panel.spacing    = unit(0.15, "lines"),
-      # Group / MNA condition labels stay fully vertical.
-      axis.text.x      = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
-      # Bottom room so the vertical strip labels are not cropped at the small
-      # (halved) figure height.
-      plot.margin      = margin(t = 5, r = 5, b = 30, l = 5),
-      legend.position  = "none"
+      # Group / MNA condition labels stay fully vertical, under each box.
+      axis.text.x     = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
+      plot.margin     = margin(t = 5, r = 5, b = 2, l = 5),
+      legend.position = "none"
     )
 
+  # Thin strip of cell-type names, drawn with geom_text so the 45 deg labels
+  # right-anchor (hjust = 1) exactly under each cell type. Shares the main
+  # panel's numeric x range so patchwork aligns them column-by-column.
+  ct_lab_df <- data.frame(x = seq_along(cluster_present), label = cluster_present)
+  p_ctlab <- ggplot(ct_lab_df, aes(x = x, y = 1, label = label)) +
+    geom_text(angle = 45, hjust = 1, vjust = 1, size = 2.8) +
+    scale_x_continuous(limits = x_lims, expand = c(0, 0)) +
+    scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+    coord_cartesian(clip = "off") +
+    theme_void() +
+    theme(plot.margin = margin(t = 2, r = 5, b = 34, l = 5))
+
+  p_boxplot <- p_main / p_ctlab + plot_layout(heights = c(1, 0.42))
+
   print(p_boxplot)
-  n_clusters <- length(cluster_present)
-  # Half the previous figure size so the (point-sized) text reads about twice as
-  # large relative to the plot (was width max(8, n*1.1+1.5), height 9/7).
+  # Compact figure (text reads large relative to the plot); the bottom band
+  # holds the 45 deg cell-type labels.
   save_plot(p_boxplot, paste0("boxplot_", fig_suffix, ".pdf"),
             width  = max(8, n_clusters * 1.1 + 1.5) / 2,
-            height = (if (long_labels) 9 else 7) / 2)
+            height = (if (long_labels) 5 else 4))
 
   invisible(list(res = res, abund_data = abund_data,
                  stats = stats_df, p_boxplot = p_boxplot))
