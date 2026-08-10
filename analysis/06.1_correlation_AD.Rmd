@@ -317,6 +317,9 @@ singleR_hybrid <- SingleR(
 tumor_cts <- ordered_clusters[ordered_clusters %in%
              unique(as.character(spe_PTBM$celltype)[spe_PTBM$metacluster == "tumor"])]
 score_matrix_h <- singleR_hybrid$scores
+# SingleR's $scores matrix carries no rownames; the cluster labels live on the
+# result object itself (same handling as the singler-scores chunk above).
+rownames(score_matrix_h) <- rownames(singleR_hybrid)
 present_rows    <- rownames(score_matrix_h)
 row_order_hybrid <- c(intersect(tumor_cts, present_rows),
                       sort(setdiff(present_rows, tumor_cts)))
