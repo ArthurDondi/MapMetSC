@@ -41,6 +41,6 @@ step 6.1 above.
 
 ## Separate analyses
 
-- [Spatial analysis in primary tumors](10_spatial_analysis.html) — kept separate
+- [Spatial analysis in primary tumors](07_spatial_analysis.html) — kept separate
   because it requires a different Docker image (`lazdaria/mapmetsc_spatial`, for
   the imcRtools `testInteractions` fix); see the note at the top of the script.

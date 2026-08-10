@@ -12,7 +12,7 @@ From: rocker/rstudio:4.4.0
 #
 #   * analysis/            (01_read_data ... 06.*_correlation)
 #   * analysis_AD/         (01_read_data ... 04_phenotyping)
-#   * analysis/10_spatial_analysis.Rmd
+#   * analysis/07_spatial_analysis.Rmd
 #
 # Why one image is enough (the testInteractions story)
 # ----------------------------------------------------
@@ -287,7 +287,7 @@ write.csv(ip, "/opt/mapmetsc-packages.csv", row.names = FALSE)'
     MapMetSC single-cell + spatial analysis image (Lazic et al.).
 
     A single image for the whole R workflow: analysis/, analysis_AD/ and
-    analysis/10_spatial_analysis.Rmd. It bundles imcRtools 1.10.0
+    analysis/07_spatial_analysis.Rmd. It bundles imcRtools 1.10.0
     (Bioconductor 3.19), which already contains the testInteractions fix that
     previously required a separate `lazdaria/mapmetsc_spatial` image.
 
@@ -300,7 +300,7 @@ write.csv(ip, "/opt/mapmetsc-packages.csv", row.names = FALSE)'
 
     Render one script:
       apptainer exec --bind /path/to/singlecelldata:/mnt/data mapmetsc.sif \
-          Rscript -e 'rmarkdown::render("analysis/10_spatial_analysis.Rmd",
+          Rscript -e 'rmarkdown::render("analysis/07_spatial_analysis.Rmd",
                         output_dir="docs",
                         params=list(input="/mnt/data/input_all",
                                     output="/mnt/data/output"))'

@@ -37,11 +37,11 @@ For reproducibility, we provide a docker image. Pull the docker image using:
  ```bash
 docker run -p 8787:8787 -e PASSWORD=mapmetsc -v <path/to/MapMetSC>:/home/rstudio/MapMetSC -v <path/to/extracted/singlecelldata>:/mnt/data lazdaria/mapmetsc:v1.0
  ```
- An RStudio server session can then be accessed via your browser at `localhost:8787` with the `username: rstudio` and `password: mapmetsc`. Due to a bug fix for the `testInteractions` function in later versions of imcRtools, we provide another docker image ([lazdaria/mapmetsc_spatial:v1.0](https://hub.docker.com/repository/docker/lazdaria/mapmetsc_spatial/general)) for [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/10_spatial_analysis.Rmd).
+ An RStudio server session can then be accessed via your browser at `localhost:8787` with the `username: rstudio` and `password: mapmetsc`. Due to a bug fix for the `testInteractions` function in later versions of imcRtools, we provide another docker image ([lazdaria/mapmetsc_spatial:v1.0](https://hub.docker.com/repository/docker/lazdaria/mapmetsc_spatial/general)) for [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/07_spatial_analysis.Rmd).
 
 ### Apptainer / Singularity (single image, incl. spatial analysis)
 
-For HPC and other rootless environments we provide an [Apptainer](https://apptainer.org/) definition ([`apptainer/mapmetsc.def`](apptainer/mapmetsc.def)) that builds **one** image covering the whole R workflow — including `analysis/10_spatial_analysis.Rmd`. It is built from scratch on the same `rocker/rstudio:4.4.0` base as the Dockerfile, which resolves to Bioconductor 3.19 and therefore **imcRtools 1.10.0** — already past the `testInteractions` fix (first released in imcRtools 1.6.0). A single image thus replaces both `lazdaria/mapmetsc:v1.0` *and* `lazdaria/mapmetsc_spatial:v1.0`, and it adds the packages the Docker image was missing (`ggdendro`, `EBImage`, `batchelor`, `harmony`, `ggrastr`, `hexbin`, `lme4`, `writexl`, `workflowr`).
+For HPC and other rootless environments we provide an [Apptainer](https://apptainer.org/) definition ([`apptainer/mapmetsc.def`](apptainer/mapmetsc.def)) that builds **one** image covering the whole R workflow — including `analysis/07_spatial_analysis.Rmd`. It is built from scratch on the same `rocker/rstudio:4.4.0` base as the Dockerfile, which resolves to Bioconductor 3.19 and therefore **imcRtools 1.10.0** — already past the `testInteractions` fix (first released in imcRtools 1.6.0). A single image thus replaces both `lazdaria/mapmetsc:v1.0` *and* `lazdaria/mapmetsc_spatial:v1.0`, and it adds the packages the Docker image was missing (`ggdendro`, `EBImage`, `batchelor`, `harmony`, `ggrastr`, `hexbin`, `lme4`, `writexl`, `workflowr`).
 
 ```bash
 # build (needs Apptainer; on HPC login nodes it uses --fakeroot automatically)
@@ -82,7 +82,7 @@ The steps run in the following order (see the [rendered site](https://github.com
 
 Each script reads the `spe_*.rds` object written by the previous step and writes its own, so the steps must be run in order. Alternatively, the individual [RMD files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis) can be knit one by one, and already-rendered [html files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) demonstrate each step.
 
-The [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/10_spatial_analysis.Rmd) is kept separate from `run_analysis.R` because it needs a tumor-only cellular-community step that the streamlined pipeline does not yet produce (see the note at the top of the script). Software-wise it needs only the fixed `imcRtools`: with Docker, use the `lazdaria/mapmetsc_spatial:v1.0` image; the [Apptainer image](apptainer/README.md) already includes it, so no separate image is required there.
+The [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/07_spatial_analysis.Rmd) is kept separate from `run_analysis.R` because it needs a tumor-only cellular-community step that the streamlined pipeline does not yet produce (see the note at the top of the script). Software-wise it needs only the fixed `imcRtools`: with Docker, use the `lazdaria/mapmetsc_spatial:v1.0` image; the [Apptainer image](apptainer/README.md) already includes it, so no separate image is required there.
 
  ### Cell-cell communication (CCC) analysis
  

@@ -110,7 +110,7 @@ COL_METACLUSTER_AD <- c(
 )
 
 # ---- Sample-level annotations: MYCN status / aberrations / progression /
-#      community numbers (05.1_PT_DE_cellularcomm.Rmd, 10_spatial_analysis.Rmd) -
+#      community numbers (05.1_PT_DE_cellularcomm.Rmd, 07_spatial_analysis.Rmd) -
 # Union of the keys used across scripts; color assignment is by name, so extra
 # keys are harmless.
 COL_CODE <- c(

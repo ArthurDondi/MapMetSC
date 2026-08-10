@@ -15,7 +15,7 @@ params:
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/10_spatial_analysis")
+plot_dir <- file.path(params$output, "plots/07_spatial_analysis")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -333,11 +333,18 @@ for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_cod
   if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 col_code <- COL_CODE
 
+# Patient-group (cellular-community) numbers get an explicit yellow/magenta
+# palette. col_code maps 1/2/3 to blue/red/green (used elsewhere), which is not
+# what we want for this annotation; defining the colors explicitly keeps the
+# strip deterministic and lets Fig4d3 and the combined Fig4d strip below share
+# one palette (group 1 = yellow, group 2 = magenta).
+community_cols <- c("1" = "#E6C700", "2" = "#C71585", "3" = "#4DAF4A")
+
 
 # Plot metadata
 p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
-  columnAnnotation(patient_group=sample_summary$allcelltype_community, col=list(patientgroup=col_code))
+  columnAnnotation(patient_group=as.character(sample_summary$allcelltype_community), col=list(patient_group=community_cols))
 
 save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.pdf", width = 8, height = 4)
 
@@ -362,50 +369,67 @@ p_dendro <- ggplot(segs) +
     plot.title = element_text(face = "bold", size = 11, hjust = 0.5),
     plot.margin = margin(2, 2, 0, 2)
   ) +
-  labs(title = "Sample clustering")
+  labs(title = "Sample clustering based on cellular neighborhood composition")
 
 meta_df <- sample_summary[clustered_samples, c("mna", "progress", "allcelltype_community")]
 meta_df$sample_id <- factor(rownames(meta_df), levels = clustered_samples)
 
-meta_long <- meta_df %>%
-  pivot_longer(cols = c(mna, progress, allcelltype_community), names_to = "annotation", values_to = "value") %>%
-  mutate(
-    annotation = factor(annotation, levels = c("mna", "progress", "allcelltype_community"),
-                        labels = c("MYCN", "Progression", "Patient Group"))
-  )
+# One horizontal annotation strip per track (MYCN_amp / progression /
+# patient_group), each with its own fill scale so the three legends render
+# separately, exactly as in Fig4d3. MYCN and progression reuse col_code;
+# patient_group uses the explicit community palette (yellow/magenta) so the
+# strip matches Fig4d3 rather than the col_code 1/2/3 = blue/red/green fallback.
+make_meta_strip <- function(df, ann_col, legend_title, cols) {
+  ggplot(df, aes(x = sample_id, y = 1, fill = as.character(.data[[ann_col]]))) +
+    # explicit height: y is constant so geom_tile cannot infer it from resolution
+    geom_tile(height = 1) +
+    scale_fill_manual(values = cols, na.value = "white", name = legend_title) +
+    scale_x_discrete(expand = expansion(add = 0.5)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    labs(y = legend_title) +
+    theme_minimal() +
+    theme(
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(angle = 0, hjust = 1, vjust = 0.5, size = 9),
+      legend.position = "right",
+      legend.key.size = unit(0.4, "cm"),
+      panel.grid = element_blank(),
+      plot.margin = margin(0, 2, 0, 2)
+    )
+}
 
-p_meta <- ggplot(meta_long, aes(x = sample_id, y = annotation, fill = as.character(value))) +
-  geom_tile() +
-  scale_fill_manual(values = col_code, na.value = "white") +
-  scale_x_discrete(expand = expansion(add = 0.5)) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    axis.title.x = element_blank(),
-    axis.title.y = element_blank(),
-    legend.position = "right",
-    legend.key.size = unit(0.5, "cm"),
-    panel.grid = element_blank(),
-    plot.margin = margin(0, 2, 2, 2)
-  )
+p_meta_mna   <- make_meta_strip(meta_df, "mna",                   "MYCN_amp",      col_code)
+p_meta_prog  <- make_meta_strip(meta_df, "progress",              "progression",   col_code)
+p_meta_group <- make_meta_strip(meta_df, "allcelltype_community", "patient_group", community_cols)
+# extra bottom margin on the last strip so its lower edge is not clipped
+p_meta_group <- p_meta_group + theme(plot.margin = margin(0, 2, 2, 2))
 
+# Abundance barplot: rename the neighborhood legend to "Cellular neighborhood"
+# (keeping the Set3 colors) and drop the "na" facet strip that plotAbundances
+# adds from the placeholder condition = "na".
 p_abund <- p +
+  scale_fill_manual(values = brewer.pal(n_neighborhoods, "Set3"),
+                    name = "Cellular neighborhood") +
+  facet_null() +
   scale_x_discrete(expand = expansion(add = 0.5)) +
   theme(
     axis.text.x = element_blank(),
     axis.ticks.x = element_blank(),
     axis.title.x = element_blank(),
     plot.title = element_blank(),
+    strip.text = element_blank(),
+    strip.background = element_blank(),
     plot.margin = margin(0, 2, 0, 2)
   )
 
 # Empirically tuned panel proportions:
 # - dendrogram = 1.2 keeps branch structure readable without dominating the figure
 # - abundance = 4 prioritizes the main abundance signal (largest information density)
-# - metadata = 1.5 keeps annotation strips legible while compact
-panel_heights <- c(dendrogram = 1.2, abundance = 4, metadata = 1.5)
-p_fig4d <- (p_dendro / p_abund / p_meta) +
+# - each metadata strip = 0.5 keeps the three annotation rows legible but compact
+panel_heights <- c(1.2, 4, 0.5, 0.5, 0.5)
+p_fig4d <- (p_dendro / p_abund / p_meta_mna / p_meta_prog / p_meta_group) +
   plot_layout(ncol = 1, heights = panel_heights, guides = "collect")
 
 p_fig4d
@@ -862,16 +886,19 @@ plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"],
 
 The distance distribution per celltype can be shown in ridge plots.
 
-```{r ridges-distance, fig.height=10,fig.width=8}
+```{r ridges-distance, fig.height=10,fig.width=16}
 p_dist <- ggplot(as.data.frame(colData(spe)) %>%
-         mutate(celltype_2 = fct_reorder(celltype_2, distToCells, .fun = median))) + 
-  stat_density_ridges(aes(distToCells, celltype_2, fill = celltype_2), 
-                      quantiles = c(0.5), quantile_lines = TRUE, scale = 3) +
+         mutate(celltype_2 = fct_reorder(celltype_2, distToCells, .fun = median))) +
+  stat_density_ridges(aes(distToCells, celltype_2, fill = celltype_2),
+                      quantiles = c(0.5), quantile_lines = TRUE, scale = 3,
+                      # plain filled rectangles in the legend keys (no median
+                      # quantile line running through the color blocks)
+                      key_glyph = "rect") +
   geom_vline(xintercept = 0, color = "dark red", linewidth = 0.5) +
-  scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2) +
+  scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2, name = "Celltypes") +
   theme_ridges()
 
-save_plot(p_dist, "Fig4j_border_distance.pdf", width = 6, height = 10)
+save_plot(p_dist, "Fig4j_border_distance.pdf", width = 12, height = 10)
 
 p_dist
 ```
@@ -1083,6 +1110,69 @@ save_plot(
   )
 
 tumor_plot
+
+# -----------------------------
+# COMBINED IMMUNE + TUMOR PLOT
+# -----------------------------
+# Same border-size sweep as the two panels above, but immune and tumor cell
+# counts shown together in a single figure (one facet each). The individual
+# immune-only and tumor-only barplots above are kept unchanged.
+
+results_df$cell_class <- factor(results_df$cell_class, levels = c("immune", "tumor"))
+
+immune_tumor_plot <- ggplot(
+  results_df,
+  aes(
+    x = factor(threshold),
+    y = count,
+    fill = compartment
+  )
+) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(
+    aes(label = count),
+    position = position_dodge(width = 0.9),
+    vjust = -0.25,
+    size = 3
+  ) +
+  facet_wrap(~cell_class, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Immune and tumor cell counts by compartment",
+    x = "Border size",
+    y = "Cell count"
+  ) +
+  theme_classic() +
+  scale_y_continuous(expand = expansion(mult = c(0, y_axis_upper_expand)))
+
+save_plot(
+    immune_tumor_plot,
+    paste0("Fig4g3_tumor_bordersize_immune_tumor_barplot.pdf"),
+    width = 6,
+    height = 10
+  )
+
+immune_tumor_plot
+```
+
+Analogously to the Fig4f cellular-neighborhood spatial map, we can also show all
+primary-tumour images at once, this time coloring each cell by its tumor
+compartment (core / border / stroma) rather than by its cellular neighborhood.
+
+```{r spatial-compartment-images, fig.width=20, fig.height=50}
+# Equivalent of Fig4f_spatial_neighborhood_images, but node_color_by the tumor
+# compartment instead of the cellular neighborhood. Uses spe$compartment as left
+# by the loop above (largest border-size threshold) and the same default
+# compartment color scheme as the per-image panels (p_s2 / p_s3), so core /
+# border / stroma are colored consistently across the compartment figures.
+p_spatial_compartment <- plotSpatial(spe,
+            node_color_by = "compartment",
+            img_id = "sample_id",
+            ncols = 6,
+            node_size_fix = 0.5)
+
+save_plot(p_spatial_compartment, "Fig4f_spatial_compartment_images.pdf", width = 20, height = 49)
+
+p_spatial_compartment
 ```
 
 
@@ -1741,7 +1831,7 @@ for (cells in c("tumor", "immune")) {
 Finally, we save the R object.
 
 ```{r save-rds}
-saveRDS(spe, file.path(params$output,"spe_10_spatial_analysis.rds"))
+saveRDS(spe, file.path(params$output,"spe_07_spatial_analysis.rds"))
 ```
 
 

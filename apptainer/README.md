@@ -5,7 +5,7 @@ runs the **entire** R analysis for Lazic et al.:
 
 - `analysis/` — `01_read_data` … `06.*_correlation`
 - `analysis_AD/` — the adrenal-gland reference pipeline
-- `analysis/10_spatial_analysis.Rmd` — the spatial analysis
+- `analysis/07_spatial_analysis.Rmd` — the spatial analysis
 
 It is built **from scratch** on the same pinned base the project's `Dockerfile`
 uses (`rocker/rstudio:4.4.0`), so it is reproducible and self-contained rather
@@ -26,7 +26,7 @@ unchanged across these versions — so moving everything onto the fixed
 `imcRtools >= 1.6.0` (and that `testInteractions` is exported), so it can never
 silently produce the buggy version. One image therefore covers both pipelines.
 
-`ggdendro` (used by `05.1_PT_DE_cellularcomm.Rmd` and `10_spatial_analysis.Rmd`),
+`ggdendro` (used by `05.1_PT_DE_cellularcomm.Rmd` and `07_spatial_analysis.Rmd`),
 along with the other packages the original `Dockerfile` was missing —
 `EBImage`, `batchelor`, `harmony`, `ggrastr`, `hexbin`, `lme4`, `writexl`,
 `workflowr` — is included.
@@ -79,7 +79,7 @@ apptainer exec --bind /path/to/singlecelldata:/mnt/data \
 ```bash
 # render a single script (e.g. the spatial analysis)
 apptainer exec --bind /path/to/singlecelldata:/mnt/data mapmetsc.sif \
-    Rscript -e 'rmarkdown::render("analysis/10_spatial_analysis.Rmd",
+    Rscript -e 'rmarkdown::render("analysis/07_spatial_analysis.Rmd",
                   output_dir="docs",
                   params=list(input="/mnt/data/input_all",
                               output="/mnt/data/output"))'
@@ -111,7 +111,7 @@ PASSWORD=mapmetsc apptainer exec \
 
 ## Notes
 
-- `10_spatial_analysis.Rmd` also expects a **tumour-only cellular-community**
+- `07_spatial_analysis.Rmd` also expects a **tumour-only cellular-community**
   column (see the note at the top of that script and in `run_analysis.R`). That
   is a data/analysis prerequisite, independent of the container — this image
   provides the software (fixed `imcRtools` + all packages) needed to run it.
