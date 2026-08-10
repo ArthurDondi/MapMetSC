@@ -71,6 +71,7 @@ To evaluate the validity of tumor cell phenotype annotations, we compare the cel
    
 ```{r load-libraries}
 library(Seurat)
+library(ggplot2)
 library(dplyr)
 library(FactoMineR)
 library(factoextra)
@@ -154,7 +155,10 @@ set.seed(230712)
 col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
 col_rna_clusters = setNames(sample(col_vector_433, length(unique(rna@active.ident))), unique(rna@active.ident))
 
-p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_rna_clusters)
+p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_rna_clusters) +
+  # Harmonised square panel border (all UMAPs).
+  theme(axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 
 save_plot(p_umap_rna, "Jansky_rna_umap.pdf", width = 8, height = 6)
 

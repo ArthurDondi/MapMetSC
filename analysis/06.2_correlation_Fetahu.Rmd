@@ -179,7 +179,10 @@ h_rna
 ```
 
 ```{r umap-rna}
-p_umap_rna <- DimPlot(rna, reduction="UMAP", cols=col_clusters)
+p_umap_rna <- DimPlot(rna, reduction="UMAP", cols=col_clusters) +
+  # Harmonised square panel border (all UMAPs).
+  theme(axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 
 save_plot(p_umap_rna, "Fetahu_rna_umap.pdf", width = 8, height = 6)
 
