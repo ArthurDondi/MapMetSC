@@ -79,8 +79,8 @@ COL_CELLTYPE_AD <- c(
   "Schwann cell progenitors" = rgb(166,  97,  26, maxColorValue = 255),  # brown (matches "Schwann cells" in the main cohort)
   "early neuroblasts"        = rgb(152, 251, 152, maxColorValue = 255),  # pale green
   "GD2+ neuroblasts"         = rgb( 50, 205,  50, maxColorValue = 255),  # bright lime green
-  "CD15+ chromaffin cells"   = rgb(128, 128,   0, maxColorValue = 255),  # olive
-  "CD15- chromaffin cells"   = rgb(189, 183, 107, maxColorValue = 255),  # khaki
+  "CD15+ chromaffin cells"   = "#ffec17",  # bright yellow
+  "CD15- chromaffin cells"   = "#e6c200",  # darker gold-yellow (distinct from CD15+)
 
   ## Mesenchymal (brown tones)
   "fibroblasts"             = rgb(210, 140,  80, maxColorValue = 255),  # tan (distinct from the Schwann brown)
@@ -88,7 +88,7 @@ COL_CELLTYPE_AD <- c(
   "CD44+ mesenchymal cells" = rgb(101,  67,  33, maxColorValue = 255),  # deep brown
 
   ## Immune
-  "immune cells"            = rgb(220,  20,  60, maxColorValue = 255),  # crimson
+  "immune cells"            = "#6aa9d2",  # blue
 
   ## Endothelial
   "endothelial cells"       = rgb(255,  95,   0, maxColorValue = 255),  # orange
@@ -104,7 +104,7 @@ COL_CELLTYPE_AD <- c(
 COL_METACLUSTER_AD <- c(
   "neural crest lineage" = "#238B45",  # green
   "mesenchymal"          = "#8C510A",  # brown
-  "immune cells"         = "#E34A33",  # red
+  "immune cells"         = "#6aa9d2",  # blue
   "endothelial"          = "#F59E0B",  # orange
   "other"                = "#969696"   # grey
 )
