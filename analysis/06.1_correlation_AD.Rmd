@@ -210,7 +210,11 @@ save_plot(ph, "correlation-clusters-vs-fetal.pdf", width = 8, height = 6)
 # ------------------------------
 p_umap_fetal <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal") +
   scale_color_manual(values = col_celltype_AD) +
-  theme(aspect.ratio = 1)
+  # Harmonised square panel border (all UMAPs): plotUMAP draws only the L-shaped
+  # axis lines, so replace them with a closed rectangle.
+  theme(aspect.ratio = 1,
+        axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 save_plot(p_umap_fetal, "umap-predicted-fetal.pdf", width = 16, height = 8)
 p_umap_fetal
 
@@ -279,7 +283,7 @@ score_df$Neuroblastoma_cluster <- factor(score_df$Neuroblastoma_cluster, levels 
 # 8. Plot heatmap
 p_singler_scores <- ggplot(score_df, aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = score)) +
   geom_tile() +
-  scale_fill_gradient(low = "white", high = "red") +
+  scale_fill_viridis_c() +
   scale_x_discrete(limits = intersect(ordered_AD_celltypes,
                                       unique(as.character(score_df$Fetal_AD_celltype)))) +
   scale_y_discrete(limits = ordered_clusters) +
@@ -288,6 +292,56 @@ p_singler_scores <- ggplot(score_df, aes(x = Fetal_AD_celltype, y = Neuroblastom
   labs(x = "Fetal AD celltype", y = "Neuroblastoma cluster", fill = "SingleR score")
 save_plot(p_singler_scores, "singler-scores-heatmap.pdf", width = 8, height = 6)
 p_singler_scores
+```
+
+```{r singler-scores-tumor-metacluster}
+# ------------------------------
+# SingleR score heatmap keeping the tumor celltypes separate but grouping every
+# non-tumor cell at the metacluster level. This re-runs the cluster-level label
+# transfer on a hybrid grouping (tumor -> fine celltype, else -> metacluster).
+# ------------------------------
+hybrid_group <- ifelse(as.character(spe_PTBM$metacluster) == "tumor",
+                       as.character(spe_PTBM$celltype),
+                       as.character(spe_PTBM$metacluster))
+
+singleR_hybrid <- SingleR(
+  test     = query_counts,
+  ref      = ref_counts,
+  labels   = ref_labels,
+  method   = "cluster",
+  clusters = hybrid_group
+)
+
+# Row order: tumor celltypes first (in celltype_order.csv order), then the
+# remaining metacluster-level groups (alphabetical).
+tumor_cts <- ordered_clusters[ordered_clusters %in%
+             unique(as.character(spe_PTBM$celltype)[spe_PTBM$metacluster == "tumor"])]
+score_matrix_h <- singleR_hybrid$scores
+present_rows    <- rownames(score_matrix_h)
+row_order_hybrid <- c(intersect(tumor_cts, present_rows),
+                      sort(setdiff(present_rows, tumor_cts)))
+score_matrix_h <- score_matrix_h[row_order_hybrid, , drop = FALSE]
+
+score_df_h <- as.data.frame(score_matrix_h) %>%
+  rownames_to_column("Neuroblastoma_group") %>%
+  pivot_longer(-Neuroblastoma_group, names_to = "Fetal_AD_celltype", values_to = "score")
+score_df_h$Neuroblastoma_group <- factor(score_df_h$Neuroblastoma_group, levels = row_order_hybrid)
+
+p_singler_scores_hybrid <- ggplot(score_df_h,
+    aes(x = Fetal_AD_celltype, y = Neuroblastoma_group, fill = score)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(score_df_h$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = row_order_hybrid) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "PT/BM tumor celltype / metacluster",
+       fill = "SingleR score")
+save_plot(p_singler_scores_hybrid,
+          "singler-scores-heatmap-tumor-celltypes-metaclusters.pdf",
+          width = 8, height = 6)
+p_singler_scores_hybrid
 ```
 ```{r}
 
@@ -327,4 +381,35 @@ p_umap_fetal_cell <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal_cell", poin
         panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 save_plot(p_umap_fetal_cell, "umap-predicted-fetal-cell.pdf", width = 16, height = 8)
 p_umap_fetal_cell
+```
+
+```{r singler-cell-composition-heatmap}
+# ------------------------------
+# Cell-level composition heatmap: same axes as singler-scores-heatmap.pdf, but
+# the colour is taken from the per-cell label transfer (singleR_cell) instead of
+# the SingleR scores. Each tile is the % of cells of a given PT/BM celltype (row)
+# that were assigned to a given AD celltype (column) - e.g. the fraction of
+# "neuroblast-like TU" cells predicted as "Early Neuroblasts". Rows sum to 100%.
+# ------------------------------
+comp_tab <- table(
+  Neuroblastoma_cluster = factor(as.character(spe_PTBM$celltype), levels = ordered_clusters),
+  Fetal_AD_celltype     = factor(as.character(singleR_cell$labels))
+)
+comp_prop <- prop.table(comp_tab, margin = 1) * 100   # row-normalised percentages
+comp_df   <- as.data.frame(comp_prop, responseName = "percent")
+
+p_singler_composition <- ggplot(comp_df,
+    aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = percent)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(comp_df$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = ordered_clusters) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "Neuroblastoma cluster",
+       fill = "% of cells")
+save_plot(p_singler_composition, "singler-celltype-composition-heatmap.pdf",
+          width = 8, height = 6)
+p_singler_composition
 ```
