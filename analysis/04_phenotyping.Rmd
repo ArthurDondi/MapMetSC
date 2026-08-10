@@ -428,10 +428,39 @@ for (pair in subcluster_pairs) {
 
 ```{r pg-clusters-final-bubbleplot}
 
+# Bubble plot AFTER subclustering (distinct filename so the before-subclustering
+# bubbleplot_pg_clusters.pdf from the earlier chunk is preserved).
 plot_cluster_bubble(
       cluster_col = "pg_clusters",
       ncells_break_at = 100000,
-      save_name = "bubbleplot_pg_clusters.pdf")
+      save_name = "bubbleplot_pg_clusters_after_subclustering.pdf")
+
+# UMAP coloured by pg_clusters AFTER subclustering (mirrors umap_pg_clusters.pdf
+# from before subclustering). Colours are regenerated for the new subclustered
+# levels; a temporary factor column fixes the level order so the colour panel and
+# the dittoDimPlot factor levels line up.
+cluster_levels_after <- get_cluster_levels(spe$pg_clusters)
+col_clusters_after   <- generate_cluster_colors(cluster_levels = cluster_levels_after)[cluster_levels_after]
+spe$pg_clusters_after_plot <- factor(as.character(spe$pg_clusters), levels = cluster_levels_after)
+
+p_after <- dittoDimPlot(
+  spe, var = "pg_clusters_after_plot", reduction.use = "UMAP",
+  size = 0.5, do.label = TRUE, legend.show = FALSE,
+  color.panel = col_clusters_after
+) +
+  theme(legend.title = element_blank()) +
+  ggtitle("pg_clusters after subclustering on UMAP")
+
+label_layer <- which(
+  sapply(p_after$layers, function(x) class(x$geom)[1]) %in% c("GeomLabelRepel", "GeomLabel")
+)
+label_data  <- layer_data(p_after, label_layer)
+label_fills <- col_clusters_after[as.character(label_data$label)]
+p_after$layers[[label_layer]]$aes_params$fill   <- label_fills
+p_after$layers[[label_layer]]$aes_params$colour <- "black"
+
+save_plot(p_after, "umap_pg_clusters_after_subclustering.pdf", width = 8, height = 6)
+print(p_after)
 
 ```
 
