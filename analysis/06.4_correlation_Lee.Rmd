@@ -165,7 +165,11 @@ h_rna
 ```
 
 ```{r umap-rna, fig.width=15, fig.height=10}
-p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_clust)
+p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_clust) +
+  # Harmonised square panel border (all UMAPs); size (not linewidth) for the
+  # older ggplot2 in the image.
+  theme(axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 
 save_plot(p_umap_rna, "Lee_rna_umap.pdf", width = 15, height = 10)
 
@@ -233,16 +237,30 @@ umap_df <- data.frame(
 umap_df$lee <- factor(ifelse(umap_df$label %in% lee_types, umap_df$label, NA), levels = lee_types)
 umap_df$bg  <- factor(ifelse(umap_df$label %in% bg_types,  umap_df$label, NA), levels = bg_types)
 
+# tumor/other fill colours: use the predicted-label colour vector, falling back
+# to the canonical Lee-extra colours (grey / yellow) so a name mismatch never
+# leaves them uncoloured.
+bg_cols <- col_pred[bg_types]
+names(bg_cols) <- bg_types
+fallback_bg <- c(tumor = "snow2", other = "goldenrod1")
+bg_cols[is.na(bg_cols)] <- fallback_bg[names(bg_cols)[is.na(bg_cols)]]
+
 # tumor/other background first (bottom), Lee-predicted celltypes on top.
+# colour = NA removes the shape-21 border - its black default was what made the
+# tumor/other points render black - so only the fill (grey/yellow) shows.
 p1 <- ggplot(umap_df, aes(UMAP_1, UMAP_2)) +
-  geom_point(data = subset(umap_df, !is.na(bg)),  aes(fill   = bg),  shape = 21, size = 0.3, stroke = 0) +
+  geom_point(data = subset(umap_df, !is.na(bg)),  aes(fill = bg),
+             shape = 21, size = 0.3, stroke = 0, colour = NA) +
   geom_point(data = subset(umap_df, !is.na(lee)), aes(colour = lee), size = 0.3) +
-  scale_fill_manual(name = "PT/BM",                    values = col_pred[bg_types]) +
+  scale_fill_manual(name = "PT/BM",                    values = bg_cols) +
   scale_colour_manual(name = "Lee predicted celltype", values = col_pred[lee_types]) +
   guides(colour = guide_legend(order = 1, override.aes = list(size = 3)),
          fill   = guide_legend(order = 2, override.aes = list(size = 3))) +
   theme_classic() +
-  theme(aspect.ratio = 1) +
+  # Harmonised square panel border (all UMAPs).
+  theme(aspect.ratio = 1,
+        axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5)) +
   ggtitle("Predicted celltype on UMAP")
 
 # Match the standard UMAP proportions used elsewhere (aspect.ratio = 1 + 16x8),
