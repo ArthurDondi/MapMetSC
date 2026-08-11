@@ -416,3 +416,38 @@ save_plot(p_singler_composition, "singler-celltype-composition-heatmap.pdf",
           width = 8, height = 6)
 p_singler_composition
 ```
+
+```{r singler-composition-tumor-metacluster}
+# ------------------------------
+# Cell-level composition heatmap, but keeping the tumor celltypes separate and
+# grouping every non-tumor cell at the metacluster level - the same hybrid
+# grouping used for singler-scores-heatmap-tumor-celltypes-metaclusters.pdf.
+# Each tile is the % of cells of a given hybrid group (row) predicted as a given
+# AD celltype (column); rows sum to 100%. The per-cell label transfer
+# (singleR_cell), the hybrid grouping (hybrid_group) and its row order
+# (row_order_hybrid) are all reused from the chunks above. The existing
+# per-celltype composition heatmap above is kept unchanged.
+# ------------------------------
+comp_tab_h <- table(
+  Neuroblastoma_group = factor(hybrid_group, levels = row_order_hybrid),
+  Fetal_AD_celltype   = factor(as.character(singleR_cell$labels))
+)
+comp_prop_h <- prop.table(comp_tab_h, margin = 1) * 100   # row-normalised percentages
+comp_df_h   <- as.data.frame(comp_prop_h, responseName = "percent")
+
+p_singler_composition_hybrid <- ggplot(comp_df_h,
+    aes(x = Fetal_AD_celltype, y = Neuroblastoma_group, fill = percent)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(comp_df_h$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = row_order_hybrid) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "PT/BM tumor celltype / metacluster",
+       fill = "% of cells")
+save_plot(p_singler_composition_hybrid,
+          "singler-celltype-composition-heatmap-tumor-celltypes-metaclusters.pdf",
+          width = 8, height = 6)
+p_singler_composition_hybrid
+```
