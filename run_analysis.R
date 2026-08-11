@@ -97,8 +97,11 @@ image_params <- list(
   input    = input,
   output   = output,
   image_id = "20220926_20220809_16-006_TU_003",
-  markers  = c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir191_mean",
+  markers  = c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean",  # Ir193 = DNA2
                "CD14_Lu175_mean", "CD56_Er170_mean"),
+  # colour per marker (individual image + merge), keyed by short marker name
+  marker_colours = c(CD3 = "red", CD20 = "purple", CD56 = "green",
+                     CD14 = "cyan", DNA1 = "blue"),
   crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
 )
 render_step("analysis/08_generate_images.Rmd", image_params)

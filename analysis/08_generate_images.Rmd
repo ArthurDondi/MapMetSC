@@ -14,7 +14,12 @@ params:
   # Markers rendered individually and as a colour merge. Either full channel
   # names (as in rownames(spe), e.g. "CD3_Sm152_mean") or the short marker name
   # (e.g. "CD3") - short names are resolved to the matching channel below.
-  markers: !r c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir191_mean", "CD14_Lu175_mean", "CD56_Er170_mean")
+  # (DNA1_Ir193_mean is the Ir193 DNA channel, i.e. DNA2.)
+  markers: !r c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean", "CD14_Lu175_mean", "CD56_Er170_mean")
+  # Colour for each marker, used for BOTH its individual image and the merge.
+  # Keyed by the short marker name (token before the first "_"); "DNA1" keys the
+  # DNA channel. Markers without an entry fall back to a spare-colour palette.
+  marker_colours: !r c(CD3 = "red", CD20 = "purple", CD56 = "green", CD14 = "cyan", DNA1 = "blue")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
@@ -187,32 +192,44 @@ render_and_save <- function(plot_call, filename, width, height) {
   invisible(TRUE)
 }
 
-merge_palette <- c("red", "green", "blue", "yellow", "cyan",
-                   "magenta", "orange", "white")
+# Colour for each marker (used for BOTH its individual image and the merge),
+# keyed by the short marker name (token before the first "_"). Markers without an
+# explicit colour fall back to spare hues so they stay distinct in a merge.
+.marker_col_map <- local({
+  fallback <- c("white", "orange", "yellow", "magenta", "pink", "brown")
+  tok  <- sub("_.*$", "", markers)
+  cols <- unname(params$marker_colours[tok])   # NA where the short name is unmapped
+  miss <- which(is.na(cols))
+  if (length(miss))
+    cols[miss] <- fallback[((seq_along(miss) - 1) %% length(fallback)) + 1]
+  setNames(cols, markers)
+})
 
 # Render every panel (individual markers, merge, celltype, compartment,
 # neighborhood) for one view (whole image or a crop). tag goes into the filename.
+# No legends are drawn - each panel is just the image.
 plot_region <- function(img_v, masks_v, tmp, markers, tag) {
 
-  # --- individual markers (one solid colour each); keep the ones that render
-  #     (a marker absent from this view has a flat channel and is skipped) ---
+  # --- individual markers, each in its assigned merge colour; keep the ones
+  #     that render (a marker absent from this view is a flat channel, skipped) ---
   usable <- character(0)
   for (m in markers) {
     ok <- render_and_save(
-      plotPixels(img_v, colour_by = m, bcg = setNames(list(c(0, 1, 1)), m),
+      plotPixels(img_v, colour_by = m,
+                 colour = setNames(list(c("black", .marker_col_map[[m]])), m),
+                 bcg = setNames(list(c(0, 1, 1)), m),
                  legend = NULL, return_plot = TRUE),
       paste0(tag, "_marker_", m, ".png"), 8, 8)
     if (isTRUE(ok)) usable <- c(usable, m)
   }
 
-  # --- merge of the markers that rendered (one hue each, black low end) ---
+  # --- merge of the markers that rendered, same per-marker colours ---
   if (length(usable)) {
-    hue <- merge_palette[((seq_along(usable) - 1) %% length(merge_palette)) + 1]
-    colour_list <- setNames(lapply(hue, function(h) c("black", h)), usable)
+    colour_list <- setNames(lapply(usable, function(mm) c("black", .marker_col_map[[mm]])), usable)
     bcg_list    <- setNames(lapply(usable, function(x) c(0, 1, 1)), usable)
     render_and_save(
       plotPixels(img_v, colour_by = usable, colour = colour_list,
-                 bcg = bcg_list, return_plot = TRUE),
+                 bcg = bcg_list, legend = NULL, return_plot = TRUE),
       paste0(tag, "_markers_merge.png"), 8, 8)
   }
 
@@ -221,7 +238,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "celltype",
               colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
-              missing_colour = "white", return_plot = TRUE),
+              missing_colour = "white", legend = NULL, return_plot = TRUE),
     paste0(tag, "_celltype.png"), 10, 8)
 
   # --- spatial compartment (on the masks) ---
@@ -229,7 +246,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "compartment",
               colour = list(compartment = compartment_cols),
-              missing_colour = "white", return_plot = TRUE),
+              missing_colour = "white", legend = NULL, return_plot = TRUE),
     paste0(tag, "_compartment.png"), 10, 8)
 
   # --- cellular neighborhood (on the masks) ---
@@ -237,7 +254,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "cn_celltypes_2",
               colour = list(cn_celltypes_2 = cn_cols),
-              missing_colour = "white", return_plot = TRUE),
+              missing_colour = "white", legend = NULL, return_plot = TRUE),
     paste0(tag, "_cellular_neighborhood.png"), 10, 8)
 }
 ```
