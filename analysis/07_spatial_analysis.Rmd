@@ -1215,17 +1215,24 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 
 ```{r cluster-order-colors}
 # Canonical cluster orders used consistently throughout the compartment
-# analyses. immune_order are metacluster names. tumor_order is derived from the
-# data (celltypes of metacluster == "tumor") rather than hard-coded, so the
-# names always match spe$celltype_2 and the col_celltype_2 color vector. A stale
-# hard-coded tumor name would map to an NA color and make ggpubr::ggboxplot()
-# fail with "missing value where TRUE/FALSE needed".
+# analyses. immune_order are metacluster names.
 immune_order <- c("T cells", "B cells", "myeloid/NK", "granulocytes")
 
-tumor_present <- unique(as.character(spe$celltype_2[spe$metacluster == "tumor"]))
-# keep the color-vector ordering, restricted to the tumor celltypes present here
-tumor_order <- intersect(names(metadata(spe)$color_vectors$col_celltype_2), tumor_present)
-if (length(tumor_order) == 0) tumor_order <- sort(tumor_present)
+# Curated tumor celltype order. The previous labels were renamed during
+# phenotyping and no longer match spe$celltype_2 / the col_celltype_2 color
+# vector (a stale name maps to an NA color and makes ggpubr::ggboxplot() fail
+# with "missing value where TRUE/FALSE needed"). Updated to the current names,
+# keeping the same order:
+#   marker-lo Tu   -> adrenergic marker-low Tu
+#   GD2lo Tu       -> GD2neg Tu
+#   bridge-like Tu -> neuroblast-like Tu
+#   early NB Tu    -> early neuroblast-like Tu
+#   CXCR4+ Tu      -> dropped (no longer exists)
+tumor_order <- c("adrenergic marker-low Tu", "GD2neg Tu", "CD44+ Tu", "Ki67+ Tu",
+                 "neuroblast-like Tu", "early neuroblast-like Tu")
+# keep only the tumor celltypes actually present in the data (preserves order)
+tumor_order <- intersect(tumor_order,
+                         unique(as.character(spe$celltype_2[spe$metacluster == "tumor"])))
 
 # Safe color lookup: fall back to grey if a celltype has no color (or an NA
 # color), so ggboxplot() never receives an NA palette.
