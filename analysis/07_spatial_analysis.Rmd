@@ -351,7 +351,7 @@ save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.pdf", width =
 p_anno
 ```
 
-```{r fig4d-combined-stacked, fig.height=12, fig.width=8}
+```{r fig4d-combined-stacked, fig.height=8.4, fig.width=8}
 
 ddata <- dendro_data(hc, type = "rectangle")
 segs <- segment(ddata)
@@ -427,14 +427,15 @@ p_abund <- p +
 # Empirically tuned panel proportions:
 # - dendrogram = 1.2 keeps branch structure readable without dominating the figure
 # - abundance = 4 prioritizes the main abundance signal (largest information density)
-# - each metadata strip = 0.5 keeps the three annotation rows legible but compact
-panel_heights <- c(1.2, 4, 0.5, 0.5, 0.5)
+# - each metadata strip = 0.25 (halved relative size, so the annotation rows take
+#   up less of the figure than the dendrogram/abundance panels)
+panel_heights <- c(1.2, 4, 0.25, 0.25, 0.25)
 p_fig4d <- (p_dendro / p_abund / p_meta_mna / p_meta_prog / p_meta_group) +
   plot_layout(ncol = 1, heights = panel_heights, guides = "collect")
 
 p_fig4d
 
-save_plot(p_fig4d, "Fig4d_combined_stacked.pdf", width = 8, height = 12)
+save_plot(p_fig4d, "Fig4d_combined_stacked.pdf", width = 8, height = 8.4)
 ```
 
 We then compare the abundance of cellular communities between nMNA and MNA samples.
