@@ -1504,6 +1504,65 @@ for (cells in c("tumor", "immune")) {
 }
 ```
 
+```{r composition-stacked-bars-combined}
+# Combined tumor + immune version of the compartment composition stacked bars:
+# tumor cells (per fine celltype) and immune cells (per metacluster) are pooled
+# into a single stacked bar per compartment, normalised across ALL tumor+immune
+# cells. This shows how the tumor:immune balance and subtype makeup shift across
+# core / border / stroma. The two per-class plots above are kept unchanged.
+
+comp_levels    <- c("core", "border", "stroma")
+combined_order <- c(tumor_order, immune_order)
+
+df_bar_c <- data.frame(
+  compartment = spe$compartment,
+  cluster_id  = spe$celltype_2,
+  keep        = spe$metacluster == "tumor" | spe$metacluster %in% immune_order
+)
+df_bar_c <- df_bar_c[df_bar_c$keep & df_bar_c$compartment %in% comp_levels, ]
+
+# total pooled (tumor + immune) cells per compartment, for the top-of-bar label
+totals_c <- df_bar_c %>%
+  dplyr::group_by(compartment) %>%
+  dplyr::summarise(N = dplyr::n(), .groups = "drop")
+
+# proportions normalised within each compartment across all pooled cells
+df_prop_c <- df_bar_c %>%
+  dplyr::group_by(compartment, cluster_id) %>%
+  dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
+  dplyr::group_by(compartment) %>%
+  dplyr::mutate(pct = 100 * n / sum(n)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    compartment = factor(compartment, levels = comp_levels),
+    cluster_id  = factor(cluster_id,  levels = combined_order)
+  )
+
+color_vec_c <- metadata(spe)$color_vectors$col_celltype_2[combined_order]
+
+p_stack_c <- ggplot(df_prop_c, aes(x = compartment, y = pct, fill = cluster_id)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(
+    data = totals_c %>% dplyr::mutate(compartment = factor(compartment, levels = comp_levels)),
+    aes(x = compartment, y = 103, label = paste0("n=", N)),
+    inherit.aes = FALSE,
+    vjust = 0, size = 3.5
+  ) +
+  scale_fill_manual(values = color_vec_c, drop = FALSE, name = "Cell type") +
+  scale_y_continuous(limits = c(0, 115), breaks = seq(0, 100, 25),
+                     expand = expansion(mult = c(0, 0))) +
+  labs(title = "Compartment composition (tumor + immune)",
+       x = "Compartment", y = "% cells") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+        legend.key.size = unit(0.4, "cm"))
+
+save_plot(p_stack_c,
+          "Fig4_suppl_stackedbar_compartments_tumor_immune.pdf",
+          width = 7, height = 5)
+print(p_stack_c)
+```
+
 ### MYCN-stratified compartment DA
 
 Here we repeat the compartment DA analysis (diffcyt) separately within MNA and nMNA samples (het samples are excluded). We additionally test whether the MNA vs nMNA difference differs across compartments using a Binomial GLMM with a condition × compartment interaction, overall baseline abundance as a covariate, and a per-patient random intercept (BH-corrected). The model fits all three compartments simultaneously; the interaction terms test whether the MNA vs nMNA difference at border or stroma deviates from the reference compartment (core). Compartment main effects (shifts between compartments within the nMNA reference group) are included in the model but not reported separately here.
