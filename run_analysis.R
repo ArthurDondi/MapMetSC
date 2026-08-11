@@ -87,4 +87,20 @@ render_step("analysis/06.4_correlation_Lee.Rmd",      corr_params)
 # allcelltype_community column produced by 05.1, so it now runs in the same pass.
 render_step("analysis/07_spatial_analysis.Rmd",     main_params)
 
+# --- Supplementary: region / marker images (customised params) ---------------
+# Standalone image-generation step. Unlike the steps above it does NOT reuse
+# main_params: set the image, the zoom crop and the marker list here. Reads
+# spe_07_spatial_analysis.rds (compartment + cellular-neighborhood annotations),
+# so it runs after the spatial analysis. Renders both the whole image and the
+# zoomed region.
+image_params <- list(
+  input    = input,
+  output   = output,
+  image_id = "20220926_20220809_16-006_TU_003",
+  markers  = c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir191_mean",
+               "CD14_Lu175_mean", "CD56_Er170_mean"),
+  crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
+)
+render_step("analysis/08_generate_images.Rmd", image_params)
+
 message("\nAll steps completed. Rendered HTML is in docs/; objects & figures in ", output)
