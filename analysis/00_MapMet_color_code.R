@@ -178,7 +178,7 @@ COL_SEX <- c(
 
 # ---- Lee et al. reference: extra label colors (06.4_correlation_Lee.Rmd) ----
 # Added on top of the per-celltype colors read from Lee/celltype_metacluster.csv.
-COL_LEE_EXTRA <- c("tumor" = "snow2", "other" = "goldenrod1")
+COL_LEE_EXTRA <- c("tumor" = "grey70", "other" = "goldenrod1")  # grey70: visible on white (snow2 was near-white)
 
 # ---- Generic qualitative palette for random sample/cluster colors (02_QC_1) -
 # All named R colors except greys, used to assign arbitrary colors to samples /
