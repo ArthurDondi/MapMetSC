@@ -158,66 +158,87 @@ crop_cil <- function(cil, crop) {
   out
 }
 
-# core / border / stroma coloured as a tumor-core -> stroma ramp.
-compartment_cols <- c(core = "#B2182B", border = "#F4A582", stroma = "#2166AC")
+# core / border / stroma coloured with the ggplot2 default discrete palette
+# (scales::hue_pal, alphabetical order: border, core, stroma), so the mask image
+# matches the plotSpatial compartment figures in 07_spatial_analysis, which use
+# those default colours.
+compartment_cols <- setNames(scales::hue_pal()(3), c("border", "core", "stroma"))
 
 # Same Set3 palette / neighborhood numbering as Fig4f in chapter 07.
 cn_levels <- levels(factor(spe$cn_celltypes_2))
 cn_cols   <- setNames(brewer.pal(max(3, length(cn_levels)), "Set3")[seq_along(cn_levels)],
                       cn_levels)
 
+# Evaluate a plotPixels/plotCells call lazily; on success save + show it and
+# return TRUE, on any error report it, skip, and return FALSE - so one bad panel
+# never aborts the whole render. A flat channel (a marker with no signal in this
+# view) makes EBImage::normalize fail with "clipping range is 0"; such markers
+# fail here and are simply left out (also of the merge). `plot_call` is a
+# promise, so the plotting only runs inside the tryCatch below.
+render_and_save <- function(plot_call, filename, width, height) {
+  po <- tryCatch(plot_call,
+                 error = function(e) {
+                   message("Skipped ", filename, ": ", conditionMessage(e)); NULL
+                 })
+  if (is.null(po)) return(invisible(FALSE))
+  p <- ggdraw(po$plot)
+  save_plot(p, filename, width = width, height = height)
+  print(p)
+  invisible(TRUE)
+}
+
+merge_palette <- c("red", "green", "blue", "yellow", "cyan",
+                   "magenta", "orange", "white")
+
 # Render every panel (individual markers, merge, celltype, compartment,
 # neighborhood) for one view (whole image or a crop). tag goes into the filename.
 plot_region <- function(img_v, masks_v, tmp, markers, tag) {
 
-  # --- individual markers (one solid colour each) ---
+  # --- individual markers (one solid colour each); keep the ones that render
+  #     (a marker absent from this view has a flat channel and is skipped) ---
+  usable <- character(0)
   for (m in markers) {
-    po <- plotPixels(img_v, colour_by = m,
-                     bcg = setNames(list(c(0, 1, 1)), m),
-                     legend = NULL, return_plot = TRUE)
-    p <- ggdraw(po$plot)
-    save_plot(p, paste0(tag, "_marker_", m, ".png"), width = 8, height = 8)
-    print(p)
+    ok <- render_and_save(
+      plotPixels(img_v, colour_by = m, bcg = setNames(list(c(0, 1, 1)), m),
+                 legend = NULL, return_plot = TRUE),
+      paste0(tag, "_marker_", m, ".png"), 8, 8)
+    if (isTRUE(ok)) usable <- c(usable, m)
   }
 
-  # --- merge of all markers (one hue per marker, black low end so they add) ---
-  merge_palette <- c("red", "green", "blue", "yellow", "cyan",
-                     "magenta", "orange", "white")
-  hue <- merge_palette[((seq_along(markers) - 1) %% length(merge_palette)) + 1]
-  colour_list <- setNames(lapply(hue, function(h) c("black", h)), markers)
-  bcg_list    <- setNames(lapply(markers, function(x) c(0, 1, 1)), markers)
-  pm <- plotPixels(img_v, colour_by = markers, colour = colour_list,
-                   bcg = bcg_list, return_plot = TRUE)
-  p <- ggdraw(pm$plot)
-  save_plot(p, paste0(tag, "_markers_merge.png"), width = 8, height = 8)
-  print(p)
+  # --- merge of the markers that rendered (one hue each, black low end) ---
+  if (length(usable)) {
+    hue <- merge_palette[((seq_along(usable) - 1) %% length(merge_palette)) + 1]
+    colour_list <- setNames(lapply(hue, function(h) c("black", h)), usable)
+    bcg_list    <- setNames(lapply(usable, function(x) c(0, 1, 1)), usable)
+    render_and_save(
+      plotPixels(img_v, colour_by = usable, colour = colour_list,
+                 bcg = bcg_list, return_plot = TRUE),
+      paste0(tag, "_markers_merge.png"), 8, 8)
+  }
 
   # --- cell types (on the masks) ---
-  pc <- plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
-                  colour_by = "celltype",
-                  colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
-                  missing_colour = "white", return_plot = TRUE)
-  p <- ggdraw(pc$plot)
-  save_plot(p, paste0(tag, "_celltype.png"), width = 10, height = 8)
-  print(p)
+  render_and_save(
+    plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
+              colour_by = "celltype",
+              colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
+              missing_colour = "white", return_plot = TRUE),
+    paste0(tag, "_celltype.png"), 10, 8)
 
   # --- spatial compartment (on the masks) ---
-  pcomp <- plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
-                     colour_by = "compartment",
-                     colour = list(compartment = compartment_cols),
-                     missing_colour = "white", return_plot = TRUE)
-  p <- ggdraw(pcomp$plot)
-  save_plot(p, paste0(tag, "_compartment.png"), width = 10, height = 8)
-  print(p)
+  render_and_save(
+    plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
+              colour_by = "compartment",
+              colour = list(compartment = compartment_cols),
+              missing_colour = "white", return_plot = TRUE),
+    paste0(tag, "_compartment.png"), 10, 8)
 
   # --- cellular neighborhood (on the masks) ---
-  pcn <- plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
-                   colour_by = "cn_celltypes_2",
-                   colour = list(cn_celltypes_2 = cn_cols),
-                   missing_colour = "white", return_plot = TRUE)
-  p <- ggdraw(pcn$plot)
-  save_plot(p, paste0(tag, "_cellular_neighborhood.png"), width = 10, height = 8)
-  print(p)
+  render_and_save(
+    plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
+              colour_by = "cn_celltypes_2",
+              colour = list(cn_celltypes_2 = cn_cols),
+              missing_colour = "white", return_plot = TRUE),
+    paste0(tag, "_cellular_neighborhood.png"), 10, 8)
 }
 ```
 
@@ -234,7 +255,7 @@ for (vn in names(views)) {
   cr      <- views[[vn]]
   img_v   <- if (is.null(cr)) img   else crop_cil(img,   cr)
   masks_v <- if (is.null(cr)) masks else crop_cil(masks, cr)
-  message("=== view: ", vn, " ===")
+  message("=== view: ", vn, " (", paste(dim(img_v[[1]])[1:2], collapse = " x "), " px) ===")
   plot_region(img_v, masks_v, tmp, markers, paste0(image_id, "_", vn))
 }
 ```
