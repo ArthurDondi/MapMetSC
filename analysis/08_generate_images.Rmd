@@ -163,6 +163,20 @@ crop_cil <- function(cil, crop) {
   out
 }
 
+# Rotate a CytoImageList 90 degrees counter-clockwise (lossless: transpose then
+# vertical flip, so integer mask labels are preserved). The raw cytomapper
+# images come out 90 degrees clockwise relative to the plotSpatial figures in 07
+# (which plot cell coordinates, not the image matrix); this brings the panels
+# into the same orientation as 07_spatial_analysis.
+rotate90_ccw <- function(cil) {
+  out <- CytoImageList(lapply(seq_along(cil), function(i)
+    EBImage::flip(EBImage::transpose(cil[[i]]))))
+  names(out) <- names(cil)
+  mcols(out) <- mcols(cil)
+  if (!is.null(channelNames(cil))) channelNames(out) <- channelNames(cil)
+  out
+}
+
 # core / border / stroma coloured with the ggplot2 default discrete palette
 # (scales::hue_pal, alphabetical order: border, core, stroma), so the mask image
 # matches the plotSpatial compartment figures in 07_spatial_analysis, which use
@@ -270,8 +284,12 @@ if (!is.null(params$crop)) views[["zoom"]] <- params$crop
 
 for (vn in names(views)) {
   cr      <- views[[vn]]
+  # Crop in the native image orientation (so crop coordinates stay in raw-image
+  # pixel space), then rotate the view to match the 07 plotSpatial orientation.
   img_v   <- if (is.null(cr)) img   else crop_cil(img,   cr)
   masks_v <- if (is.null(cr)) masks else crop_cil(masks, cr)
+  img_v   <- rotate90_ccw(img_v)
+  masks_v <- rotate90_ccw(masks_v)
   message("=== view: ", vn, " (", paste(dim(img_v[[1]])[1:2], collapse = " x "), " px) ===")
   plot_region(img_v, masks_v, tmp, markers, paste0(image_id, "_", vn))
 }
