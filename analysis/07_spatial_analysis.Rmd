@@ -1007,6 +1007,26 @@ for (th in thresholds) {
   results_list[[paste0("tumor_", th)]] <- tumor_df
 }
 
+# ---------------------------------------------------------------------------
+# Canonical compartment definition for all downstream analyses.
+# The loop above leaves spe$compartment set to its last threshold (300). Here we
+# fix it to a border size of 200, which is the value used from this point on:
+# the Fig4f compartment images, the Fig4m / Fig4n compartment boxplots and the
+# Fig4_suppl compartment stacked bars all read this spe$compartment.
+canonical_border <- 200
+spe$compartment <- "stroma"
+spe[
+  ,
+  abs(spe$distToCells) <= canonical_border &
+    spe$sample_id != "20221018_20220906_03-018_TU_001"
+]$compartment <- "border"
+spe[
+  ,
+  spe$compartment != "border" &
+    spe$distToCells <= canonical_border &
+    spe$sample_id != "20221018_20220906_03-018_TU_001"
+]$compartment <- "core"
+
 # combine all
 results_df <- bind_rows(results_list)
 
@@ -1160,10 +1180,11 @@ compartment (core / border / stroma) rather than by its cellular neighborhood.
 
 ```{r spatial-compartment-images, fig.width=20, fig.height=50}
 # Equivalent of Fig4f_spatial_neighborhood_images, but node_color_by the tumor
-# compartment instead of the cellular neighborhood. Uses spe$compartment as left
-# by the loop above (largest border-size threshold) and the same default
-# compartment color scheme as the per-image panels (p_s2 / p_s3), so core /
-# border / stroma are colored consistently across the compartment figures.
+# compartment instead of the cellular neighborhood. Uses spe$compartment at the
+# canonical border size of 200 (set above, after the threshold loop) and the
+# same default compartment color scheme as the per-image panels (p_s2 / p_s3),
+# so core / border / stroma are colored consistently across the compartment
+# figures.
 p_spatial_compartment <- plotSpatial(spe,
             node_color_by = "compartment",
             img_id = "sample_id",
@@ -1193,10 +1214,25 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 ```
 
 ```{r cluster-order-colors}
-# Canonical cluster orders used consistently throughout compartment analyses
-tumor_order  <- c("marker-lo Tu", "GD2lo Tu", "CD44+ Tu", "CXCR4+ Tu",
-                  "Ki67+ Tu", "bridge-like Tu", "early NB Tu")
+# Canonical cluster orders used consistently throughout the compartment
+# analyses. immune_order are metacluster names. tumor_order is derived from the
+# data (celltypes of metacluster == "tumor") rather than hard-coded, so the
+# names always match spe$celltype_2 and the col_celltype_2 color vector. A stale
+# hard-coded tumor name would map to an NA color and make ggpubr::ggboxplot()
+# fail with "missing value where TRUE/FALSE needed".
 immune_order <- c("T cells", "B cells", "myeloid/NK", "granulocytes")
+
+tumor_present <- unique(as.character(spe$celltype_2[spe$metacluster == "tumor"]))
+# keep the color-vector ordering, restricted to the tumor celltypes present here
+tumor_order <- intersect(names(metadata(spe)$color_vectors$col_celltype_2), tumor_present)
+if (length(tumor_order) == 0) tumor_order <- sort(tumor_present)
+
+# Safe color lookup: fall back to grey if a celltype has no color (or an NA
+# color), so ggboxplot() never receives an NA palette.
+cluster_color <- function(name) {
+  col <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(name)])
+  if (length(col) == 0 || is.na(col)) "grey50" else col
+}
 ```
 
 
@@ -1376,9 +1412,7 @@ for (cells in cells_list) {
     else
       seq_len(nrow(stats_df)) * min_annotation_step
 
-    color_cluster <- unname(
-      metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
-    )
+    color_cluster <- cluster_color(cluster_name)
 
     plot_list_comp[[cluster_name]] <- ggboxplot(
       proportions, x = "condition", y = "Freq", order = comp_levels,
@@ -1611,9 +1645,7 @@ for (cells in c("tumor", "immune")) {
         y_max_m * y_offset_multipliers[seq_len(nrow(stats_df_m))] + y_base_offset
       else seq_len(nrow(stats_df_m)) * min_annotation_step
 
-      color_cluster <- unname(
-        metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
-      )
+      color_cluster <- cluster_color(cluster_name)
       plot_list_m[[cluster_name]] <- ggboxplot(
         proportions_m, x = "condition", y = "Freq", order = comp_levels,
         color = "condition", palette = rep(color_cluster, 3), add = "jitter"
@@ -1799,9 +1831,7 @@ for (cells in c("tumor", "immune")) {
           label      = p_label,
           y.position = max(y_max_b * 1.15, min_annotation_step)
         )
-        color_cluster <- unname(
-          metadata(spe)$color_vectors$col_celltype_2[as.character(cluster_name)]
-        )
+        color_cluster <- cluster_color(cluster_name)
         plot_list_b[[cluster_name]] <- ggboxplot(
           props_b, x = "condition", y = "Freq", order = mycn_levels,
           color = "condition", palette = rep(color_cluster, 2), add = "jitter"
