@@ -111,6 +111,12 @@ masks <- loadImages(file.path(params$input, "masks", paste0(image_id, ".tif")), 
 mcols(img)   <- DataFrame(sample_id = names(img))
 mcols(masks) <- DataFrame(sample_id = names(masks))
 
+# Report the actual pixel dimensions so the crop window (params$crop) can be set
+# within range - an out-of-range zoom is the usual cause of a black zoom panel.
+message("Loaded '", image_id, "': image ", dim(img[[1]])[1], " x ", dim(img[[1]])[2],
+        " px (", dim(img[[1]])[3], " channels); mask ",
+        dim(masks[[1]])[1], " x ", dim(masks[[1]])[2], " px.")
+
 # Name the image channels from the marker (_mean) names, using the image's
 # actual channel count (same robust rule as analysis_AD/03_QC_2.Rmd, in case the
 # raw image still carries channels dropped from the intensity tables).
@@ -144,17 +150,38 @@ message("Rendering markers: ", paste(markers, collapse = ", "))
 
 ## Colours and helpers
 ```{r helpers}
-# Cropping a CytoImageList to c(xmin, xmax, ymin, ymax). Handles the
-# multichannel image (X, Y, C) and the single-channel mask (X, Y), and clamps
-# the window to the image bounds so an out-of-range crop can never error.
+# Clamp/shift a requested [lo, hi] window so it fits inside [1, n]. If the window
+# is at least as wide as the axis it falls back to the whole axis; otherwise it
+# is shifted inward to stay in range. Returns integer c(lo, hi).
+.clamp_axis <- function(lo, hi, n) {
+  lo <- as.integer(round(lo)); hi <- as.integer(round(hi))
+  if (lo > hi) { tmp <- lo; lo <- hi; hi <- tmp }
+  w <- hi - lo
+  if (w >= n - 1L) return(c(1L, n))
+  lo <- max(1L, min(lo, n - w))
+  c(lo, lo + w)
+}
+
+# Crop a CytoImageList to c(xmin, xmax, ymin, ymax). The window is clamped to the
+# image bounds (an out-of-range crop is shifted in / falls back to the whole
+# axis, with a message), and every cropped frame is rebuilt as a proper EBImage
+# Image - plain `[` subsetting can drop the Image class and yield a blank
+# CytoImageList that plotPixels/plotCells then render black.
 crop_cil <- function(cil, crop) {
+  d0 <- dim(cil[[1]])
+  xr <- .clamp_axis(crop[1], crop[2], d0[1])
+  yr <- .clamp_axis(crop[3], crop[4], d0[2])
+  if (!identical(c(xr, yr), as.integer(c(crop[1], crop[2], crop[3], crop[4]))))
+    message("Crop x[", crop[1], "-", crop[2], "] y[", crop[3], "-", crop[4],
+            "] adjusted to x[", xr[1], "-", xr[2], "] y[", yr[1], "-", yr[2],
+            "] to fit the ", d0[1], " x ", d0[2], " px image.")
+  xs <- seq(xr[1], xr[2]); ys <- seq(yr[1], yr[2])
   imgs <- lapply(seq_along(cil), function(i) {
-    im <- cil[[i]]
-    d  <- dim(im)
-    x1 <- max(1L, min(crop[1], d[1])); x2 <- max(1L, min(crop[2], d[1]))
-    y1 <- max(1L, min(crop[3], d[2])); y2 <- max(1L, min(crop[4], d[2]))
-    xs <- seq(min(x1, x2), max(x1, x2)); ys <- seq(min(y1, y2), max(y1, y2))
-    if (length(d) == 3L) im[xs, ys, , drop = FALSE] else im[xs, ys, drop = FALSE]
+    im  <- cil[[i]]
+    dat <- EBImage::imageData(im)
+    sub <- if (length(dim(im)) == 3L) dat[xs, ys, , drop = FALSE]
+           else                       dat[xs, ys,    drop = FALSE]
+    EBImage::Image(sub, colormode = EBImage::colorMode(im))
   })
   out <- CytoImageList(imgs)
   names(out) <- names(cil)
@@ -187,6 +214,11 @@ compartment_cols <- setNames(scales::hue_pal()(3), c("border", "core", "stroma")
 cn_levels <- levels(factor(spe$cn_celltypes_2))
 cn_cols   <- setNames(brewer.pal(max(3, length(cn_levels)), "Set3")[seq_along(cn_levels)],
                       cn_levels)
+
+# Scale bar drawn on every panel (IMC pixel size is 1 um, so a length in px is a
+# length in um). A fixed physical length is shown with its unit, and the image
+# name / title is removed from the panels (image_title = NULL in every call).
+scale_bar_spec <- list(length = 100, label = "100 µm")
 
 # Evaluate a plotPixels/plotCells call lazily; on success save + show it and
 # return TRUE, on any error report it, skip, and return FALSE - so one bad panel
@@ -232,6 +264,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
       plotPixels(img_v, colour_by = m,
                  colour = setNames(list(c("black", .marker_col_map[[m]])), m),
                  bcg = setNames(list(c(0, 1, 1)), m),
+                 image_title = NULL, scale_bar = scale_bar_spec,
                  legend = NULL, return_plot = TRUE),
       paste0(tag, "_marker_", m, ".png"), 8, 8)
     if (isTRUE(ok)) usable <- c(usable, m)
@@ -243,7 +276,8 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     bcg_list    <- setNames(lapply(usable, function(x) c(0, 1, 1)), usable)
     render_and_save(
       plotPixels(img_v, colour_by = usable, colour = colour_list,
-                 bcg = bcg_list, legend = NULL, return_plot = TRUE),
+                 bcg = bcg_list, image_title = NULL, scale_bar = scale_bar_spec,
+                 legend = NULL, return_plot = TRUE),
       paste0(tag, "_markers_merge.png"), 8, 8)
   }
 
@@ -252,7 +286,8 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "celltype",
               colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
-              missing_colour = "white", legend = NULL, return_plot = TRUE),
+              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              legend = NULL, return_plot = TRUE),
     paste0(tag, "_celltype.png"), 10, 8)
 
   # --- spatial compartment (on the masks) ---
@@ -260,7 +295,8 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "compartment",
               colour = list(compartment = compartment_cols),
-              missing_colour = "white", legend = NULL, return_plot = TRUE),
+              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              legend = NULL, return_plot = TRUE),
     paste0(tag, "_compartment.png"), 10, 8)
 
   # --- cellular neighborhood (on the masks) ---
@@ -268,7 +304,8 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "cn_celltypes_2",
               colour = list(cn_celltypes_2 = cn_cols),
-              missing_colour = "white", legend = NULL, return_plot = TRUE),
+              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              legend = NULL, return_plot = TRUE),
     paste0(tag, "_cellular_neighborhood.png"), 10, 8)
 }
 ```
