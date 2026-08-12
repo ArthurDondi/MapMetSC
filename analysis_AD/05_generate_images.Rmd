@@ -18,14 +18,13 @@ params:
   # Colour per marker (individual image + merge), keyed by the short marker name
   # (token before the first "_"; "DNA1" keys the DNA channel). Markers without an
   # entry fall back to a spare-colour palette.
-  marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "darkorange")
+  marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "purple")
   # Short marker names to draw individually but leave OUT of the colour merge
-  # (each still gets its own panel). Ki-67 sits out per request. CHGA is left out
-  # too: its yellow co-localises with ELAVL4's green in the neuroendocrine cells
-  # and additively blends green -> yellow, so keeping it out lets ELAVL4 read
-  # green in the merge (CHGA still shows yellow on its standalone panel). GD2
-  # stays in the merge.
-  merge_exclude: !r c("Ki-67", "CHGA")
+  # (each still gets its own panel). Only Ki-67 sits out (per request); with 7
+  # markers this keeps the merge at cytomapper's 6-marker maximum. GD2 is purple
+  # (not orange) so that where it overlaps ELAVL4 the additive blend is pale
+  # rather than the green -> yellow an orange channel produced.
+  merge_exclude: !r c("Ki-67")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.

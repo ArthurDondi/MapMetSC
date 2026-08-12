@@ -78,11 +78,11 @@ ad_image_params <- list(
                "GD2_Gd155_mean"),                                               # GD2
   marker_colours = c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red",
                      "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow",
-                     "GD2" = "darkorange"),
-  # Markers drawn individually but left out of the merge. Ki-67 per request;
-  # CHGA too, because its yellow blends with ELAVL4's green in the merge (both
-  # sit in the neuroendocrine cells). GD2 stays in the AD merge.
-  merge_exclude = c("Ki-67", "CHGA"),
+                     "GD2" = "purple"),
+  # Only Ki-67 is left out of the merge (per request); that keeps the merge at
+  # cytomapper's 6-marker max. GD2 is purple (not orange) so where it overlaps
+  # ELAVL4 the blend is pale, not the green -> yellow an orange channel gave.
+  merge_exclude = c("Ki-67"),
   crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
 )
 render_step("analysis_AD/05_generate_images.Rmd", ad_image_params)
