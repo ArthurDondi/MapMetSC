@@ -9,8 +9,11 @@ editor_options:
 params:
   input:  !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
   output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
-  # Image to render. Override from run_analysis.R (see the render_step call).
-  image_id: "20250623_19700101_25-XDD397_AD_001"
+  # Image(s) to render. Give a vector of ids in `image_ids` to render several in
+  # one pass; a single `image_id` is still accepted (back-compat). Override from
+  # run_analysis.R (see the render_step call). If `image_ids` is set it wins.
+  image_id:  "20250623_19700101_25-XDD397_AD_001"
+  image_ids: !r NULL
   # Markers rendered individually and as a colour merge. Either full channel
   # names (as in rownames(spe)) or the short marker name (token before the first
   # "_"). Here: DNA2 = DNA1_Ir193_mean (Ir193), VIM = Vimentin, KI67 = Ki-67.
@@ -25,10 +28,13 @@ params:
   # (not orange) so that where it overlaps ELAVL4 the additive blend is pale
   # rather than the green -> yellow an orange channel produced.
   merge_exclude: !r c("Ki-67")
-  # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
-  # array (x = first image dimension, y = second). Both the whole image AND this
-  # zoom are rendered. Set to NULL to render the whole image only.
-  crop: !r c(2000, 3000, 2000, 3000)
+  # Zoom window(s) c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
+  # array (x = first image dimension, y = second). Both the whole image AND any
+  # zoom are rendered. `crops` is a list with one entry per `image_ids` id
+  # (NULL = whole image only, the default for every image); `crop` is a single
+  # window for the back-compat single-image path. NULL renders whole image only.
+  crop:  !r NULL
+  crops: !r NULL
 ---
 
 ```{r setup, include=FALSE}
@@ -97,37 +103,30 @@ library(ggplot2)
 ```{r load-data}
 spe <- readRDS(file.path(params$output, "spe_04_phenotyping_AD.rds"))
 
-image_id <- params$image_id
-if (!image_id %in% spe$sample_id)
-  stop("image_id '", image_id, "' is not among the AD images in ",
-       "spe_04_phenotyping_AD.rds. Available images include: ",
+# --- images to render + their optional zoom crops ---------------------------
+# New interface: params$image_ids (a character vector) renders several images in
+# one pass, with params$crops a list holding one zoom window per id (a NULL entry
+# = whole image only). Back-compat: a single params$image_id (+ params$crop).
+# Every crop defaults to NULL, i.e. whole image only.
+image_ids <- if (!is.null(params$image_ids)) params$image_ids else params$image_id
+if (is.null(image_ids) || !length(image_ids))
+  stop("No image id provided: set params$image_ids (or params$image_id).")
+crops <- if (!is.null(params$crops)) params$crops else
+         if (!is.null(params$crop)) rep(list(params$crop), length(image_ids)) else
+         vector("list", length(image_ids))          # all NULL -> whole image only
+if (length(crops) != length(image_ids))
+  stop("params$crops must have one entry per image id (NULL = whole image only). ",
+       "Got ", length(crops), " crop(s) for ", length(image_ids), " id(s).")
+
+missing_ids <- setdiff(image_ids, unique(as.character(spe$sample_id)))
+if (length(missing_ids))
+  stop("image id(s) not among the AD images in spe_04_phenotyping_AD.rds: ",
+       paste(missing_ids, collapse = ", "), ". Available images include: ",
        paste(head(unique(as.character(spe$sample_id))), collapse = ", "), " ...")
 
-tmp <- spe[, spe$sample_id == image_id]
-
-# Multichannel image (pixels) and segmentation mask (cells)
-img   <- loadImages(file.path(params$input, "img",   paste0(image_id, ".tif")))
-masks <- loadImages(file.path(params$input, "masks", paste0(image_id, ".tif")), as.is = TRUE)
-
-mcols(img)   <- DataFrame(sample_id = names(img))
-mcols(masks) <- DataFrame(sample_id = names(masks))
-
-# Report the actual pixel dimensions so the crop window (params$crop) can be set
-# within range - an out-of-range zoom is the usual cause of a black zoom panel.
-message("Loaded '", image_id, "': image ", dim(img[[1]])[1], " x ", dim(img[[1]])[2],
-        " px (", dim(img[[1]])[3], " channels); mask ",
-        dim(masks[[1]])[1], " x ", dim(masks[[1]])[2], " px.")
-
-# Name the image channels from the marker (_mean) names, using the image's
-# actual channel count (same robust rule as analysis_AD/03_QC_2.Rmd, in case the
-# raw image still carries channels dropped from the intensity tables).
+# Channel (_mean) marker names from the spe. Image channels are named from these
+# (in order), and requested markers are resolved against them.
 marker_names <- rownames(spe)[grepl("_mean$", rownames(spe))]
-n_ch <- dim(img[[1]])[3]
-channelNames(img) <- if (n_ch <= length(marker_names)) {
-  marker_names[seq_len(n_ch)]
-} else {
-  c(marker_names, paste0("extra_channel_", seq_len(n_ch - length(marker_names))))
-}
 
 # Resolve requested markers: accept either a full channel name or a short marker
 # name (the token before the first "_").
@@ -140,13 +139,35 @@ resolve_markers <- function(requested, channels) {
   }, character(1))
 }
 
-markers_full <- resolve_markers(params$markers, channelNames(img))
+markers_full <- resolve_markers(params$markers, marker_names)
 if (anyNA(markers_full))
-  warning("Markers not found as image channels (dropped): ",
+  warning("Markers not found among the spe channels (dropped): ",
           paste(params$markers[is.na(markers_full)], collapse = ", "))
 markers <- unname(markers_full[!is.na(markers_full)])
-if (!length(markers)) stop("None of the requested markers match the image channels.")
+if (!length(markers)) stop("None of the requested markers match the spe channels.")
 message("Rendering markers: ", paste(markers, collapse = ", "))
+
+# Load one image + its mask + the matching cells (tmp). Channels are named from
+# marker_names using the image's own channel count (robust to raw images that
+# still carry channels dropped from the intensity tables). Dimensions are logged
+# so an out-of-range crop - the usual cause of a black zoom panel - is easy to spot.
+load_image <- function(image_id) {
+  tmp   <- spe[, spe$sample_id == image_id]
+  img   <- loadImages(file.path(params$input, "img",   paste0(image_id, ".tif")))
+  masks <- loadImages(file.path(params$input, "masks", paste0(image_id, ".tif")), as.is = TRUE)
+  mcols(img)   <- DataFrame(sample_id = names(img))
+  mcols(masks) <- DataFrame(sample_id = names(masks))
+  message("Loaded '", image_id, "': image ", dim(img[[1]])[1], " x ", dim(img[[1]])[2],
+          " px (", dim(img[[1]])[3], " channels); mask ",
+          dim(masks[[1]])[1], " x ", dim(masks[[1]])[2], " px.")
+  n_ch <- dim(img[[1]])[3]
+  channelNames(img) <- if (n_ch <= length(marker_names)) {
+    marker_names[seq_len(n_ch)]
+  } else {
+    c(marker_names, paste0("extra_channel_", seq_len(n_ch - length(marker_names))))
+  }
+  list(img = img, masks = masks, tmp = tmp)
+}
 ```
 
 ## Colours and helpers
@@ -292,23 +313,33 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
 ```
 
 ## Whole image and zoom
-Both the whole image and (when `params$crop` is set) the zoomed region are
-rendered; every output filename carries the image id and `_whole` / `_zoom`.
+Every image in `image_ids` is rendered as a whole image; when that image has a
+zoom window in `crops`, the zoomed region is rendered too. Every output filename
+carries the image id and `_whole` / `_zoom`.
 
 ```{r generate}
-# Always the whole image; add the zoom when crop coordinates are provided.
-views <- list(whole = NULL)
-if (!is.null(params$crop)) views[["zoom"]] <- params$crop
+for (i in seq_along(image_ids)) {
+  image_id <- image_ids[[i]]
+  crop     <- crops[[i]]
+  message("=== image: ", image_id, " (", i, "/", length(image_ids), ") ===")
 
-for (vn in names(views)) {
-  cr      <- views[[vn]]
-  # Crop in the native image orientation (so crop coordinates stay in raw-image
-  # pixel space), then rotate the view to the plotSpatial orientation.
-  img_v   <- if (is.null(cr)) img   else crop_cil(img,   cr)
-  masks_v <- if (is.null(cr)) masks else crop_cil(masks, cr)
-  img_v   <- rotate90_ccw(img_v)
-  masks_v <- rotate90_ccw(masks_v)
-  message("=== view: ", vn, " (", paste(dim(img_v[[1]])[1:2], collapse = " x "), " px) ===")
-  plot_region(img_v, masks_v, tmp, markers, paste0(image_id, "_", vn))
+  loaded <- load_image(image_id)
+  img <- loaded$img; masks <- loaded$masks; tmp <- loaded$tmp
+
+  # Always the whole image; add the zoom when this image has crop coordinates.
+  views <- list(whole = NULL)
+  if (!is.null(crop)) views[["zoom"]] <- crop
+
+  for (vn in names(views)) {
+    cr      <- views[[vn]]
+    # Crop in the native image orientation (so crop coordinates stay in raw-image
+    # pixel space), then rotate the view to the plotSpatial orientation.
+    img_v   <- if (is.null(cr)) img   else crop_cil(img,   cr)
+    masks_v <- if (is.null(cr)) masks else crop_cil(masks, cr)
+    img_v   <- rotate90_ccw(img_v)
+    masks_v <- rotate90_ccw(masks_v)
+    message("=== view: ", vn, " (", paste(dim(img_v[[1]])[1:2], collapse = " x "), " px) ===")
+    plot_region(img_v, masks_v, tmp, markers, paste0(image_id, "_", vn))
+  }
 }
 ```

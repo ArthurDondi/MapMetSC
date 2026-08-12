@@ -72,7 +72,8 @@ render_step("analysis_AD/04_phenotyping.Rmd", ad_params)
 ad_image_params <- list(
   input    = input_AD,
   output   = output,
-  image_id = "20250623_19700101_25-XDD397_AD_001",
+  # One or more images to render (add ids to render several in one pass).
+  image_ids = c("20250623_19700101_25-XDD397_AD_001"),
   markers  = c("DNA1_Ir193_mean", "ELAVL4_Yb174_mean", "Vimentin_Pt196_mean",  # DNA2 / ELAVL4 / VIM
                "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean",       # KI67 / CXCR4 / CHGA
                "GD2_Gd155_mean"),                                               # GD2
@@ -83,7 +84,8 @@ ad_image_params <- list(
   # cytomapper's 6-marker max. GD2 is purple (not orange) so where it overlaps
   # ELAVL4 the blend is pale, not the green -> yellow an orange channel gave.
   merge_exclude = c("Ki-67"),
-  crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
+  # One zoom window per image id; NULL = whole image only (all NULL here).
+  crops    = list(NULL)
 )
 render_step("analysis_AD/05_generate_images.Rmd", ad_image_params)
 
@@ -118,7 +120,10 @@ render_step("analysis/07_spatial_analysis.Rmd",     main_params)
 image_params <- list(
   input    = input,
   output   = output,
-  image_id = "20220926_20220809_16-006_TU_003",
+  # Images to render in one pass (add / remove ids here).
+  image_ids = c("20220926_20220809_16-006_TU_003",
+                "20220925_20220804_17-001_TU_002",
+                "20220926_20220809_16-006_TU_004"),
   markers  = c("Vimentin_Pt196_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean",  # Ir193 = DNA2
                "CD14_Lu175_mean", "GD2_Gd155_mean", "CD15_Bi209_mean"),
   # colour per marker (individual image + merge), keyed by short marker name
@@ -126,7 +131,8 @@ image_params <- list(
                      DNA1 = "blue", GD2 = "green", CD15 = "yellow"),
   # all six markers go into the merge (GD2 takes CD56's green slot; none excluded)
   merge_exclude = character(0),
-  crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
+  # One zoom window per image id; NULL = whole image only (all NULL here).
+  crops    = list(NULL, NULL, NULL)
 )
 render_step("analysis/08_generate_images.Rmd", image_params)
 
