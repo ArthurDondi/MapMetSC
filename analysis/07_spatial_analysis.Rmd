@@ -1250,17 +1250,25 @@ cluster_color <- function(name) {
 
 ```{r compartment-boxplots-all-comparisons}
 # Runs diffcyt (testDA_edgeR) for every compartment pair × cell type,
-# then draws combined boxplots with logFC + BH-adjusted p-value labels.
+# then draws combined boxplots labelled with the log2 fold-change + BH-adjusted
+# p-value and significance stars, e.g. "0.37 (0.017 *)".
 
 cells_list       <- c("tumor", "immune")
 comp_levels      <- c("core", "border", "stroma")
 comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
 
-y_offset_multipliers <- 1 + seq_along(comparison_pairs) * 0.20
-y_base_offset        <- 0.01
-y_expand_upper       <- (max(y_offset_multipliers) - 1) + 0.25
-min_annotation_step  <- 0.05
-max_plot_columns     <- 5
+# Freq is a percentage, so every panel uses a fixed 0-100 y-axis and the pairwise
+# brackets are drawn *above* it (outside the axis) via clip = "off".
+#   y_axis_max   : top of the visible axis (data can never exceed 100)
+#   bracket_base : height of the lowest bracket, just above the axis
+#   bracket_gap  : vertical spacing between the stacked brackets (bigger = more room)
+#   title_gap    : bottom margin (pt) reserved under the title so it clears the brackets
+y_axis_max        <- 100
+bracket_base      <- 106
+bracket_gap       <- 14
+title_gap         <- 85
+bracket_positions <- bracket_base + (seq_along(comparison_pairs) - 1) * bracket_gap
+max_plot_columns  <- 5
 
 keep_rows <- rowData(spe)$use_channel
 
@@ -1413,12 +1421,8 @@ for (cells in cells_list) {
     proportions <- plot_data_list[[cluster_name]]
     stats_df    <- all_stats[all_stats$cluster_name == cluster_name, ]
 
-    y_max <- max(proportions$Freq, na.rm = TRUE)
-    if (!is.finite(y_max)) y_max <- 0
-    stats_df$y.position <- if (y_max > 0)
-      y_max * y_offset_multipliers[seq_len(nrow(stats_df))] + y_base_offset
-    else
-      seq_len(nrow(stats_df)) * min_annotation_step
+    # brackets sit at fixed heights ABOVE the 0-100 axis, identical for every panel
+    stats_df$y.position <- bracket_positions[seq_len(nrow(stats_df))]
 
     color_cluster <- cluster_color(cluster_name)
 
@@ -1428,10 +1432,18 @@ for (cells in cells_list) {
       add = "jitter"
     ) +
       stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
-      ggtitle(cluster_name) +
-      scale_y_continuous(expand = expansion(mult = c(0.05, y_expand_upper))) +
+      # wrap + shrink the title so long celltype names (e.g. "adrenergic
+      # marker-low Tu") are not cropped in the narrow panels
+      ggtitle(str_wrap(cluster_name, width = 18)) +
+      scale_y_continuous(breaks = seq(0, y_axis_max, 25),
+                         expand = expansion(mult = c(0.02, 0))) +
+      # lock the visible axis to 0-100 and let the brackets draw outside it
+      coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
       theme(aspect.ratio = 1.2, legend.position = "none",
-            plot.title = element_text(margin = margin(b = 10)))
+            # smaller, wrapped, centred title clears the brackets and fits the panel
+            plot.title  = element_text(hjust = 0.5, size = 10,
+                                       margin = margin(b = title_gap)),
+            plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
   }
 
   p_comp <- gridExtra::grid.arrange(
