@@ -97,19 +97,6 @@ library(ggplot2)
 spe <- readRDS(file.path(params$output, "spe_07_spatial_analysis.rds"))
 
 image_id <- params$image_id
-# Copy-pasting an id (e.g. from a PDF or an editor with "smart dashes") can turn
-# the ASCII hyphen "-" into a unicode dash (en/em dash, minus sign, ...). The
-# sample_ids and .tif filenames use "-", so normalise those back to "-" - the
-# ids otherwise look identical but fail the exact match below.
-image_id_raw <- image_id
-# unicode dashes: U+2010-2015 (hyphen/figure/en/em dash, horizontal bar),
-# U+2212 (minus sign), U+FE58/FE63 (small dashes), U+FF0D (fullwidth hyphen).
-image_id <- gsub("[‐‑‒–—―−﹘﹣－]",
-                 "-", image_id, perl = TRUE)
-if (!identical(image_id, image_id_raw))
-  message("Note: normalised non-ASCII dash(es) in image_id: '",
-          image_id_raw, "' -> '", image_id, "'")
-
 if (!image_id %in% spe$sample_id)
   stop("image_id '", image_id, "' is not among the PT images in ",
        "spe_07_spatial_analysis.rds. Available images include: ",
