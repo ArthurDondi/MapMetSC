@@ -77,7 +77,7 @@ ad_image_params <- list(
                "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean",       # KI67 / CXCR4 / CHGA
                "GD2_Gd155_mean"),                                               # GD2
   marker_colours = c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red",
-                     "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow",
+                     "Ki-67" = "darkorange", "CXCR4" = "cyan", "CHGA" = "yellow",
                      "GD2" = "purple"),
   # Only Ki-67 is left out of the merge (per request); that keeps the merge at
   # cytomapper's 6-marker max. GD2 is purple (not orange) so where it overlaps

@@ -18,7 +18,7 @@ params:
   # Colour per marker (individual image + merge), keyed by the short marker name
   # (token before the first "_"; "DNA1" keys the DNA channel). Markers without an
   # entry fall back to a spare-colour palette.
-  marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "purple")
+  marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "darkorange", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "purple")
   # Short marker names to draw individually but leave OUT of the colour merge
   # (each still gets its own panel). Only Ki-67 sits out (per request); with 7
   # markers this keeps the merge at cytomapper's 6-marker maximum. GD2 is purple
