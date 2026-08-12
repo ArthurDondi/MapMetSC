@@ -21,8 +21,9 @@ params:
   marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "darkorange")
   # Short marker names to draw individually but leave OUT of the colour merge.
   # cytomapper::plotPixels composites at most 6 markers, so with 7 markers here
-  # one must sit out of the merge (it still gets its own panel).
-  merge_exclude: !r c("GD2")
+  # one must sit out of the merge (it still gets its own panel). Ki-67 is drawn
+  # standalone; GD2 stays in the merge.
+  merge_exclude: !r c("Ki-67")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
@@ -201,10 +202,10 @@ rotate90_ccw <- function(cil) {
 }
 
 # Scale bar (IMC pixel size is 1 um, so a length in px is a length in um). It is
-# drawn ONLY on the merge panel; the small cex keeps the "100 um" label from
-# being cropped at the image edge. The image name / title is removed from every
-# panel (image_title = NULL).
-scale_bar_spec <- list(length = 100, label = "100 µm", cex = 0.5)
+# drawn ONLY on the merge panel; cex sizes the "100 um" label - small enough to
+# stay inside the frame (the default was cropped), large enough to read. The
+# image name / title is removed from every panel (image_title = NULL).
+scale_bar_spec <- list(length = 100, label = "100 µm", cex = 1.5)
 
 # Evaluate a plotPixels/plotCells call lazily; on success save + show it and
 # return TRUE, on any error report it, skip, and return FALSE - so one bad panel

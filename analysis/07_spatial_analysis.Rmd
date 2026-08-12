@@ -1437,8 +1437,10 @@ for (cells in cells_list) {
       # lock the visible axis to 0-100 and let the brackets draw outside it
       coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
       theme(aspect.ratio = 1.2, legend.position = "none",
-            # smaller, wrapped, centred title clears the brackets and fits the panel
-            plot.title  = element_text(hjust = 0.5, size = 10,
+            # wrapped + centred title (theme default face/family, larger size);
+            # the str_wrap newline keeps long names on two lines and title_gap
+            # lifts it clear of the brackets
+            plot.title  = element_text(hjust = 0.5, size = 14,
                                        margin = margin(b = title_gap)),
             plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
   }

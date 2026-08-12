@@ -218,10 +218,10 @@ cn_cols   <- setNames(brewer.pal(max(3, length(cn_levels)), "Set3")[seq_along(cn
                       cn_levels)
 
 # Scale bar (IMC pixel size is 1 um, so a length in px is a length in um). It is
-# drawn ONLY on the merge panel; the small cex keeps the "100 um" label from
-# being cropped at the image edge. The image name / title is removed from every
-# panel (image_title = NULL).
-scale_bar_spec <- list(length = 100, label = "100 µm", cex = 0.5)
+# drawn ONLY on the merge panel; cex sizes the "100 um" label - small enough to
+# stay inside the frame (the default was cropped), large enough to read. The
+# image name / title is removed from every panel (image_title = NULL).
+scale_bar_spec <- list(length = 100, label = "100 µm", cex = 1.5)
 
 # Evaluate a plotPixels/plotCells call lazily; on success save + show it and
 # return TRUE, on any error report it, skip, and return FALSE - so one bad panel
