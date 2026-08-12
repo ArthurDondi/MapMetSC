@@ -79,9 +79,10 @@ ad_image_params <- list(
   marker_colours = c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red",
                      "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow",
                      "GD2" = "darkorange"),
-  # cytomapper::plotPixels merges at most 6 markers; with 7 here, Ki-67 is drawn
-  # individually but left out of the merge (GD2 stays in the AD merge).
-  merge_exclude = c("Ki-67"),
+  # Markers drawn individually but left out of the merge. Ki-67 per request;
+  # CHGA too, because its yellow blends with ELAVL4's green in the merge (both
+  # sit in the neuroendocrine cells). GD2 stays in the AD merge.
+  merge_exclude = c("Ki-67", "CHGA"),
   crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
 )
 render_step("analysis_AD/05_generate_images.Rmd", ad_image_params)

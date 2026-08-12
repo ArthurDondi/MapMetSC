@@ -19,11 +19,13 @@ params:
   # (token before the first "_"; "DNA1" keys the DNA channel). Markers without an
   # entry fall back to a spare-colour palette.
   marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "darkorange")
-  # Short marker names to draw individually but leave OUT of the colour merge.
-  # cytomapper::plotPixels composites at most 6 markers, so with 7 markers here
-  # one must sit out of the merge (it still gets its own panel). Ki-67 is drawn
-  # standalone; GD2 stays in the merge.
-  merge_exclude: !r c("Ki-67")
+  # Short marker names to draw individually but leave OUT of the colour merge
+  # (each still gets its own panel). Ki-67 sits out per request. CHGA is left out
+  # too: its yellow co-localises with ELAVL4's green in the neuroendocrine cells
+  # and additively blends green -> yellow, so keeping it out lets ELAVL4 read
+  # green in the merge (CHGA still shows yellow on its standalone panel). GD2
+  # stays in the merge.
+  merge_exclude: !r c("Ki-67", "CHGA")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
