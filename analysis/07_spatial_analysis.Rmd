@@ -1436,7 +1436,7 @@ for (cells in cells_list) {
                          expand = expansion(mult = c(0.02, 0))) +
       # lock the visible axis to 0-100 and let the brackets draw outside it
       coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
-      theme(aspect.ratio = 1.2, legend.position = "none",
+      theme(aspect.ratio = 1.0, legend.position = "none",
             # wrapped + centred title (theme default face/family, larger size);
             # the str_wrap newline keeps long names on two lines and title_gap
             # lifts it clear of the brackets
