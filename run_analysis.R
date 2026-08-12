@@ -74,9 +74,11 @@ ad_image_params <- list(
   output   = output,
   image_id = "20250623_19700101_25-XDD397_AD_001",
   markers  = c("DNA1_Ir193_mean", "ELAVL4_Yb174_mean", "Vimentin_Pt196_mean",  # DNA2 / ELAVL4 / VIM
-               "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean"),      # KI67 / CXCR4 / CHGA
+               "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean",       # KI67 / CXCR4 / CHGA
+               "GD2_Gd155_mean"),                                               # GD2
   marker_colours = c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red",
-                     "Ki-67" = "yellow", "CXCR4" = "cyan", "CHGA" = "magenta"),
+                     "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow",
+                     "GD2" = "darkorange"),
   crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
 )
 render_step("analysis_AD/05_generate_images.Rmd", ad_image_params)
@@ -114,10 +116,14 @@ image_params <- list(
   output   = output,
   image_id = "20220926_20220809_16-006_TU_003",
   markers  = c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean",  # Ir193 = DNA2
-               "CD14_Lu175_mean", "CD56_Er170_mean"),
+               "CD14_Lu175_mean", "CD56_Er170_mean", "GD2_Gd155_mean",
+               "CD15_Bi209_mean"),
   # colour per marker (individual image + merge), keyed by short marker name
   marker_colours = c(CD3 = "red", CD20 = "purple", CD56 = "green",
-                     CD14 = "cyan", DNA1 = "blue"),
+                     CD14 = "cyan", DNA1 = "blue", GD2 = "green",
+                     CD15 = "yellow"),
+  # short marker names drawn individually but left OUT of the colour merge
+  merge_exclude = c("GD2"),
   crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
 )
 render_step("analysis/08_generate_images.Rmd", image_params)

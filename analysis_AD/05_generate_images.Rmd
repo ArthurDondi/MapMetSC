@@ -14,11 +14,11 @@ params:
   # Markers rendered individually and as a colour merge. Either full channel
   # names (as in rownames(spe)) or the short marker name (token before the first
   # "_"). Here: DNA2 = DNA1_Ir193_mean (Ir193), VIM = Vimentin, KI67 = Ki-67.
-  markers: !r c("DNA1_Ir193_mean", "ELAVL4_Yb174_mean", "Vimentin_Pt196_mean", "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean")
+  markers: !r c("DNA1_Ir193_mean", "ELAVL4_Yb174_mean", "Vimentin_Pt196_mean", "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean", "GD2_Gd155_mean")
   # Colour per marker (individual image + merge), keyed by the short marker name
   # (token before the first "_"; "DNA1" keys the DNA channel). Markers without an
   # entry fall back to a spare-colour palette.
-  marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "yellow", "CXCR4" = "cyan", "CHGA" = "magenta")
+  marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "darkorange")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
@@ -29,7 +29,7 @@ params:
 # ================================
 # Create plots directory
 # ================================
-plot_dir <- file.path(params$output, "plots/05_generate_images_AD")
+plot_dir <- file.path(params$output, "plots_AD/05_generate_images")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -196,10 +196,11 @@ rotate90_ccw <- function(cil) {
   out
 }
 
-# Scale bar drawn on every panel (IMC pixel size is 1 um, so a length in px is a
-# length in um). The image name / title is removed from the panels
-# (image_title = NULL in every call).
-scale_bar_spec <- list(length = 100, label = "100 µm")
+# Scale bar (IMC pixel size is 1 um, so a length in px is a length in um). It is
+# drawn ONLY on the merge panel; the small cex keeps the "100 um" label from
+# being cropped at the image edge. The image name / title is removed from every
+# panel (image_title = NULL).
+scale_bar_spec <- list(length = 100, label = "100 µm", cex = 0.5)
 
 # Evaluate a plotPixels/plotCells call lazily; on success save + show it and
 # return TRUE, on any error report it, skip, and return FALSE - so one bad panel
@@ -243,7 +244,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
       plotPixels(img_v, colour_by = m,
                  colour = setNames(list(c("black", .marker_col_map[[m]])), m),
                  bcg = setNames(list(c(0, 1, 1)), m),
-                 image_title = NULL, scale_bar = scale_bar_spec,
+                 image_title = NULL, scale_bar = NULL,
                  legend = NULL, return_plot = TRUE),
       paste0(tag, "_marker_", m, ".png"), 8, 8)
     if (isTRUE(ok)) usable <- c(usable, m)
@@ -265,7 +266,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "celltype",
               colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
-              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
     paste0(tag, "_celltype.png"), 10, 8)
 }

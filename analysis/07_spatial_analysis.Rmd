@@ -1176,6 +1176,24 @@ save_plot(p_spatial_compartment, "Fig4f_spatial_compartment_images.pdf", width =
 p_spatial_compartment
 ```
 
+Similarly, we show all primary-tumour images at once colored by cell type
+(`celltype_2`: tumor celltypes + non-tumor metaclusters).
+
+```{r spatial-celltype-images, fig.width=20, fig.height=50}
+# Same all-images layout as Fig4f_spatial_compartment_images, but node_color_by
+# the cell type (celltype_2), using the celltype_2 colour vector.
+p_spatial_celltype <- plotSpatial(spe,
+            node_color_by = "celltype_2",
+            img_id = "sample_id",
+            ncols = 6,
+            node_size_fix = 0.5) +
+    scale_color_manual(values = metadata(spe)$color_vectors$col_celltype_2)
+
+save_plot(p_spatial_celltype, "Fig4f_spatial_celltype_images.pdf", width = 20, height = 49)
+
+p_spatial_celltype
+```
+
 
 ### DA analysis in spatial compartments
 

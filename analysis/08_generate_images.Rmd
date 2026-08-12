@@ -15,11 +15,13 @@ params:
   # names (as in rownames(spe), e.g. "CD3_Sm152_mean") or the short marker name
   # (e.g. "CD3") - short names are resolved to the matching channel below.
   # (DNA1_Ir193_mean is the Ir193 DNA channel, i.e. DNA2.)
-  markers: !r c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean", "CD14_Lu175_mean", "CD56_Er170_mean")
+  markers: !r c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean", "CD14_Lu175_mean", "CD56_Er170_mean", "GD2_Gd155_mean", "CD15_Bi209_mean")
   # Colour for each marker, used for BOTH its individual image and the merge.
   # Keyed by the short marker name (token before the first "_"); "DNA1" keys the
   # DNA channel. Markers without an entry fall back to a spare-colour palette.
-  marker_colours: !r c(CD3 = "red", CD20 = "purple", CD56 = "green", CD14 = "cyan", DNA1 = "blue")
+  marker_colours: !r c(CD3 = "red", CD20 = "purple", CD56 = "green", CD14 = "cyan", DNA1 = "blue", GD2 = "green", CD15 = "yellow")
+  # Short marker names to draw individually but leave OUT of the colour merge.
+  merge_exclude: !r c("GD2")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
@@ -215,10 +217,11 @@ cn_levels <- levels(factor(spe$cn_celltypes_2))
 cn_cols   <- setNames(brewer.pal(max(3, length(cn_levels)), "Set3")[seq_along(cn_levels)],
                       cn_levels)
 
-# Scale bar drawn on every panel (IMC pixel size is 1 um, so a length in px is a
-# length in um). A fixed physical length is shown with its unit, and the image
-# name / title is removed from the panels (image_title = NULL in every call).
-scale_bar_spec <- list(length = 100, label = "100 µm")
+# Scale bar (IMC pixel size is 1 um, so a length in px is a length in um). It is
+# drawn ONLY on the merge panel; the small cex keeps the "100 um" label from
+# being cropped at the image edge. The image name / title is removed from every
+# panel (image_title = NULL).
+scale_bar_spec <- list(length = 100, label = "100 µm", cex = 0.5)
 
 # Evaluate a plotPixels/plotCells call lazily; on success save + show it and
 # return TRUE, on any error report it, skip, and return FALSE - so one bad panel
@@ -251,6 +254,10 @@ render_and_save <- function(plot_call, filename, width, height) {
   setNames(cols, markers)
 })
 
+# Marker channels to draw individually but leave OUT of the colour merge,
+# matched by short marker name via params$merge_exclude.
+.merge_exclude <- markers[sub("_.*$", "", markers) %in% params$merge_exclude]
+
 # Render every panel (individual markers, merge, celltype, compartment,
 # neighborhood) for one view (whole image or a crop). tag goes into the filename.
 # No legends are drawn - each panel is just the image.
@@ -264,18 +271,20 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
       plotPixels(img_v, colour_by = m,
                  colour = setNames(list(c("black", .marker_col_map[[m]])), m),
                  bcg = setNames(list(c(0, 1, 1)), m),
-                 image_title = NULL, scale_bar = scale_bar_spec,
+                 image_title = NULL, scale_bar = NULL,
                  legend = NULL, return_plot = TRUE),
       paste0(tag, "_marker_", m, ".png"), 8, 8)
     if (isTRUE(ok)) usable <- c(usable, m)
   }
 
-  # --- merge of the markers that rendered, same per-marker colours ---
-  if (length(usable)) {
-    colour_list <- setNames(lapply(usable, function(mm) c("black", .marker_col_map[[mm]])), usable)
-    bcg_list    <- setNames(lapply(usable, function(x) c(0, 1, 1)), usable)
+  # --- merge of the markers that rendered, minus any flagged individual-only;
+  #     same per-marker colours. The scale bar is drawn on this panel only. ---
+  merge_markers <- setdiff(usable, .merge_exclude)
+  if (length(merge_markers)) {
+    colour_list <- setNames(lapply(merge_markers, function(mm) c("black", .marker_col_map[[mm]])), merge_markers)
+    bcg_list    <- setNames(lapply(merge_markers, function(x) c(0, 1, 1)), merge_markers)
     render_and_save(
-      plotPixels(img_v, colour_by = usable, colour = colour_list,
+      plotPixels(img_v, colour_by = merge_markers, colour = colour_list,
                  bcg = bcg_list, image_title = NULL, scale_bar = scale_bar_spec,
                  legend = NULL, return_plot = TRUE),
       paste0(tag, "_markers_merge.png"), 8, 8)
@@ -286,7 +295,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "celltype",
               colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
-              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
     paste0(tag, "_celltype.png"), 10, 8)
 
@@ -295,7 +304,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "compartment",
               colour = list(compartment = compartment_cols),
-              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
     paste0(tag, "_compartment.png"), 10, 8)
 
@@ -304,7 +313,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
               colour_by = "cn_celltypes_2",
               colour = list(cn_celltypes_2 = cn_cols),
-              missing_colour = "white", image_title = NULL, scale_bar = scale_bar_spec,
+              missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
     paste0(tag, "_cellular_neighborhood.png"), 10, 8)
 }
