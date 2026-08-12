@@ -65,6 +65,22 @@ render_step("analysis_AD/02_QC_1.Rmd",        ad_params)
 render_step("analysis_AD/03_QC_2.Rmd",        ad_params)
 render_step("analysis_AD/04_phenotyping.Rmd", ad_params)
 
+# --- Supplementary: AD region / marker images (customised params) ------------
+# Standalone AD image generator (mirrors analysis/08_generate_images.Rmd for the
+# main cohort). Reads spe_04_phenotyping_AD.rds, so it runs after AD phenotyping.
+# Customise the image, zoom crop and marker list here (not ad_params).
+ad_image_params <- list(
+  input    = input_AD,
+  output   = output,
+  image_id = "20250623_19700101_25-XDD397_AD_001",
+  markers  = c("DNA1_Ir193_mean", "ELAVL4_Yb174_mean", "Vimentin_Pt196_mean",  # DNA2 / ELAVL4 / VIM
+               "Ki-67_Tm169_mean", "CXCR4_Tb159_mean", "CHGA_Dy164_mean"),      # KI67 / CXCR4 / CHGA
+  marker_colours = c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red",
+                     "Ki-67" = "yellow", "CXCR4" = "cyan", "CHGA" = "magenta"),
+  crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
+)
+render_step("analysis_AD/05_generate_images.Rmd", ad_image_params)
+
 # --- Main single-cell pipeline ----------------------------------------------
 # Shared colors live in analysis/00_MapMet_color_code.R, which each script
 # sources automatically - it is a helper, not a rendered step.
