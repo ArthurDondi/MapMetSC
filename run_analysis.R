@@ -119,15 +119,13 @@ image_params <- list(
   input    = input,
   output   = output,
   image_id = "20220926_20220809_16-006_TU_003",
-  markers  = c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean",  # Ir193 = DNA2
-               "CD14_Lu175_mean", "CD56_Er170_mean", "GD2_Gd155_mean",
-               "CD15_Bi209_mean"),
+  markers  = c("Vimentin_Pt196_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean",  # Ir193 = DNA2
+               "CD14_Lu175_mean", "GD2_Gd155_mean", "CD15_Bi209_mean"),
   # colour per marker (individual image + merge), keyed by short marker name
-  marker_colours = c(CD3 = "red", CD20 = "purple", CD56 = "green",
-                     CD14 = "cyan", DNA1 = "blue", GD2 = "green",
-                     CD15 = "yellow"),
-  # short marker names drawn individually but left OUT of the colour merge
-  merge_exclude = c("GD2"),
+  marker_colours = c(CD3 = "red", Vimentin = "purple", CD14 = "cyan",
+                     DNA1 = "blue", GD2 = "green", CD15 = "yellow"),
+  # all six markers go into the merge (GD2 takes CD56's green slot; none excluded)
+  merge_exclude = character(0),
   crop     = c(2000, 3000, 2000, 3000)   # zoom c(xmin, xmax, ymin, ymax); NULL = whole image only
 )
 render_step("analysis/08_generate_images.Rmd", image_params)

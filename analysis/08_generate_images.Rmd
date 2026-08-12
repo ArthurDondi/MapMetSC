@@ -15,13 +15,14 @@ params:
   # names (as in rownames(spe), e.g. "CD3_Sm152_mean") or the short marker name
   # (e.g. "CD3") - short names are resolved to the matching channel below.
   # (DNA1_Ir193_mean is the Ir193 DNA channel, i.e. DNA2.)
-  markers: !r c("CD20_Nd148_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean", "CD14_Lu175_mean", "CD56_Er170_mean", "GD2_Gd155_mean", "CD15_Bi209_mean")
+  markers: !r c("Vimentin_Pt196_mean", "CD3_Sm152_mean", "DNA1_Ir193_mean", "CD14_Lu175_mean", "GD2_Gd155_mean", "CD15_Bi209_mean")
   # Colour for each marker, used for BOTH its individual image and the merge.
   # Keyed by the short marker name (token before the first "_"); "DNA1" keys the
   # DNA channel. Markers without an entry fall back to a spare-colour palette.
-  marker_colours: !r c(CD3 = "red", CD20 = "purple", CD56 = "green", CD14 = "cyan", DNA1 = "blue", GD2 = "green", CD15 = "yellow")
+  marker_colours: !r c(CD3 = "red", Vimentin = "purple", CD14 = "cyan", DNA1 = "blue", GD2 = "green", CD15 = "yellow")
   # Short marker names to draw individually but leave OUT of the colour merge.
-  merge_exclude: !r c("GD2")
+  # None here: all six markers go into the merge (GD2 now takes CD56's green slot).
+  merge_exclude: !r character(0)
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
