@@ -278,8 +278,15 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
   }
 
   # --- merge of the markers that rendered, minus any flagged individual-only;
-  #     same per-marker colours. The scale bar is drawn on this panel only. ---
+  #     same per-marker colours. The scale bar is drawn on this panel only.
+  #     cytomapper::plotPixels composites at most 6 markers, so cap the merge at
+  #     6 (dropping the extras, which still have their own individual panels). ---
   merge_markers <- setdiff(usable, .merge_exclude)
+  if (length(merge_markers) > 6) {
+    message("Merge capped at 6 markers (cytomapper::plotPixels max); leaving out: ",
+            paste(sub("_.*$", "", merge_markers[-seq_len(6)]), collapse = ", "))
+    merge_markers <- merge_markers[seq_len(6)]
+  }
   if (length(merge_markers)) {
     colour_list <- setNames(lapply(merge_markers, function(mm) c("black", .marker_col_map[[mm]])), merge_markers)
     bcg_list    <- setNames(lapply(merge_markers, function(x) c(0, 1, 1)), merge_markers)

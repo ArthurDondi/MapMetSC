@@ -19,6 +19,10 @@ params:
   # (token before the first "_"; "DNA1" keys the DNA channel). Markers without an
   # entry fall back to a spare-colour palette.
   marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "purple", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "darkorange")
+  # Short marker names to draw individually but leave OUT of the colour merge.
+  # cytomapper::plotPixels composites at most 6 markers, so with 7 markers here
+  # one must sit out of the merge (it still gets its own panel).
+  merge_exclude: !r c("GD2")
   # Zoom window c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND this
   # zoom are rendered. Set to NULL to render the whole image only.
@@ -231,6 +235,10 @@ render_and_save <- function(plot_call, filename, width, height) {
   setNames(cols, markers)
 })
 
+# Marker channels to draw individually but leave OUT of the colour merge,
+# matched by short marker name via params$merge_exclude.
+.merge_exclude <- markers[sub("_.*$", "", markers) %in% params$merge_exclude]
+
 # Render every panel (individual markers, merge, celltype) for one view (whole
 # image or a crop). tag goes into the filename. No legends are drawn - each panel
 # is just the image.
@@ -250,12 +258,21 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     if (isTRUE(ok)) usable <- c(usable, m)
   }
 
-  # --- merge of the markers that rendered, same per-marker colours ---
-  if (length(usable)) {
-    colour_list <- setNames(lapply(usable, function(mm) c("black", .marker_col_map[[mm]])), usable)
-    bcg_list    <- setNames(lapply(usable, function(x) c(0, 1, 1)), usable)
+  # --- merge of the markers that rendered, minus any flagged individual-only;
+  #     same per-marker colours. The scale bar is drawn on this panel only.
+  #     cytomapper::plotPixels composites at most 6 markers, so cap the merge at
+  #     6 (dropping the extras, which still have their own individual panels). ---
+  merge_markers <- setdiff(usable, .merge_exclude)
+  if (length(merge_markers) > 6) {
+    message("Merge capped at 6 markers (cytomapper::plotPixels max); leaving out: ",
+            paste(sub("_.*$", "", merge_markers[-seq_len(6)]), collapse = ", "))
+    merge_markers <- merge_markers[seq_len(6)]
+  }
+  if (length(merge_markers)) {
+    colour_list <- setNames(lapply(merge_markers, function(mm) c("black", .marker_col_map[[mm]])), merge_markers)
+    bcg_list    <- setNames(lapply(merge_markers, function(x) c(0, 1, 1)), merge_markers)
     render_and_save(
-      plotPixels(img_v, colour_by = usable, colour = colour_list,
+      plotPixels(img_v, colour_by = merge_markers, colour = colour_list,
                  bcg = bcg_list, image_title = NULL, scale_bar = scale_bar_spec,
                  legend = NULL, return_plot = TRUE),
       paste0(tag, "_markers_merge.png"), 8, 8)
