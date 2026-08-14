@@ -238,7 +238,7 @@ layer_fun = function(j, i, x, y, w, h, fill){
 
 #Generate legend for percentage expressed
 lgd_list = list(
-    Legend( labels = c(0,0.25,0.5,0.75,1), title = "percentage expressed",
+    Legend( labels = c(0, 25, 50, 75, 100), title = "percentage expressed",
             graphics = list(
               function(x, y, w, h) grid.circle(x = x, y = y, r = 0 * unit(2, "mm"),
                                                gp = gpar(fill = "black")),
