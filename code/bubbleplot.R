@@ -354,7 +354,10 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   lgd_list <- list(
 
     Legend(
-      labels = c(0, 0.25, 0.5, 0.75, 1),
+      # Labels are shown as percentages (0-100) to match the title; the circle
+      # radii below stay on percent_mat's 0-1 scale (r = fraction * unit), so the
+      # dot sizes are unchanged - only the numbers displayed become percentages.
+      labels = c(0, 25, 50, 75, 100),
       title = "percentage expressed",
 
       graphics = lapply(
