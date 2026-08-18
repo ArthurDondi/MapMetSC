@@ -1,5 +1,5 @@
 ---
-title: "Identifying cellular communities in diagnostic primary tumors (all cell types)"
+title: "Identifying cellular communities in diagnostic primary tumors (tumor cell types)"
 author: "LazDaria"
 date: "`r Sys.Date()`"
 output:
@@ -64,8 +64,8 @@ knitr::opts_chunk$set(
 )
 ```
 
-# Identifying cellular communities in diagnostic primary tumors (all cell types) {#pt-dx-allct}
-Here we identify cellular communities by clustering diagnostic PT samples on the composition of **all cell types** (tumor and microenvironment together). The combined figure shows the all-cell-type abundance on top, the tumor-only abundance in place of the metacluster panel, and the immune abundance below.
+# Identifying cellular communities in diagnostic primary tumors (tumor cell types) {#pt-dx-allct}
+Here we identify cellular communities by clustering diagnostic PT samples on the composition of their **tumor cell types**. The combined figure shows the all-cell-type abundance on top, the tumor-only abundance in place of the metacluster panel, and the immune abundance below.
 
 ## Load libraries
 <details>
@@ -139,7 +139,7 @@ metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_
 
 ## Cluster cellular communities
 
-Next, we cluster proportions of **all cell types** (tumor and microenvironment, including the `other` category) across all diagnostic PT samples (instead of conditions). The composition is built directly from raw cell counts (`n / sum(n)` per sample). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage, and plot the result in barplots:
+Next, we cluster diagnostic PT samples on the composition of their **tumor cell types** (instead of conditions). The composition is built directly from raw cell counts (`n / sum(n)` per sample, over tumor cell types only). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage. The resulting sample grouping is shown below as an all-cell-type abundance barplot:
 
 ```{r cohort-overview}
 set.seed(20231103)
@@ -249,11 +249,11 @@ community_levels <- sort(unique(cellular_communities$community_cluster))
 # Rename rownames to fm_id_tissue format for downstream matching
 rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_communities)), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
 
-# Add the all-cell-type-clustering community column to spe. This is the community
-# assignment obtained by clustering samples on the composition of all cell types
-# (tumor and microenvironment, including "other").
+# Add the tumor-cell-type-clustering community column to spe. This is the
+# community assignment obtained by clustering samples on the composition of their
+# tumor cell types (metacluster == "tumor").
 spe_key <- paste0(spe$fm_id, "_", spe$tissue)
-spe$allcelltype_community <- cellular_communities[spe_key, "community_cluster"]
+spe$tumor_community <- cellular_communities[spe_key, "community_cluster"]
 ```
 
 ## Plot tumor cellular profiles
@@ -594,8 +594,8 @@ save_plot(p_fig3a, "Fig3aBis_combined_stacked.pdf", width = 8, height = 15)
 ## Save SPE
 
 ```{r save-spe}
-# Persist the object carrying the all-cell-type community assignment
-# (spe$allcelltype_community) for the downstream DA analysis (05.2_PT_DE_DA.Rmd).
+# Persist the object carrying the tumor-cell-type community assignment
+# (spe$tumor_community) for the downstream DA analysis (05.2_PT_DE_DA.Rmd).
 saveRDS(spe, file.path(params$output, "spe_05.1_PT_DE_cellularcomm.rds"))
 ```
 

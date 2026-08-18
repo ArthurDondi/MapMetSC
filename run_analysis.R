@@ -108,7 +108,7 @@ render_step("analysis/06.4_correlation_Lee.Rmd",      corr_params)
 # --- Spatial analysis --------------------------------------------------------
 # Uses imcRtools::testInteractions (the fix that once required a separate spatial
 # image is in the imcRtools 1.10.0 / Bioconductor 3.19 this image pins) and the
-# allcelltype_community column produced by 05.1, so it now runs in the same pass.
+# tumor_community column produced by 05.1, so it now runs in the same pass.
 render_step("analysis/07_spatial_analysis.Rmd",     main_params)
 
 # --- Supplementary: region / marker images (customised params) ---------------

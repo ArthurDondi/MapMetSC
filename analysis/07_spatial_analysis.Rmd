@@ -122,7 +122,7 @@ For the spatial interaction analysis, we will use the metaclusters for non-tumor
 
 ```{r read-data}
 # Reads the cellular-community object from 05.1 and uses its
-# `allcelltype_community` column for the community annotations below. The
+# `tumor_community` column for the community annotations below. The
 # imcRtools::testInteractions fix (which once required a separate spatial image)
 # is in the imcRtools 1.10.0 / Bioconductor 3.19 that this image pins.
 spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
@@ -263,7 +263,7 @@ sce$mna <- factor(spe$MYCN_amp)
 mna <- recode(sce$mna, `1` = 'MNA', `2` = 'het', `0` = 'nMNA', `9` = 'unknown')
 sce$mna <- as.factor(mna)
 
-sce$allcelltype_community <- factor(spe$allcelltype_community)
+sce$tumor_community <- factor(spe$tumor_community)
 
 sce$patient <- factor(spe$patient_id)
 sce$fm_id <- spe$fm_id
@@ -328,7 +328,7 @@ sample_summary <- as.data.frame(colData(sce)) %>%
   group_by(sample_id) %>%
   summarize(mna = first(mna), 
             progress=first(progress),
-            allcelltype_community=first(allcelltype_community),
+            tumor_community=first(tumor_community),
   )
 
 sample_summary <- as.data.frame(sample_summary)
@@ -353,7 +353,7 @@ community_cols <- c("1" = "#E6C700", "2" = "#C71585", "3" = "#4DAF4A")
 # Plot metadata
 p_anno<- columnAnnotation(MYCN_amp=sample_summary$mna, col=list(MYCN_amp=col_code)) %v%
   columnAnnotation(progression=sample_summary$progress, col=list(progression=col_code)) %v%
-  columnAnnotation(patient_group=as.character(sample_summary$allcelltype_community), col=list(patient_group=community_cols))
+  columnAnnotation(patient_group=as.character(sample_summary$tumor_community), col=list(patient_group=community_cols))
 
 save_plot(p_anno, "Fig4d3_spatial_neighborhood_clustering_metadata.pdf", width = 8, height = 4)
 
@@ -380,7 +380,7 @@ p_dendro <- ggplot(segs) +
   ) +
   labs(title = "Sample clustering based on cellular neighborhood composition")
 
-meta_df <- sample_summary[clustered_samples, c("mna", "progress", "allcelltype_community")]
+meta_df <- sample_summary[clustered_samples, c("mna", "progress", "tumor_community")]
 meta_df$sample_id <- factor(rownames(meta_df), levels = clustered_samples)
 
 # One horizontal annotation strip per track (MYCN_amp / progression /
@@ -411,7 +411,7 @@ make_meta_strip <- function(df, ann_col, legend_title, cols) {
 
 p_meta_mna   <- make_meta_strip(meta_df, "mna",                   "MYCN_amp",      col_code)
 p_meta_prog  <- make_meta_strip(meta_df, "progress",              "progression",   col_code)
-p_meta_group <- make_meta_strip(meta_df, "allcelltype_community", "patient_group", community_cols)
+p_meta_group <- make_meta_strip(meta_df, "tumor_community", "patient_group", community_cols)
 # extra bottom margin on the last strip so its lower edge is not clipped
 p_meta_group <- p_meta_group + theme(plot.margin = margin(0, 2, 2, 2))
 
@@ -742,7 +742,7 @@ p_box
 ```
 
 ```{r patch-freq-comm, fig.width=14, fig.height=7}
-variable <- "allcelltype_community"
+variable <- "tumor_community"
 plot_list <- list()
 celltypes <- unique(spe$metacluster)
 

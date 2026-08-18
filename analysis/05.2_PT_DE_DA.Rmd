@@ -119,16 +119,11 @@ sce$metacluster    <- factor(spe[keep_rows, keep_cols]$metacluster)
 sce$celltype_ordered <- factor(spe[keep_rows, keep_cols]$celltype_ordered)
 sce$condition      <- 'na'
 
-# Community assignment produced by the cellular-community script. The DA analyses
-# below use whichever community columns are present in the object:
-#   allcelltype_community - 05.1_PT_DE_cellularcomm.Rmd (all cell types)
-#   tumor_community       - optional tumor-only clustering (not produced by the
-#                           streamlined pipeline; supported if present).
+# Cellular-community assignment produced by 05.1_PT_DE_cellularcomm.Rmd:
+#   tumor_community - samples clustered on their tumor cell-type composition.
+# The community DA below runs when this column is present in the object.
 if ("tumor_community" %in% colnames(colData(spe))) {
   sce$tumor_community <- spe[keep_rows, keep_cols]$tumor_community
-}
-if ("allcelltype_community" %in% colnames(colData(spe))) {
-  sce$allcelltype_community <- spe[keep_rows, keep_cols]$allcelltype_community
 }
 
 # Define cell type and state markers
@@ -159,8 +154,8 @@ marker_info$marker_class <- as.factor(marker_class_vec)
 # cell_filter    : logical vector over ncol(sce_base) selecting the cells of interest
 # cluster_level  : "celltype" or "metacluster"
 # comparison     : "mna" (MNA vs nMNA) or the name of a community column to compare
-#                  ("tumor_community" or "allcelltype_community"), in which case the
-#                  two communities in `selected_communities` are compared.
+#                  ("tumor_community"), in which case the two communities in
+#                  `selected_communities` are compared.
 # ord            : display order of groups on boxplot x-axis
 # selected_communities: two communities to compare when comparison is a community column
 # min_samples_frac: fraction of samples to use as min_samples threshold (NULL = 1)
@@ -175,8 +170,8 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   # --- 2. Apply comparison filter and set condition ---
   # comparison is either "mna" (MNA vs nMNA) or the name of a community column
-  # ("tumor_community" / "allcelltype_community"), in which case the two
-  # communities in `selected_communities` are compared.
+  # ("tumor_community"), in which case the two communities in
+  # `selected_communities` are compared.
   if (comparison == "mna") {
     sce_sub  <- sce_sub[, sce_sub$mna %in% c("nMNA", "MNA")]
     sce_sub$condition <- droplevels(sce_sub$mna)
@@ -407,10 +402,10 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
 We perform DA at four cluster levels — metacluster, all cell types (including
 "other"), tumor cell types, and immune cell types — and, for each level, across
-the available comparisons: MYCN status (MNA vs nMNA) and, when the corresponding
-community column is present in the object, the tumor-only-clustering community
-(`tumor_community`) and the all-cell-type-clustering community
-(`allcelltype_community`). Each analysis produces one combined boxplot figure.
+the available comparisons: MYCN status (MNA vs nMNA) and, when the community
+column is present in the object, the cellular community (`tumor_community`,
+samples clustered on their tumor cell-type composition). Each analysis produces
+one combined boxplot figure.
 
 ```{r run-all-analyses, fig.width=16, fig.height=9}
 immune_metaclusters <- c("granulocytes", "T cells", "B cells", "myeloid/NK")
@@ -435,7 +430,7 @@ cluster_level_configs <- list(
 comparison_configs <- list(
   list(key = "mna", comparison = "mna", ord = c("nMNA", "MNA"), selected_communities = NULL)
 )
-community_col_labels <- c(tumor_community = "tumorcomm", allcelltype_community = "allctcomm")
+community_col_labels <- c(tumor_community = "tumorcomm")
 for (cc in names(community_col_labels)) {
   if (cc %in% colnames(colData(sce))) {
     comparison_configs[[length(comparison_configs) + 1]] <- list(
