@@ -13,49 +13,37 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Plot output directory
 plot_dir <- file.path(params$output, "plots/06.2_correlation_Fetahu")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot to plot_dir, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
     pdf(full_path, width = width, height = height)
     draw(plot_obj, ...)
     dev.off()
   } else if (inherits(plot_obj, "pheatmap")) {
-    # pheatmap objects (e.g. SingleR::plotScoreHeatmap) - save as PDF
     pdf(full_path, width = width, height = height)
     grid::grid.newpage()
     grid::grid.draw(plot_obj$gtable)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -69,7 +57,7 @@ knitr::opts_chunk$set(
 ```
 
 # Validation using scRNA-seq data by Fetahu et al. {#fetahu}
-To evaluate the validity of metacluster annnotations, we compare the cell expression profiles to our previously generated scRNA-seq dataset of NB bone marrow samples ([Fetahu et al.](https://doi.org/10.1038/s41467-023-39210-0) downloaded from [Zenodo](https://doi.org/10.5281/zenodo.7707614). 
+To evaluate the validity of the metacluster annotations, we compare the cell expression profiles to our previously generated scRNA-seq dataset of NB bone marrow samples ([Fetahu et al.](https://doi.org/10.1038/s41467-023-39210-0), downloaded from [Zenodo](https://doi.org/10.5281/zenodo.7707614)).
 
 ## Load libraries
 <details>
@@ -95,17 +83,12 @@ First, we load the processed and phenotyped single-cell data from [chapter 4](#p
 #read IMC data
 protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
-col_celltype <- metadata(protein)$color_vectors$col_celltype
 
 #read scRNA-seq data
 monocle_cell_dataset <- readRDS(file.path(params$public,"Fetahu/rna_integrated_monocle.rds"))
-# The published Fetahu object is a monocle3 `cell_data_set`, which is just a
-# SingleCellExperiment subclass with a few extra slots. We only read its
-# assays / UMAP / metadata here (no monocle3 analysis is run), so rather than
-# depend on the heavy, hard-to-build monocle3 package purely to register the S4
-# class, demote the object to its SingleCellExperiment parent when monocle3 is
-# not installed. as.Seurat() then resolves to the very same SingleCellExperiment
-# method it would use with monocle3 loaded, producing an identical Seurat object.
+# The Fetahu object is a monocle3 cell_data_set (a SingleCellExperiment subclass).
+# If monocle3 isn't installed, demote it to its SingleCellExperiment parent so
+# as.Seurat() still works - we only read its assays/UMAP/metadata, not run monocle3.
 if (!requireNamespace("monocle3", quietly = TRUE)) {
   attr(monocle_cell_dataset, "class") <-
     structure("SingleCellExperiment", package = "SingleCellExperiment")
@@ -139,7 +122,7 @@ common_features <- intersect(row.names(rna), row.names(protein))
 
 ## Visualize public data
 
-Will will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq.
+We will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq.
 
 ```{r define-colors}
 # Fetahu reference cluster colors are defined centrally in 00_MapMet_color_code.R
@@ -223,7 +206,7 @@ col_metacluster <- COL_FETAHU_METACLUSTER
 metadata(protein)$color_vectors$col_predicted_meta <- col_metacluster
 ```
 
-We will plot the predicted metalabels in a UMAP.
+We will plot the predicted metaclusters in a UMAP.
 
 ```{r predicted-umap}
 p1 <- dittoDimPlot(protein, var = "predicted_metacluster", 
@@ -235,7 +218,7 @@ p1 <- dittoDimPlot(protein, var = "predicted_metacluster",
   theme(legend.title = element_blank(), aspect.ratio = 1) +
   ggtitle("Predicted celltype on UMAP")
 
-# Match the standard UMAP proportions (aspect.ratio = 1 + 16x8) used elsewhere.
+# Standard UMAP proportions (16x8)
 save_plot(p1, "Fig2b_Fetahu_labeltransfer.pdf", width = 16, height = 8)
 
 p1

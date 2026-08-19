@@ -13,42 +13,31 @@ params:
 
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
 plot_dir <- file.path(params$output, "plots/03_QC_2")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot (ggplot / Heatmap / base R)
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
+    # ComplexHeatmap -> PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -118,7 +107,7 @@ for(i in 1: ncol(df)){
   geom_density(adjust = 1, color="darkblue", fill="lightblue")
 }
 
-plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #change this to the number of morphological features
+plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3)
 
 
 save_plot(plot, "morpho_features_BM.png", width = 12, height = 12)
@@ -184,7 +173,7 @@ p
 In the images above, we can see that segmentation artifacts occur, where no clear cell borders can be identified. For BM, we determined an upper threshold of **15,600** and a lower threshold of **333** for both PT and BM samples. To examine nuclei with an area below the lower threshold, it is better to visualize images in napari and use the label and zoom function.
 
 ## Threshold identification for PT samples
-We will now repeat the same worfklow for PT samples.
+We will now repeat the same workflow for PT samples.
 
 ```{r plot-histograms-pt}
 morph_mat_pt <- as.matrix(t(colData(spe_pt)[,morph_names]))
@@ -203,7 +192,7 @@ for(i in 1: ncol(df)){
   geom_density(adjust = 1, color="darkblue", fill="lightblue")
 }
 
-plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #change this to the number of morphological features
+plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3)
 
 save_plot(plot, "morpho_features_PT.png", width = 12, height = 12)
 
@@ -230,7 +219,7 @@ outliers <- (spe$area <= 333 & spe$tissue == "PT" | spe$area <= 333 & spe$tissue
 
 spe <- spe[,!outliers]
 
-#Rebuild the matrix of morphological features of the remaining cells
+# morph feature matrix for the remaining cells
 morph_mat <- as.matrix(t(colData(spe)[,morph_names]))
 rownames(morph_mat) <- gsub('-0','',rownames(morph_mat))
 ```
@@ -285,7 +274,7 @@ for(i in 1: ncol(df)){
   geom_density(adjust = 5, color="darkblue", fill="lightblue")
 }
 
-plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #change this to the number of morphological features
+plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3)
 
 
 
@@ -298,10 +287,8 @@ plot
 ...and visualize the masks in one PT and one BM sample.
 
 ```{r visualize-clipped-morph}
-# Define morphs
 morph_names_clipped <- c("area_clipped", "solidity_clipped", "aspect_ratio_clipped")
 
-# Load masks
 masks <- loadImages(
   c(
     file.path(params$input, "masks/20220517_20220309_20-154_BM_003.tif"),
@@ -310,20 +297,16 @@ masks <- loadImages(
   as.is = TRUE
 )
 
-# Map mask files to the corresponding SPE sample IDs
-# You need to adjust this vector to match your SPE object
+# Map each mask file to its SPE sample_id (adjust for your object)
 mask_to_spe_ids <- c(
-  "20220517_20220309_20-154_BM_003",  # maps to first mask
-  "20220926_20220809_16-005_TU_001"   # maps to second mask
+  "20220517_20220309_20-154_BM_003",
+  "20220926_20220809_16-005_TU_001"
 )
 
 names(masks) <- mask_to_spe_ids
 mcols(masks)$sample_id <- mask_to_spe_ids
 
-# Store plots
-plot_list <- list()
-
-# Loop over morphs and masks
+# One plot per morphological feature x mask, saved individually
 for (m in seq_along(morph_names_clipped)) {
   for (i in seq_along(masks)) {
     
@@ -332,7 +315,6 @@ for (m in seq_along(morph_names_clipped)) {
     
     message(paste0("Plotting: ", current_morph, " | ", current_id))
     
-    # Generate plot for a single mask/image
     p <- plotCells(
       masks[i],
       object = spe,
@@ -344,16 +326,12 @@ for (m in seq_along(morph_names_clipped)) {
       legend = NULL
     )
     
-    # Save plot with morph + image ID
     save_plot(
       p,
       filename = paste0(current_morph, "_", current_id, ".png"),
       width = 12,
       height = 12
     )
-    
-    # Store plot in list (optional)
-    plot_list[[paste0(current_morph, "_", current_id)]] <- p
   }
 }
 ```

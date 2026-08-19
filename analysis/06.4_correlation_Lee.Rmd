@@ -13,49 +13,37 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Plot output directory
 plot_dir <- file.path(params$output, "plots/06.4_correlation_Lee")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot to plot_dir, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
 
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
     pdf(full_path, width = width, height = height)
     draw(plot_obj, ...)
     dev.off()
   } else if (inherits(plot_obj, "pheatmap")) {
-    # pheatmap objects (e.g. SingleR::plotScoreHeatmap) - save as PDF
     pdf(full_path, width = width, height = height)
     grid::grid.newpage()
     grid::grid.draw(plot_obj$gtable)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options
-# ================================
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -69,7 +57,7 @@ knitr::opts_chunk$set(
 ```
 
 # Validation using scRNA-seq data by Lee et al. {#lee}
-To evaluate the validity of tumor microenviroment (TME) cell phenotype annnotations, we compare the cell expression profiles to a previously generated scRNA-seq dataset of healthy human bone marrow of ages ranging from 2-84 years ([Lee et al.](https://doi.org/10.3389/fimmu.2023.1127879)) downloaded from [Zenodo]](https://doi.org/10.5281/zenodo.10275924). 
+To evaluate the validity of tumor microenvironment (TME) cell phenotype annotations, we compare the cell expression profiles to a previously generated scRNA-seq dataset of healthy human bone marrow of ages ranging from 2-84 years ([Lee et al.](https://doi.org/10.3389/fimmu.2023.1127879)) downloaded from [Zenodo](https://doi.org/10.5281/zenodo.10275924).
 
 ## Load libraries
 <details>
@@ -91,10 +79,9 @@ library(dittoSeq)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping) and the published Seurat object containing the scRNA-seq data. Please make sure to replace `params$public`with the path to the scRNA-seq data.
 
 ```{r read-data}
-# IMC data
+# IMC data (drop tumor + "other", keep the TME cells)
 protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
-col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[,protein$metacluster!="tumor" & protein$metacluster!="other"]
 
 #scRNA-seq data
@@ -103,7 +90,7 @@ DefaultAssay(rna) <- "RNA"
 rna@assays$RNA@data <- rna@assays$RNA@counts
 ```
 
-## Set common tumor markers 
+## Set common markers 
 Next, we will set common markers between the reference and query dataset. Therefore, we have to rename the features in the imaging dataset to the names of the corresponding genes. 
 A csv files with protein-gene mappings can be obtained from Zenodo [(protein2gene.csv)](https://doi.org/10.5281/zenodo.13220634).
 
@@ -123,7 +110,7 @@ common_features <- intersect(rownames(rna@assays$RNA@data), row.names(protein))
 ```
 ## Visualize public data
 
-Will will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq. 
+We will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq. 
 
 ```{r define-colors}
 # Extra label colors are defined centrally in 00_MapMet_color_code.R
@@ -166,8 +153,7 @@ h_rna
 
 ```{r umap-rna, fig.width=15, fig.height=10}
 p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_clust) +
-  # Harmonised square panel border (all UMAPs); size (not linewidth) for the
-  # older ggplot2 in the image.
+  # Closed panel border (all UMAPs); size, not linewidth, for the older ggplot2
   theme(axis.line    = element_blank(),
         panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 
@@ -184,18 +170,14 @@ rna_mat <- GetAssayData(rna, assay = "RNA", slot = "data")[common_features, ]
 rna_clusters <- rna@active.ident
 protein_mat <- assay(protein, "counts")[common_features, ]
 
-#remove Seurat and SPE object prior to parallel computation
+#free the big objects before the parallel SingleR run
 rm(rna)
 rm(protein)
 
 predicted_labels <- SingleR(test = protein_mat, ref = rna_mat, labels = rna_clusters, BPPARAM = MulticoreParam(workers=16, RNGseed=20231030))
 
-# plotScoreHeatmap draws a `Labels` annotation whose factor levels are the SingleR
-# reference labels; pheatmap aborts ("Factor levels on variable Labels do not
-# match with annotation_colors") if annotation_colors does not cover every level.
-# Guarantee coverage by giving any label absent from col_clust (a Lee reference
-# celltype not listed in celltype_metacluster.csv / COL_LEE_EXTRA) a neutral grey
-# - newer, stricter pheatmap versions error on the gap that older ones tolerated.
+# plotScoreHeatmap needs a colour for every Labels level or pheatmap errors, so give
+# any label missing from col_clust a neutral grey.
 score_labels <- union(colnames(predicted_labels$scores),
                       as.character(predicted_labels$labels))
 missing_labs <- setdiff(score_labels, names(col_clust))
@@ -210,7 +192,7 @@ p_score <- plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_label
 save_plot(p_score, "Lee_singleR_labeltransfer_scoreheatmap.pdf", width = 13, height = 9)
 ```
 
-We will plot the predicted metalabels in a UMAP.
+We will plot the predicted celltypes in a UMAP.
 
 ```{r predicted-umap}
 #save predicted labels in separate slot
@@ -220,13 +202,8 @@ protein[,protein$metacluster=="other"]$celltype_predicted <- "other"
 protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labels
 metadata(protein)$color_vectors$col_predicted_label <- col_clust
 
-# Full UMAP (all cells), no on-plot labels. Every cell - including the PT/BM
-# tumor/other background - is drawn with the SAME rule as the Lee-predicted
-# cells: one solid geom_point coloured by the predicted label. (The earlier
-# fill + shape-21 layer for tumor/other did not render on this device once its
-# border was removed - shape 21 needs a non-NA colour - so tumor/other are now
-# just two more colours on the same colour scale.) They are drawn first so the
-# Lee-predicted cells sit on top, and listed last in the legend.
+# UMAP of all cells coloured by predicted label. Tumor/other background cells are
+# drawn first (bottom) so the Lee-predicted cells sit on top, and listed last in the legend.
 col_pred  <- metadata(protein)$color_vectors$col_predicted_label
 bg_types  <- intersect(c("tumor", "other"), as.character(protein$celltype_predicted))
 lee_types <- setdiff(sort(unique(as.character(protein$celltype_predicted))), bg_types)
@@ -256,8 +233,7 @@ p1 <- ggplot(umap_df, aes(UMAP_1, UMAP_2, colour = pred)) +
         panel.border = element_rect(colour = "black", fill = NA, size = 0.5)) +
   ggtitle("Predicted celltype on UMAP")
 
-# Match the standard UMAP proportions used elsewhere (aspect.ratio = 1 + 16x8),
-# e.g. umap-celltypes.pdf in analysis/04_phenotyping.Rmd.
+# Standard UMAP proportions (16x8)
 save_plot(p1, "Lee_predicted_celltype_umap.pdf", width = 16, height = 8)
 
 p1

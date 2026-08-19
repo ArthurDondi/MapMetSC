@@ -12,9 +12,7 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Plots directory
 plot_dir <- file.path(params$output, "plots_AD/02_QC_1")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
@@ -23,31 +21,25 @@ if (!dir.exists(plot_dir)) {
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
+    # base R / other: assume already drawn
     dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global knitr chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -100,14 +92,13 @@ In a first step, we exclude cells, that have a mean intensity of zero for all IM
 
 ```{r cell-exclusion-1}
 
-# Use measurements based on non-dilated mask stored in counts
 intensity_mat <- assay(spe, "counts")
 colnames(intensity_mat) <- spe$sample_id
 
-#use mean-80 intensity to avoid losing big cells
+# mean-80 (mean of the top 20% of pixels): less dependent on cell size
 intensity_mat_mean_80 <- intensity_mat[grepl("mean-80", rownames(intensity_mat)),]
 
-#exclusion of all-zero cells
+# keep IMC channels only, then drop cells that are zero across all of them
 intensity_mat_imc <- intensity_mat_mean_80[!grepl("IF2_GD2|IF3_CD45|DAPI", rownames(intensity_mat_mean_80)),]
 non_zeros <- as.logical(colSums(intensity_mat_imc)!=0)
 
@@ -126,8 +117,7 @@ mat <- mat[!grepl("IF2_GD2|IF3_CD45", rownames(mat)),]
 Although, we excluded all cells with zero mean intensities in all IMC channels, there might still be some cells, which actually swam off between IF and IMC and have IMC counts due to background noise or lateral spillover. In the heatmap below, we can clearly observe a cluster of cells expressing the IF marker DAPI,  but no IMC markers.
 
 ```{r data-visualization, fig.width=11, fig.height=9}
-#named color vectors
-qual_col_pals <- brewer.pal.info[brewer.pal.info$category == 'qual',]
+# random colour per sample (cosmetic annotation)
 col_vector_433 <- colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
 
 sample_names <- sub("_[^_]+$", "", colnames(mat))
@@ -156,11 +146,9 @@ p1
 We will cluster the data to identify cells that swam off.
 
 ```{r phenograph-clustering}
-# Illustrative clustering only. Rphenoannoy (Annoy approximate-NN + igraph
-# Louvain) is not reproducible across igraph versions, compilers or CPUs (the
-# same caveat uwot documents for UMAP), so this clustering - and the heatmap
-# below - is shown as an example. The actual lost-cell exclusion is driven by
-# the frozen kept-cells list loaded further down, not by a cluster number.
+# Illustrative only: Rphenoannoy (Annoy + igraph Louvain) is not reproducible
+# across igraph/compiler/CPU. The real lost-cell exclusion uses the frozen
+# kept-cells list below, not these clusters.
 set.seed(230619)
 
 mat <- t(mat)
@@ -223,8 +211,7 @@ if (is.null(kept_file))
        "MAPMET_INTERMEDIARY to the folder that holds it.")
 
 kept_raw <- readRDS(kept_file)
-# Accept a plain vector of kept cell ids, or a named vector whose NAMES
-# are the cell ids (an older intermediary format stored cell id -> label).
+# kept ids: a plain vector, or the names of a named vector (older format)
 kept_ids <- if (!is.null(names(kept_raw))) names(kept_raw) else as.character(kept_raw)
 n_before <- ncol(spe)
 keep <- colnames(spe) %in% kept_ids
@@ -238,42 +225,37 @@ if (n_missing > 0)
           "post-QC1 set (they are already excluded here by cell-exclusion-1, e.g. as ",
           "all-zero cells) - ignoring them. A large count means the list does not ",
           "match this input.")
-# Keep the intersection: reproduce the reference lost-cell exclusion for the
-# cells that survive this run's QC step 1.
+# keep cells present in both this run and the frozen list
 spe <- spe[, keep]
 message("Lost-cell exclusion via frozen list: kept ", ncol(spe), " of ", n_before,
         " post-QC1 cells.")
 ```
 
+## DNA vs. protein intensity
+
+As a further check on lost or low-quality cells, we relate each cell's DNA
+signal to its total non-DNA protein signal and see how tightly the two track.
 
 ```{r}
-
 library(SpatialExperiment)
 library(ggplot2)
 
-# Extract counts (already normalized / arcsinh)
 counts_matrix <- assay(spe, "counts")
 
-# Identify DNA channels
 dna_idx <- grepl("DNA|Ir191|Ir193|DAPI", rownames(counts_matrix), ignore.case = TRUE)
 unused_idx <- grepl("PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA1|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro",  rownames(counts_matrix))
 
-# Compute intensities
 dna_intensity <- colSums(counts_matrix[dna_idx, , drop = FALSE])
 total_intensity_noDNA <- colSums(counts_matrix[!unused_idx, , drop = FALSE])
 
-# Store
 colData(spe)$DNAIntensity <- dna_intensity
 colData(spe)$TotalIntensity_noDNA <- total_intensity_noDNA
 
-# Prepare dataframe
 df <- as.data.frame(colData(spe))
 
-# Fit linear model (no log)
+# linear fit + Spearman correlation, both reported in the plot title
 fit <- lm(TotalIntensity_noDNA ~ DNAIntensity, data = df)
 r2 <- summary(fit)$r.squared
-
-# Spearman correlation (recommended for robustness)
 spearman_cor <- cor(df$DNAIntensity, df$TotalIntensity_noDNA, method = "spearman")
 
 library(ggplot2)
@@ -299,8 +281,10 @@ p
 save_plot(p, "DNA_protein_correlation_scatter.pdf", width = 12, height = 12, dpi = 600)
 ```
 
-```{r}
+We then choose a low-DNA cutoff and view the relationship as a density plot and
+a per-DNA-bin summary of total protein intensity.
 
+```{r}
 library(SpatialExperiment)
 library(ggplot2)
 library(dplyr)
@@ -308,40 +292,30 @@ library(hexbin)
 
 spe_sub <- spe
 
-# Extract counts assay (already normalized)
 counts_matrix <- assay(spe_sub, "counts")
 
-# Identify DNA channels
 dna_idx <- grepl("DNA|Ir191|Ir193", rownames(counts_matrix), ignore.case = TRUE)
 
-# Identify channels to exclude from total intensity
+# channels excluded from the total-intensity sum
 unused_idx <- grepl("PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA1|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro",  
                    rownames(counts_matrix), ignore.case = TRUE)
 
-# Compute DNA intensity (only DNA channels)
 dna_intensity <- colSums(counts_matrix[dna_idx, , drop = FALSE])
-
-# Compute total intensity excluding unused channels (including DNA and others)
 total_intensity_noDNA <- colSums(counts_matrix[!unused_idx, , drop = FALSE])
 
-# Add to colData
 colData(spe_sub)$DNAIntensity <- dna_intensity
 colData(spe_sub)$TotalIntensity_noDNA <- total_intensity_noDNA
 
-# Prepare dataframe
 df <- as.data.frame(colData(spe_sub))
 
-# Define low DNA threshold (20th percentile)
+# low-DNA threshold (23rd percentile of DNA intensity)
 low_dna_threshold <- quantile(df$DNAIntensity, 0.23)
 
-# Subset low DNA cells
 df_low <- df %>% filter(DNAIntensity < low_dna_threshold)
-
-# Compute Spearman correlation in low DNA subset
 low_dna_cor <- cor(df_low$DNAIntensity, df_low$TotalIntensity_noDNA, method = "spearman")
 message("Spearman correlation in low DNA cells: ", round(low_dna_cor, 3))
 
-# Hexbin plot of all data with cutoff line
+# hexbin density with cutoff line
 p1 <- ggplot(df, aes(x = DNAIntensity, y = TotalIntensity_noDNA)) +
   geom_hex(bins = 100) +
   scale_fill_viridis_c() +
@@ -354,7 +328,7 @@ p1 <- ggplot(df, aes(x = DNAIntensity, y = TotalIntensity_noDNA)) +
 
 
 
-# Combine median and mean into one summary dataframe
+# per-DNA-bin median and mean total intensity
 df_summary <- df %>%
   mutate(bin = cut(DNAIntensity, breaks = 50)) %>%
   group_by(bin) %>%
@@ -364,7 +338,6 @@ df_summary <- df %>%
     MeanTotal = mean(TotalIntensity_noDNA)
   )
 
-# Plot both median and mean on the same axes
 p_combined <- ggplot(df_summary, aes(x = DNA)) +
   geom_line(aes(y = MedianTotal, color = "Median"), size = 1) +
   geom_line(aes(y = MeanTotal, color = "Mean"), size = 1, linetype = "dashed") +
@@ -380,27 +353,20 @@ p_combined <- ggplot(df_summary, aes(x = DNA)) +
 save_plot(p_combined, "DNA_protein_correlation_bin_mean.pdf", width = 12, height = 12)
 save_plot(p1, "DNA_protein_correlation_density.pdf", width = 12, height = 12)
 
-# Print the combined plot
 print(p_combined)
-
-
-# Print plots
 print(p1)
-
 ```
 
+Finally, we summarise the fraction of low-DNA cells per sample.
 
 ```{r, fig.width=12, fig.height=24}
 library(dplyr)
 library(ggplot2)
 
-# Convert colData to dataframe
 df <- as.data.frame(colData(spe_sub))
-
-# Create LowDNA flag
 df <- df %>% mutate(LowDNA = DNAIntensity < low_dna_threshold)
 
-# Summarize per unique AD sample (all samples are adrenal gland tissue)
+# low-DNA fraction per AD sample
 df_summary <- df %>%
   group_by(fm_id) %>%
   summarise(
@@ -409,9 +375,9 @@ df_summary <- df %>%
   ) %>%
   ungroup() %>%
   arrange(desc(percent_low_DNA)) %>%
-  mutate(sample_label = fm_id)  # unique label for plotting
+  mutate(sample_label = fm_id)
 
-# Plot: x-axis = % low-DNA, 20% threshold line, text shows % + num cells
+# barplot of % low-DNA per sample, with 20% reference line
 p <- ggplot(df_summary, aes(x = percent_low_DNA, y = reorder(sample_label, percent_low_DNA))) +
   geom_col(fill = "steelblue") +
   geom_text(aes(label = sprintf("%.1f%% (%d)", percent_low_DNA, num_cells)),
@@ -421,7 +387,7 @@ p <- ggplot(df_summary, aes(x = percent_low_DNA, y = reorder(sample_label, perce
   labs(title = "% low-DNA cells per AD sample (ncells)",
        x = "% low-DNA cells",
        y = "Sample ID") +
-  expand_limits(x = max(df_summary$percent_low_DNA) * 1.25)  # space for text labels
+  expand_limits(x = max(df_summary$percent_low_DNA) * 1.25)
 
 p
 
@@ -430,7 +396,7 @@ save_plot(p, "low_DNA_samples.pdf", width = 9, height = 18)
 
 ## Save object
 
-Finally, we exclude the lost cells from the SPE object and save the latter.
+Finally, we save the SPE object with the lost cells removed.
 
 ```{r save-objects-read-data}
 

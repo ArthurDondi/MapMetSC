@@ -12,9 +12,7 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
 # Create plots directory
-# ================================
 plot_dir <- file.path(params$output, "plots/05.1_PT_DE_cellularcomm")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
@@ -24,9 +22,7 @@ if (!dir.exists(plot_dir)) {
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Helper to save plots
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
 
@@ -49,9 +45,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -65,7 +59,7 @@ knitr::opts_chunk$set(
 ```
 
 # Identifying cellular communities in diagnostic primary tumors (tumor cell types) {#pt-dx-allct}
-Here we identify cellular communities by clustering diagnostic PT samples on the composition of their **tumor cell types**. The combined figure shows the all-cell-type abundance on top, the tumor-only abundance in place of the metacluster panel, and the immune abundance below.
+Here we identify cellular communities by clustering diagnostic PT samples on the composition of their **tumor cell types**. The combined figure at the end stacks, from top to bottom, the dendrogram, the tumor cell-type abundance, sample metadata strips, the all-cell-type abundance, and the immune abundance.
 
 ## Load libraries
 <details>
@@ -93,7 +87,6 @@ library(patchwork)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping).
 
 ```{r read-data}
-# Start from the phenotyped clustering object produced by 04_phenotyping.Rmd.
 spe <- readRDS(file.path(params$output, "spe_04_phenotyping.rds"))
 ```
 
@@ -139,7 +132,7 @@ metadata(sce)$cluster_codes <- data.frame(celltype = factor(spe[keep_rows, keep_
 
 ## Cluster cellular communities
 
-Next, we cluster diagnostic PT samples on the composition of their **tumor cell types** (instead of conditions). The composition is built directly from raw cell counts (`n / sum(n)` per sample, over tumor cell types only). Because cell-type proportions are compositional data (they sum to 1 per sample), we apply a centered log-ratio (CLR) transformation before clustering the samples with Euclidean distance and Ward.D2 linkage. The resulting sample grouping is shown below as an all-cell-type abundance barplot:
+Next, we cluster the samples on their **tumor cell-type** composition. Per-sample proportions (`n / sum(n)` over tumor cell types) are compositional, so we apply a centered log-ratio (CLR) transformation before clustering with Euclidean distance and Ward.D2 linkage. The resulting grouping is shown below as an all-cell-type abundance barplot:
 
 ```{r cohort-overview}
 set.seed(20231103)
@@ -148,23 +141,17 @@ distance <- "euclidean"
 linkage <- "ward.D2"
 n_communities <- 2
 
-# Pseudocount (in "cells") added before the CLR transform to handle zero
-# proportions. It is scaled per sample by the number of cells, so it always
-# represents the same fractional cell regardless of sample depth.
+# Per-sample pseudocount (in cells) for zero proportions before the CLR transform
 CLR_PSEUDO <- 0.5
 
-# Tumor subset is kept for the tumor-only abundance panel and heterogeneity below
+# Tumor subset for the tumor abundance panel below
 sce_tumor <- sce[,sce$metacluster=="tumor"]
 
-# ---- Build the TUMOR cell-type composition DIRECTLY from cell counts ----
-# The clustering input is built from raw cell counts (NOT plotAbundances()$Freq,
-# which CATALYST returns as a percentage 0-100) over the TUMOR cell types only
-# (metacluster == "tumor"), per sample. Proportions are n / sum(n); a per-sample
-# pseudocount (CLR_PSEUDO cells / total tumor cells in the sample) is then added
-# on the same 0-1 scale before the CLR transform. This mirrors the reference
-# cluster_patients() recipe and keeps the pseudocount on the correct scale.
+# ---- Build the TUMOR cell-type composition from raw cell counts ----
+# Per-sample proportions (n / sum(n)) over tumor cell types, then a per-sample
+# pseudocount before the CLR transform.
 md_clust <- as.data.frame(colData(spe)) %>%
-  filter(tissue == "PT", timepoint == "DE", metacluster == "tumor") %>%  # tumor cells only
+  filter(tissue == "PT", timepoint == "DE", metacluster == "tumor") %>%
   mutate(
     progress  = recode(factor(progression), `0` = "NoProg", `1` = "Prog"),
     mna       = recode(factor(MYCN_amp), `1` = "MNA", `2` = "het", `0` = "nMNA", `9` = "unknown"),
@@ -192,13 +179,8 @@ clr_df     <- t(apply(cmat_adj, 1, function(x) log(x) - mean(log(x))))
 dist_matrix <- dist(clr_df, method = distance)
 hc <- hclust(dist_matrix, method = linkage)
 
-# Put the LARGER community on the left of the figure: reorder the dendrogram
-# leaves so the bigger cutree cluster sorts first. reorder() has no hclust
-# method, so round-trip through a dendrogram (reorder.dendrogram) and back with
-# as.hclust(); agglo.FUN = mean compares the per-leaf community weight, not the
-# size-inflated sum. This swaps branches only - it changes neither the clustering
-# nor cutree's membership/labels. Community numbering below is likewise
-# size-based, so the leftmost (largest) community is community 1.
+# Reorder dendrogram leaves so the larger community sorts to the left. This
+# swaps branches only - clustering and cutree membership are unchanged.
 comm_membership   <- cutree(hc, k = n_communities)
 comm_sizes        <- table(comm_membership)
 comm_rank_by_size <- rank(-as.integer(comm_sizes), ties.method = "first")  # biggest -> 1
@@ -210,10 +192,7 @@ hc <- as.hclust(reorder(as.dendrogram(hc), wts = unname(leaf_weights), agglo.FUN
 clustered_order <- rownames(clr_df)[hc$order]
 sce$sample_id <- factor(as.character(sce$sample_id), levels = clustered_order)
 
-# All-cell-type abundance barplot in clustered order
-# plotAbundances() sets the fill scale name to "cluster_id"; a scale name beats
-# labs(fill=), so override the legend title via the guide (guide title wins over
-# scale name) to get the descriptive legend heading.
+# All-cell-type abundance barplot in clustered order (legend title set via guide)
 p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust = FALSE,
                     k_pal = metadata(spe)$color_vectors$col_celltype_ordered) +
   guides(fill = guide_legend(title = "All cell types"))
@@ -231,7 +210,7 @@ plot(hc)
 
 save_plot(plot(hc), "Fig3aBis2_PT_abundance_patients_clustered_dendrogram.pdf", width = 8, height = 6)
 ```
-We then save the order of clustered samples along with cluster labels.
+We record the clustered sample order and each sample's community label, storing the assignment on the spe object for later.
 
 ```{r}
 clustered_samples <- sapply(strsplit(levels(p$data$sample_id), "_"), function(x) paste(x[5], x[6], sep = "_"))
@@ -239,8 +218,7 @@ clustered_samples <- sapply(strsplit(levels(p$data$sample_id), "_"), function(x)
 #Extract clusters of cellular communities
 cellular_communities <- as.data.frame(cutree(hc, k = n_communities)[levels(p$data$sample_id)])
 colnames(cellular_communities) <- c("community_cluster")
-# Number communities by size so the LARGEST group is community 1 (leftmost, given
-# the size-based dendrogram reordering above), the next largest is 2, etc.
+# Number communities by size: the largest group is community 1
 size_order <- names(sort(table(cellular_communities$community_cluster), decreasing = TRUE))
 cluster_names <- setNames(seq_along(size_order), size_order)
 cellular_communities$community_cluster <- recode(cellular_communities$community_cluster, !!!cluster_names)
@@ -249,16 +227,14 @@ community_levels <- sort(unique(cellular_communities$community_cluster))
 # Rename rownames to fm_id_tissue format for downstream matching
 rownames(cellular_communities) <- sapply(strsplit(as.vector(rownames(cellular_communities)), "_"), function(x) paste(x[length(x) - 1], x[length(x)], sep = "_"))
 
-# Add the tumor-cell-type-clustering community column to spe. This is the
-# community assignment obtained by clustering samples on the composition of their
-# tumor cell types (metacluster == "tumor").
+# Store each sample's tumor-cell-type community assignment on spe
 spe_key <- paste0(spe$fm_id, "_", spe$tissue)
 spe$tumor_community <- cellular_communities[spe_key, "community_cluster"]
 ```
 
 ## Plot tumor cellular profiles
 
-We plot the tumor cell-type profiles for these samples in the clustered order (this panel replaces the metacluster panel in the combined figure below).
+We plot the tumor cell-type profiles in the clustered order; this becomes the top data panel of the combined figure below.
 
 ```{r plot-tumor, fig.width=12, fig.height=5}
 #order tumor subset based on above clustering
@@ -275,7 +251,7 @@ save_plot(p_tumor, "Fig3aBis_PT_abundance_patients_clustered_tumor.pdf", width =
 
 ## Plot TME cellular profiles
 
-We will then plot the cellular profiles of the TME for these samples (kept as is).
+We then plot the immune (non-tumor, non-mesenchymal) TME profiles in the same clustered order.
 
 ```{r plot-TME, fig.width=12, fig.height=5}
 #order samples based on above clustering
@@ -318,7 +294,7 @@ tumor_het <- apply(tumor_prop,2, entropy)
 
 ## Plot metadata
 
-Then we plot intra-sample heterogeneity together with sample-specific metadata for the clustered sammples.
+Then we plot intra-sample heterogeneity together with sample-specific metadata for the clustered samples.
 
 ```{r plot-metadata}
 #access sample-level data
@@ -400,10 +376,7 @@ age <- sample_summary$age_diag
 
 cont_df <- data.frame(cbind(het_m, het_t, age, cellular_communities),row.names=clustered_samples)
 cont_df$community_cluster <- factor(cont_df$community_cluster, levels = community_levels)
-# Keep a stable base palette so the first community colors stay consistent
-# even if n_communities changes between analyses.
-# Eight provides enough distinct baseline colors for this analysis while keeping
-# the first assigned colors stable when fewer communities are used.
+# Stable base palette so community colors stay consistent across analyses
 base_palette_size <- 8
 community_palette <- viridis(max(base_palette_size, length(community_levels)))[seq_along(community_levels)]
 
@@ -427,7 +400,7 @@ save_plot(p_box, "Fig3cBis_PT_abundance_het_boxplot_metadata.pdf", width = 6, he
 
 ## Plot metaclusters
 
-For reference, we also plot the proportions of metaclusters in the clustered samples (kept as a standalone figure; it is not part of the combined figure below).
+For reference, we also plot metacluster proportions in the clustered samples, as a standalone figure that is not part of the combined figure below.
 
 ```{r plot-metaclusters}
 sce_mc <- sce
@@ -442,27 +415,18 @@ save_plot(p_all, "Fig3aBis_PT_abundance_patients_clustered_metacluster.pdf", wid
 
 ## Combined Figure 3a-bis (stacked panels)
 
-All panels share the same sample order (dendrogram order). The dendrogram on top
-is a single connected tree: its root spans the two communities. To keep the
-communities visually separated, a blank spacer column is inserted at each
-community boundary in every panel (an empty column with no sample and no
-dendrogram leaf), and the connecting root segment simply crosses that gap.
-Because the dendrogram is drawn on a continuous x-axis matched to the discrete
-barplot/tile axes (same `[0.5, M+0.5]` range and expansion, where `M` includes
-the spacer columns), each dendrogram leaf is centered on its column in every
-panel.
+We assemble the panels into one stacked figure sharing the dendrogram sample
+order. A blank spacer column marks the boundary between the two communities so
+they read as visually separate groups, and the connected dendrogram on top has
+its leaves aligned column-by-column with the barplots and metadata strips below.
 
 ```{r fig3a-combined, fig.width=8, fig.height=15}
-# Shared discrete x-axis expansion — set on every panel so the continuous
-# dendrogram axis and the discrete barplot/tile axes share the same physical
-# range [0.5, M + 0.5] and therefore align column-by-column.
+# Shared x-axis expansion so every panel aligns column-by-column
 X_EXPAND <- expansion(add = 0.5)
 
 # ---- Community layout: blank spacer column between communities ----
-# cellular_communities is contiguous in clustered order (each cutree cluster is a
-# subtree of the dendrogram), so communities change at single boundaries. We add
-# one empty column at each boundary: it carries no sample (and no dendrogram
-# leaf), producing a visible gap that the single connected dendrogram spans.
+# Communities are contiguous in clustered order, so we insert one empty column at
+# each boundary to create a visible gap the connected dendrogram spans.
 comm_seq     <- cellular_communities[clustered_samples, "community_cluster"]
 N            <- length(clustered_samples)
 boundary_idx <- which(diff(as.integer(comm_seq)) != 0)  # last index of each community (except the last)
@@ -570,14 +534,12 @@ p_prog_m <- ggplot(meta_df, aes(x = sample_id, y = 1, fill = as.character(progre
   labs(y = "Prog")
 
 # ---- 3. Clean barplots (drop facet, apply spacer levels, remove x-axis) ----
-# Panel order (tumor on top, since the clustering is now tumor-based):
-# tumor cell types -> metadata -> all cell types -> immune.
+# Panel order: tumor cell types -> metadata -> all cell types -> immune.
 p_allct_c  <- prep_bar(p,       lev_allct)
 p_tumor_c  <- prep_bar(p_tumor, lev_allct)
 p_immune_c <- prep_bar(p_ME,    lev_fm)
 
-# ---- 4. Stack all panels ----
-# guides = "collect" consolidates all legends into one area, eliminating overlap
+# ---- 4. Stack all panels (collect legends into one area) ----
 p_fig3a <- (p_dendro /
   p_tumor_c /
   p_mna_m / p_1p_m / p_prog_m /
@@ -594,8 +556,7 @@ save_plot(p_fig3a, "Fig3aBis_combined_stacked.pdf", width = 8, height = 15)
 ## Save SPE
 
 ```{r save-spe}
-# Persist the object carrying the tumor-cell-type community assignment
-# (spe$tumor_community) for the downstream DA analysis (05.2_PT_DE_DA.Rmd).
+# Save spe (with tumor_community) for the downstream DA analysis (05.2)
 saveRDS(spe, file.path(params$output, "spe_05.1_PT_DE_cellularcomm.rds"))
 ```
 

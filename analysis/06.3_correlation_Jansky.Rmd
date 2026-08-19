@@ -13,43 +13,32 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Plot output directory
 plot_dir <- file.path(params$output, "plots/06.3_correlation_Jansky")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot to plot_dir, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
 
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
     pdf(full_path, width = width, height = height)
     draw(plot_obj, ...)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options
-# ================================
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -86,10 +75,9 @@ library(SingleCellExperiment)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping) and the published Seurat object containing the scRNA-seq data. Please make sure to replace `params$public`with the path to the scRNA-seq data.
 
 ```{r read-data, message=FALSE}
-# IMC data
+# IMC data (keep tumor cells + Schwann cells)
 protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
-col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[, protein$metacluster == "tumor" | protein$celltype == "Schwann cells"]
 
 #scRNA-seq data

@@ -1,14 +1,9 @@
 # =============================================================================
-# Shared cluster bubble-plot helper for the phenotyping notebooks.
+# Shared cluster bubble-plot helper for the phenotyping notebooks (PT/BM and AD).
 #
-# analysis/04_phenotyping.Rmd (PT/BM) and analysis_AD/04_phenotyping.Rmd (AD)
-# both source this file instead of each carrying their own ~400-line copy.
-#
-# plot_cluster_bubble() auto-detects tissue: if colData(spe) has a `tissue`
-# column it draws per-tissue (PT / BM) cell-count barplots; otherwise it draws a
-# single count barplot (the AD case, one tissue). It relies on these globals
-# being present in the calling environment when invoked: `spe`, `mat`,
-# `plot_dir`, `date_prefix`.
+# plot_cluster_bubble() draws a per-cluster bubble plot; it auto-detects tissue
+# (per-tissue count barplots when colData(spe) has a `tissue` column, else one).
+# Expects `spe`, `mat`, `plot_dir`, `date_prefix` in the calling environment.
 # =============================================================================
 
 library(ComplexHeatmap)
@@ -51,8 +46,7 @@ generate_cluster_colors <- function(cluster_levels, seed = color_seed_base) {
   )
 }
 
-# Suppress the extra print() re-draw in the caller's for-loop: the function
-# handles its own display so the returned marker object is a silent no-op.
+# S3 print method: no-op so the caller's print() does not re-draw.
 print.heatmap_drawn <- function(x, ...) invisible(NULL)
 
 plot_cluster_bubble <- function(cluster_col, save_name,
@@ -66,15 +60,8 @@ plot_cluster_bubble <- function(cluster_col, save_name,
                                 barplot_height  = NULL) {
   annotation_level <- match.arg(annotation_level)
 
-  # ----------------------------
-  # Plot size
-  # ----------------------------
-  # `plot_width` / `plot_height` (inches) set the size of the saved plot.
-  # Elements measured in absolute units are scaled from `plot_height` so the
-  # whole plot grows or shrinks proportionally; at the default height of 14
-  # they reproduce the original 4 cm bar / 1.5 cm dendrogram heights. Pass an
-  # explicit `barplot_height` (a grid unit, or a number interpreted as cm) to
-  # override the automatic scaling.
+  # Plot size: bar/dendrogram heights scale with plot_height (defaults reproduce
+  # 4 cm bar / 1.5 cm dendrogram); barplot_height overrides.
   if (is.null(barplot_height)) {
     barplot_height <- unit(plot_height * 4 / 14, "cm")
   } else if (!inherits(barplot_height, "unit")) {
@@ -82,9 +69,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   }
   dend_height <- unit(plot_height * 1.5 / 14, "cm")
 
-  # ----------------------------
   # Cluster vector (+ optional tissue split)
-  # ----------------------------
   cluster_vec <- as.character(colData(spe)[[cluster_col]])
   tissue_vec  <- if ("tissue" %in% names(colData(spe))) {
     as.character(colData(spe)$tissue)
@@ -92,9 +77,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     NULL
   }
 
-  # ----------------------------
   # Expression matrix
-  # ----------------------------
   mat_df <- as.data.frame(t(mat))
 
   exp_mat_ <- aggregate(
@@ -113,9 +96,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   rownames(exp_mat) <- cluster_names
   exp_mat <- t(as.matrix(exp_mat))
 
-  # ----------------------------
-  # Row scaling
-  # ----------------------------
+  # Row-scale expression to 0-1
   rmin <- apply(exp_mat, 1, min, na.rm = TRUE)
   rmax <- apply(exp_mat, 1, max, na.rm = TRUE)
   den  <- rmax - rmin
@@ -127,9 +108,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
   clusters <- colnames(exp_mat)
 
-  # ----------------------------
-  # Percent expressed
-  # ----------------------------
+  # Fraction of cells expressing each marker, per cluster
   percent_mat <- sapply(seq_len(nrow(mat)), function(i) {
 
     row_vals <- mat[i, ]
@@ -160,9 +139,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   percent_mat[is.na(percent_mat)] <- 0
   percent_mat[percent_mat < 0.1] <- 0.1
 
-  # ----------------------------
   # Cell counts (per tissue if a `tissue` column is present, else one group)
-  # ----------------------------
   if (is.null(tissue_vec)) {
     count_list <- list(AD = table(factor(cluster_vec, levels = clusters)))
     bar_fill   <- c(AD = "goldenrod3")
@@ -174,9 +151,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     bar_fill   <- c(PT = "brown", BM = "aquamarine4")
   }
 
-  # ----------------------------
-  # Barplot info helper (supports optional axis break)
-  # ----------------------------
+  # Barplot info helper (optional axis break)
   make_barplot_info <- function(v) {
     v_num   <- as.numeric(v)
     max_val <- max(v_num, na.rm = TRUE)
@@ -196,8 +171,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
       ))
     }
 
-    # Break case: compress above-break values into a small top band
-    # (top_frac of the display height is reserved for the above-break region)
+    # Break case: compress above-break bars into a small top band
     top_frac   <- 0.18
     break_frac <- 1 - top_frac
     top_ext    <- ncells_break_at * (top_frac / break_frac)
@@ -229,12 +203,9 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     )
   }
 
-  # ----------------------------
-  # Cluster / metacluster colors
-  # ----------------------------
+  # Cluster / metacluster colours
   if (annotation_level == "metacluster") {
-    # Keep legacy behavior from the old bubbleplot block:
-    # aggregate(cluster -> metacluster, FUN = max)
+    # one metacluster per cluster (aggregate with max, as in the original)
     metaclust_by_cluster <- aggregate(
       colData(spe)[[metacluster_col]],
       list(cluster = cluster_vec),
@@ -249,7 +220,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     annot_colors <- metadata(spe)$color_vectors$col_metacluster
   } else {
     color_key <- paste0("col_", cluster_col)
-    # Deterministic per-name seed offset (independent of any cluster_vars list).
+    # deterministic per-name seed offset
     seed_offset <- sum(utf8ToInt(cluster_col))
 
     existing_colors <- metadata(spe)$color_vectors[[color_key]]
@@ -290,17 +261,12 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     annot_name
   )
 
-  # ----------------------------
-  # Heatmap colors
-  # ----------------------------
   col_fun <- circlize::colorRamp2(
     c(0, 0.5, 1),
     viridis(100)[c(1, 50, 100)]
   )
 
-  # ----------------------------
   # Column annotation (one count barplot per tissue group)
-  # ----------------------------
   bar_annos <- setNames(
     lapply(names(info_list), function(nm) {
       info <- info_list[[nm]]
@@ -327,9 +293,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     )
   )
 
-  # ----------------------------
-  # Bubble cell function
-  # ----------------------------
+  # Bubble cell: circle sized by percent expressed, coloured by expression
   cell_fun <- function(j, i, x, y, w, h, fill) {
 
     grid.rect(
@@ -348,15 +312,10 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     )
   }
 
-  # ----------------------------
-  # Bubble legend
-  # ----------------------------
   lgd_list <- list(
 
     Legend(
-      # Labels are shown as percentages (0-100) to match the title; the circle
-      # radii below stay on percent_mat's 0-1 scale (r = fraction * unit), so the
-      # dot sizes are unchanged - only the numbers displayed become percentages.
+      # labels shown as percentages; circle radii stay on the 0-1 scale
       labels = c(0, 25, 50, 75, 100),
       title = "percentage expressed",
 
@@ -376,9 +335,6 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     )
   )
 
-  # ----------------------------
-  # Heatmap
-  # ----------------------------
   hp <- Heatmap(
     exp_mat,
 
@@ -414,9 +370,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
 
     column_names_rot = 45,
 
-    # Reserve enough room for the long, 45deg-rotated column labels (e.g.
-    # celltype names) so they are not truncated at ComplexHeatmap's 6cm
-    # default cap. Harmless for short-label plots (only raises the cap).
+    # raise the column-label height cap so long rotated labels aren't truncated
     column_names_max_height = max_text_width(
       colnames(exp_mat),
       gp = gpar(fontsize = 15)
@@ -425,9 +379,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     border = "black"
   )
 
-  # ----------------------------
   # Break-mark decoration helper
-  # ----------------------------
   add_break_marks <- function(anno_name, info, drawn_hp) {
     if (!info$needs_break) return(invisible(NULL))
 
@@ -435,7 +387,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     if (is.list(col_ord)) col_ord <- unlist(col_ord)
     n_tot <- info$n_total
     b_y   <- info$break_y_npc
-    gap   <- 0.04   # height of the white erasure gap (npc units)
+    gap   <- 0.04   # white erasure gap height (npc)
 
     decorate_annotation(anno_name, {
       pushViewport(viewport(clip = "off"))
@@ -446,7 +398,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
         xc <- (vis - 0.5) / n_tot
         bw <- 0.8  / n_tot
 
-        # White gap to visually break the bar
+        # white gap to break the bar
         grid.rect(
           x = xc, y = b_y - gap / 2,
           width = bw, height = gap,
@@ -455,7 +407,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
           gp = gpar(fill = "white", col = NA)
         )
 
-        # Zigzag lines across the bar
+        # zigzag across the bar
         xs <- c(xc - bw/2, xc - bw/4, xc, xc + bw/4, xc + bw/2)
         ys <- b_y + c(-gap * 0.6, gap * 0.6, -gap * 0.6, gap * 0.6, -gap * 0.6)
         grid.polyline(
@@ -465,7 +417,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
         )
       }
 
-      # Zigzag break mark on the y-axis (drawn to the left of the annotation)
+      # zigzag break mark on the y-axis
       grid.polyline(
         x = unit(c(-2.5, -1.5, -2.5), "mm"),
         y = unit(c(b_y - gap * 0.6, b_y, b_y + gap * 0.6), "npc"),
@@ -476,9 +428,7 @@ plot_cluster_bubble <- function(cluster_col, save_name,
     })
   }
 
-  # ----------------------------
-  # Draw, decorate, and save
-  # ----------------------------
+  # Draw, decorate, save
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", save_name))
   pdf(full_path, width = plot_width, height = plot_height)
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
@@ -489,9 +439,8 @@ plot_cluster_bubble <- function(cluster_col, save_name,
   dev.off()
   message("Saved: ", full_path)
 
-  # Draw once more for the notebook / interactive display (with decorations).
-  # Return a silent marker so the caller's print() does not trigger a third,
-  # undecorated re-draw via the ComplexHeatmap show() method.
+  # Draw again for interactive display; return a silent marker so the caller's
+  # print() does not trigger another re-draw.
   hp_drawn <- draw(hp, annotation_legend_list = lgd_list,
                    padding = unit(c(2, 55, 2, 2), "mm"))
   for (nm in names(info_list)) {

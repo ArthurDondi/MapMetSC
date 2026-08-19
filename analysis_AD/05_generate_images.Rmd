@@ -38,20 +38,15 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Output directory for plots
 plot_dir <- file.path(params$output, "plots_AD/05_generate_images")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot to plot_dir (dispatches on plot type)
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
 
@@ -76,8 +71,9 @@ knitr::opts_chunk$set(
 
 # AD region and marker images
 
-Adrenal-gland (AD) counterpart of `analysis/08_generate_images.Rmd`. For a single
-AD image - as **both the whole image and a zoomed region** - it renders:
+Adrenal-gland (AD) counterpart of `analysis/08_generate_images.Rmd`. For each
+requested AD image - as the **whole image** and, when a zoom window is given, a
+**zoomed region** - it renders:
 
 * each requested **marker** as a separate pixel image,
 * a colour **merge** of all requested markers, and
@@ -85,9 +81,9 @@ AD image - as **both the whole image and a zoomed region** - it renders:
 
 The AD cohort has no tumor-compartment or cellular-neighborhood annotation, so
 those panels (present in the main-cohort script) are omitted here. Rendered from
-`run_analysis.R` with a *customised* parameter list (image id, zoom crop, marker
+`run_analysis.R` with a *customised* parameter list (image ids, zoom crops, marker
 list). Cell types and colours come from `spe_04_phenotyping_AD.rds`, so the
-chosen image must be one of the AD images processed in
+chosen images must be among the AD images processed in
 [`analysis_AD/04_phenotyping`](04_phenotyping.html).
 
 ## Load libraries
@@ -103,11 +99,7 @@ library(ggplot2)
 ```{r load-data}
 spe <- readRDS(file.path(params$output, "spe_04_phenotyping_AD.rds"))
 
-# --- images to render + their optional zoom crops ---------------------------
-# New interface: params$image_ids (a character vector) renders several images in
-# one pass, with params$crops a list holding one zoom window per id (a NULL entry
-# = whole image only). Back-compat: a single params$image_id (+ params$crop).
-# Every crop defaults to NULL, i.e. whole image only.
+# Images to render + optional crops; vector image_ids/crops win over single image_id/crop.
 image_ids <- if (!is.null(params$image_ids)) params$image_ids else params$image_id
 if (is.null(image_ids) || !length(image_ids))
   stop("No image id provided: set params$image_ids (or params$image_id).")
@@ -124,12 +116,10 @@ if (length(missing_ids))
        paste(missing_ids, collapse = ", "), ". Available images include: ",
        paste(head(unique(as.character(spe$sample_id))), collapse = ", "), " ...")
 
-# Channel (_mean) marker names from the spe. Image channels are named from these
-# (in order), and requested markers are resolved against them.
+# Channel (_mean) marker names; requests resolve against these.
 marker_names <- rownames(spe)[grepl("_mean$", rownames(spe))]
 
-# Resolve requested markers: accept either a full channel name or a short marker
-# name (the token before the first "_").
+# Accept either a full channel name or a short marker name (token before "_").
 resolve_markers <- function(requested, channels) {
   token <- sub("_.*$", "", channels)
   vapply(requested, function(r) {
@@ -147,10 +137,7 @@ markers <- unname(markers_full[!is.na(markers_full)])
 if (!length(markers)) stop("None of the requested markers match the spe channels.")
 message("Rendering markers: ", paste(markers, collapse = ", "))
 
-# Load one image + its mask + the matching cells (tmp). Channels are named from
-# marker_names using the image's own channel count (robust to raw images that
-# still carry channels dropped from the intensity tables). Dimensions are logged
-# so an out-of-range crop - the usual cause of a black zoom panel - is easy to spot.
+# Load one image + its mask + matching cells (tmp); channels named from marker_names.
 load_image <- function(image_id) {
   tmp   <- spe[, spe$sample_id == image_id]
   img   <- loadImages(file.path(params$input, "img",   paste0(image_id, ".tif")))
@@ -172,9 +159,7 @@ load_image <- function(image_id) {
 
 ## Colours and helpers
 ```{r helpers}
-# Clamp/shift a requested [lo, hi] window so it fits inside [1, n]. If the window
-# is at least as wide as the axis it falls back to the whole axis; otherwise it
-# is shifted inward to stay in range. Returns integer c(lo, hi).
+# Clamp/shift a requested [lo, hi] window to fit inside [1, n].
 .clamp_axis <- function(lo, hi, n) {
   lo <- as.integer(round(lo)); hi <- as.integer(round(hi))
   if (lo > hi) { tmp <- lo; lo <- hi; hi <- tmp }
@@ -184,10 +169,8 @@ load_image <- function(image_id) {
   c(lo, lo + w)
 }
 
-# Crop a CytoImageList to c(xmin, xmax, ymin, ymax). The window is clamped to the
-# image bounds (with a message), and every cropped frame is rebuilt as a proper
-# EBImage Image - plain `[` subsetting can drop the Image class and yield a blank
-# CytoImageList that plotPixels/plotCells then render black.
+# Crop a CytoImageList to c(xmin, xmax, ymin, ymax). Rebuild each frame as an
+# EBImage Image - plain `[` subsetting can drop the class and render black.
 crop_cil <- function(cil, crop) {
   d0 <- dim(cil[[1]])
   xr <- .clamp_axis(crop[1], crop[2], d0[1])
@@ -211,9 +194,8 @@ crop_cil <- function(cil, crop) {
   out
 }
 
-# Rotate a CytoImageList 90 degrees counter-clockwise (lossless: transpose then
-# vertical flip, so integer mask labels are preserved), matching the plotSpatial
-# orientation used for the main-cohort images (same imaging platform).
+# Rotate a CytoImageList 90 degrees counter-clockwise (transpose + flip, lossless
+# for integer mask labels) to match the main-cohort plotSpatial orientation.
 rotate90_ccw <- function(cil) {
   out <- CytoImageList(lapply(seq_along(cil), function(i)
     EBImage::flip(EBImage::transpose(cil[[i]]))))
@@ -223,16 +205,12 @@ rotate90_ccw <- function(cil) {
   out
 }
 
-# Scale bar (IMC pixel size is 1 um, so a length in px is a length in um). It is
-# drawn ONLY on the merge panel; cex sizes the "100 um" label - small enough to
-# stay inside the frame (the default was cropped), large enough to read. The
-# image name / title is removed from every panel (image_title = NULL).
+# Scale bar (IMC pixel = 1 um), drawn only on the merge panel.
 scale_bar_spec <- list(length = 100, label = "100 µm", cex = 1.5)
 
-# Evaluate a plotPixels/plotCells call lazily; on success save + show it and
-# return TRUE, on any error report it, skip, and return FALSE - so one bad panel
-# (e.g. a flat channel with no signal in this view) never aborts the whole
-# render. `plot_call` is a promise, so plotting runs inside the tryCatch below.
+# Evaluate a plot call, then save + show it (TRUE), or report and skip on error
+# (FALSE) so one bad panel - e.g. a flat channel - never aborts the render.
+# plot_call is a promise, so plotting happens inside the tryCatch.
 render_and_save <- function(plot_call, filename, width, height) {
   po <- tryCatch(plot_call,
                  error = function(e) {
@@ -245,9 +223,7 @@ render_and_save <- function(plot_call, filename, width, height) {
   invisible(TRUE)
 }
 
-# Colour for each marker (used for BOTH its individual image and the merge),
-# keyed by the short marker name. Markers without an explicit colour fall back to
-# spare hues so they stay distinct in a merge.
+# Per-marker colour (individual + merge), keyed by short name; unmapped get spare hues.
 .marker_col_map <- local({
   fallback <- c("white", "orange", "yellow", "magenta", "pink", "brown")
   tok  <- sub("_.*$", "", markers)
@@ -258,17 +234,14 @@ render_and_save <- function(plot_call, filename, width, height) {
   setNames(cols, markers)
 })
 
-# Marker channels to draw individually but leave OUT of the colour merge,
-# matched by short marker name via params$merge_exclude.
+# Markers to draw individually but leave out of the merge (via params$merge_exclude).
 .merge_exclude <- markers[sub("_.*$", "", markers) %in% params$merge_exclude]
 
-# Render every panel (individual markers, merge, celltype) for one view (whole
-# image or a crop). tag goes into the filename. No legends are drawn - each panel
-# is just the image.
+# Render every panel (individual markers, merge, celltype) for one view; tag goes
+# into the filename. No legends.
 plot_region <- function(img_v, masks_v, tmp, markers, tag) {
 
-  # --- individual markers, each in its assigned merge colour; keep the ones
-  #     that render (a marker absent from this view is a flat channel, skipped) ---
+  # --- individual markers, each in its assigned colour; keep the ones that render ---
   usable <- character(0)
   for (m in markers) {
     ok <- render_and_save(
@@ -281,10 +254,8 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
     if (isTRUE(ok)) usable <- c(usable, m)
   }
 
-  # --- merge of the markers that rendered, minus any flagged individual-only;
-  #     same per-marker colours. The scale bar is drawn on this panel only.
-  #     cytomapper::plotPixels composites at most 6 markers, so cap the merge at
-  #     6 (dropping the extras, which still have their own individual panels). ---
+  # --- merge of the rendered markers, minus the individual-only ones; scale bar
+  #     here only. plotPixels shows at most 6 markers, so cap the merge at 6. ---
   merge_markers <- setdiff(usable, .merge_exclude)
   if (length(merge_markers) > 6) {
     message("Merge capped at 6 markers (cytomapper::plotPixels max); leaving out: ",
@@ -332,8 +303,7 @@ for (i in seq_along(image_ids)) {
 
   for (vn in names(views)) {
     cr      <- views[[vn]]
-    # Crop in the native image orientation (so crop coordinates stay in raw-image
-    # pixel space), then rotate the view to the plotSpatial orientation.
+    # Crop in native orientation (crop coords stay in raw-image space), then rotate.
     img_v   <- if (is.null(cr)) img   else crop_cil(img,   cr)
     masks_v <- if (is.null(cr)) masks else crop_cil(masks, cr)
     img_v   <- rotate90_ccw(img_v)

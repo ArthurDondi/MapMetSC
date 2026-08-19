@@ -1,34 +1,14 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# Extract the frozen phenograph outputs from the DOCKER (reference) SPE objects.
-# NOTHING is re-clustered here: we copy out the kept-cell list (02) and the k=30
-# phenograph labels (04) that were already produced in docker, keyed by the
-# unique cell id (sample_id_ObjectNumber), so they are immune to the Annoy /
-# igraph::cluster_louvain non-reproducibility across machines (the same caveat
-# uwot documents for calculateUMAP).
+# Extract frozen phenograph outputs from the reference SPE objects.
 #
-# WHY freeze: Rphenoannoy (Annoy approximate-NN kNN + igraph Louvain) is not
-# bit-reproducible across igraph versions / compilers / CPUs. 02_QC_1.Rmd loads
-# the kept-cell list to reproduce the lost-cell exclusion; 04_phenotyping.Rmd
-# loads the k=30 labels instead of re-clustering.
+# Phenograph (Annoy kNN + igraph Louvain) is not bit-reproducible across
+# machines, so we copy the kept-cell list (from spe_02) and the k=30 cluster
+# labels (from spe_04), keyed by cell id, for the notebooks to load instead of
+# re-clustering. Run once in the environment that produced the published
+# objects, then ship <output_dir>/R_intermediary/ to params$input/R_intermediary/.
 #
-# HOW TO USE (run once in the docker image that produced the published objects):
-#   1. Point `output_dir` at the folder holding your spe_*.rds (params$output),
-#      or export MAPMET_OUTPUT.
-#   2. Rscript code/generate_phenograph_intermediary.R
-#   3. Ship the files written to <output_dir>/R_intermediary/ : commit them to
-#      data/R_intermediary/ (they are small) or upload to Zenodo, then place
-#      them in params$input/R_intermediary/ on any machine.
-#
-# Files produced:
-#   kept_cells_AD.rds  / _PTBM.rds   (character vector of kept cell ids, from
-#                                     the columns of the reference spe_02)
-#   pg_clusters_AD.rds / _PTBM.rds   (named vector, cell id -> k=30 phenograph
-#                                     cluster, from spe_04's pg_clusters_k30)
-#
-# NOTE the clustering is frozen as-is from these objects. If you regenerated the
-# objects after changing an upstream step (e.g. the QC area threshold), extract
-# from the regenerated objects so the frozen labels match the new cell set.
+# Produces: kept_cells_{AD,PTBM}.rds, pg_clusters_{AD,PTBM}.rds
 # =============================================================================
 
 suppressPackageStartupMessages(library(SpatialExperiment))
@@ -38,11 +18,8 @@ inter_dir  <- file.path(output_dir, "R_intermediary")
 dir.create(inter_dir, showWarnings = FALSE, recursive = TRUE)
 
 ## ---- phenotyping: copy the k=30 labels out of the 04 object ----------------
-# `spe_paths` is a list of candidate objects (the reference/main name first, the
-# apptainer name second); the first that exists is used. `cols` prefers the base
-# k=30 column (pg_clusters_k30, present in the main objects that also keep k15/45/
-# 60) and falls back to `pg_clusters` (the k=30-only objects). For PT/BM this is
-# the base clustering BEFORE GMM subclustering.
+# Use the first spe path that exists; prefer the pg_clusters_k30 column, else
+# pg_clusters. For PT/BM this is the clustering before GMM subclustering.
 extract_pheno <- function(spe_paths, out_name,
                           cols = c("pg_clusters_k30", "pg_clusters")) {
   spe_path <- spe_paths[file.exists(spe_paths)][1]
@@ -64,9 +41,7 @@ extract_pheno <- function(spe_paths, out_name,
 }
 
 ## ---- lost cells: the kept-cell list is just spe_02's cells -----------------
-# 02_QC_1.Rmd now excludes lost cells by loading this list and keeping those
-# cells, instead of re-identifying the (non-reproducible) lost-cells cluster.
-# The kept-cell list is simply the columns of the reference spe_02.
+# 02_QC_1.Rmd loads this list to reproduce the lost-cell exclusion.
 extract_kept <- function(spe02_path, out_name) {
   if (!file.exists(spe02_path)) {
     message("skip kept-cells: ", spe02_path, " not found"); return(invisible())
@@ -78,8 +53,7 @@ extract_kept <- function(spe02_path, out_name) {
 
 # --- AD pipeline ------------------------------------------------------------
 extract_kept(file.path(output_dir, "spe_02_QC_1_AD.rds"), "kept_cells_AD.rds")
-# AD's final clustering is k=15 (main's define-final), stored in `pg_clusters` -
-# that is the column used downstream, so take it (not pg_clusters_k30).
+# AD's final clustering is k=15, stored in pg_clusters.
 extract_pheno(file.path(output_dir, c("spe_final_clustering_AD.rds",
                                       "spe_04_phenotyping_AD.rds")),
               "pg_clusters_AD.rds",

@@ -12,9 +12,7 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
 # Create plots directory
-# ================================
 plot_dir <- file.path(params$output, "plots/05.2_PT_DE_DA")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
@@ -24,9 +22,7 @@ if (!dir.exists(plot_dir)) {
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Helper to save plots
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
@@ -49,9 +45,7 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -64,8 +58,8 @@ knitr::opts_chunk$set(
 )
 ```
 
-# Identifying cellular communities in diagnostic primary tumors {#pt-dx}
-Herein, we explore differential cell type abundances in tumor and TME.
+# Differential abundance in diagnostic primary tumors {#pt-dx}
+Here we test for differential cell-type abundance between genetic subtypes (MYCN status) and between cellular communities, across tumor and TME compartments.
 
 ## Load libraries
 <details>
@@ -87,7 +81,7 @@ library(patchwork)
 </details>
 
 ## Read data
-First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping). 
+First, we load the object produced by the previous step (05.1), which carries the `tumor_community` assignment on top of the phenotyped single-cell data.
 
 ```{r read-data}
 spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
@@ -119,9 +113,8 @@ sce$metacluster    <- factor(spe[keep_rows, keep_cols]$metacluster)
 sce$celltype_ordered <- factor(spe[keep_rows, keep_cols]$celltype_ordered)
 sce$condition      <- 'na'
 
-# Cellular-community assignment produced by 05.1_PT_DE_cellularcomm.Rmd:
-#   tumor_community - samples clustered on their tumor cell-type composition.
-# The community DA below runs when this column is present in the object.
+# tumor_community (from 05.1): samples clustered on tumor cell-type composition.
+# The community DA below runs only when this column is present.
 if ("tumor_community" %in% colnames(colData(spe))) {
   sce$tumor_community <- spe[keep_rows, keep_cols]$tumor_community
 }
@@ -148,18 +141,10 @@ marker_info$marker_class <- as.factor(marker_class_vec)
 ## DA analysis function
 
 ```{r define-da-function}
-# run_da_analysis: performs DA for one compartment/comparison combination and
-# produces a single combined boxplot figure.
-# sce_base       : base SCE with all PT DE cells and full metadata
-# cell_filter    : logical vector over ncol(sce_base) selecting the cells of interest
-# cluster_level  : "celltype" or "metacluster"
-# comparison     : "mna" (MNA vs nMNA) or the name of a community column to compare
-#                  ("tumor_community"), in which case the two communities in
-#                  `selected_communities` are compared.
-# ord            : display order of groups on boxplot x-axis
-# selected_communities: two communities to compare when comparison is a community column
-# min_samples_frac: fraction of samples to use as min_samples threshold (NULL = 1)
-# fig_suffix     : string appended to all saved filenames for this analysis
+# run_da_analysis: run DA for one compartment/comparison and draw one combined
+# boxplot. comparison is "mna" (MNA vs nMNA) or a community column
+# ("tumor_community"), comparing the two `selected_communities`.
+# min_samples_frac scales the diffcyt min_samples threshold (NULL = 1).
 
 run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
                             ord, selected_communities = NULL,
@@ -169,9 +154,6 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   sce_sub <- sce_base[, cell_filter]
 
   # --- 2. Apply comparison filter and set condition ---
-  # comparison is either "mna" (MNA vs nMNA) or the name of a community column
-  # ("tumor_community"), in which case the two communities in
-  # `selected_communities` are compared.
   if (comparison == "mna") {
     sce_sub  <- sce_sub[, sce_sub$mna %in% c("nMNA", "MNA")]
     sce_sub$condition <- droplevels(sce_sub$mna)
@@ -220,11 +202,8 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
     summarise(n_cells = n(), .groups = 'drop') %>%
     as.data.frame()
 
-  # --- 5. Per-sample cell-type abundances (computed, not rendered) ---
-  # plotAbundances() is used only to obtain per-sample cluster frequencies
-  # ($data$Freq, a percentage 0-100). The stacked compositional barplot and the
-  # per-condition mean/SE barplots are intentionally no longer produced; these
-  # frequencies feed the combined boxplot built below.
+  # --- 5. Per-sample cell-type abundances (for the boxplot, not rendered here) ---
+  # plotAbundances() is used only to obtain per-sample cluster frequencies.
   abund_plot <- plotAbundances(sce_sub, k = "celltype", by = "sample")
   abund_data <- abund_plot$data %>%
     mutate(
@@ -251,9 +230,8 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
 
   # --- 7. DA test ---
   design   <- createDesignMatrix(experiment_info, cols_design = "condition")
-  # contrast c(0,1) tests second condition level vs first (baseline).
-  # logFC from testDA_voom is therefore log2(second/first); we negate it
-  # throughout so reported values represent log2(g2/g1) in our ordering.
+  # contrast c(0,1) = second vs first level; logFC is negated below so it reads
+  # log2(g2 / g1) in our group ordering.
   contrast <- createContrast(c(0, 1))
   min_samples <- if (!is.null(min_samples_frac)) round(ncol(d_counts) * min_samples_frac) else 1
 
@@ -263,17 +241,13 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   res <- data.frame(rowData(res_DA))
 
   # --- 8. Combined grouped boxplot (one group per cluster) ---
-  # Single figure: for each cell type the two conditions (e.g. nMNA vs MNA, or
-  # two communities) are drawn side by side with the DA adjusted p-value bracket
-  # over the pair. The x-axis carries two layers: the condition (vertical axis
-  # text, upper) and the cell type (45 deg labels in a strip below, lower). White
-  # background, as in the previous per-cluster boxplots.
+  # For each cell type the two conditions are drawn side by side, with the DA
+  # adjusted p-value bracket over the pair.
   cluster_present <- levels(abund_data$cluster_id)
 
   stats_df <- do.call(rbind, lapply(cluster_present, function(cl) {
     if (cl %in% rownames(res)) {
       p_adj_val <- round(res[cl, "p_adj"], 3)
-      # negate logFC so it represents log2(g2 / g1) in our group ordering
       logFC_val <- -1 * round(res[cl, "logFC"], 2)
     } else {
       p_adj_val <- NA_real_; logFC_val <- NA_real_
@@ -289,18 +263,15 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   }))
   stats_df$cluster_id <- factor(stats_df$cluster_id, levels = cluster_present)
 
-  # Community comparisons label the two groups "Group 1"/"Group 2" on the x-axis
-  # (MNA keeps nMNA/MNA). Relabel the condition factor and the p-value bracket
-  # groups together so stat_pvalue_manual still aligns.
+  # Community comparisons label the groups "Group 1"/"Group 2" (MNA keeps
+  # nMNA/MNA); relabel the condition factor and bracket groups together.
   if (comparison != "mna") {
     levels(abund_data$condition) <- paste("Group", levels(abund_data$condition))
     stats_df$group1 <- paste("Group", stats_df$group1)
     stats_df$group2 <- paste("Group", stats_df$group2)
   }
 
-  # Boxes are coloured by cell type / metacluster (matching the project colour
-  # scheme). The two conditions within each panel share the cluster colour and
-  # are distinguished by their x-axis label. Missing colours fall back to grey.
+  # Boxes are coloured by cell type / metacluster; missing colours fall back to grey.
   cluster_colors <- col_vec[cluster_present]
   cluster_colors[is.na(cluster_colors)] <- "gray50"
   names(cluster_colors) <- cluster_present
@@ -308,14 +279,9 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   long_labels <- any(nchar(cluster_present) > 6)
 
   # --- Combined grouped boxplot on a NUMERIC x-axis --------------------------
-  # The cell-type labels must sit at 45 deg with their RIGHT end anchored under
-  # each cell type. Facet-strip text centres rotated labels in this ggplot2
-  # version (hjust is ignored), so instead the cell-type names are drawn with
-  # geom_text() - where hjust = 1 right-anchors reliably - in a thin strip
-  # stacked below the boxplot with patchwork (the same aligned-panel trick used
-  # in 05.1). The boxplot uses manual numeric x positions: cell type i sits at
-  # integer i, its two conditions at i +/- 0.2. The condition (Group/MNA) labels
-  # stay as vertical axis text under each box.
+  # Cell type i sits at integer i, its two conditions at i +/- 0.2. Cell-type
+  # names are drawn as a separate geom_text strip below (via patchwork) so the
+  # 45 deg labels right-anchor under each cell type.
   n_clusters <- length(cluster_present)
   ct_idx     <- setNames(seq_along(cluster_present), cluster_present)
   cond_lev   <- levels(abund_data$condition)          # two levels: g1 then g2
@@ -342,8 +308,7 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   y_tip <- 0.02 * max(stats_df$y.position, na.rm = TRUE)
   x_lims <- c(0.5, n_clusters + 0.5)
 
-  # size (not linewidth) for line elements: linewidth on lines/segments only
-  # exists from ggplot2 3.4.0 and errors on the older version in the image.
+  # size (not linewidth): linewidth on segments needs ggplot2 >= 3.4.0.
   p_main <- ggplot(abund_data, aes(x = xpos, y = Freq, group = box)) +
     geom_boxplot(aes(fill = cluster_id, colour = cluster_id),
                  position = "identity", width = 0.32,
@@ -372,9 +337,8 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
       legend.position = "none"
     )
 
-  # Thin strip of cell-type names, drawn with geom_text so the 45 deg labels
-  # right-anchor (hjust = 1) exactly under each cell type. Shares the main
-  # panel's numeric x range so patchwork aligns them column-by-column.
+  # Thin strip of cell-type names, sharing the main panel's x range so patchwork
+  # aligns them column-by-column.
   ct_lab_df <- data.frame(x = seq_along(cluster_present), label = cluster_present)
   p_ctlab <- ggplot(ct_lab_df, aes(x = x, y = 1, label = label)) +
     geom_text(angle = 45, hjust = 1, vjust = 1, size = 2.8) +
@@ -387,8 +351,6 @@ run_da_analysis <- function(sce_base, cell_filter, cluster_level, comparison,
   p_boxplot <- p_main / p_ctlab + plot_layout(heights = c(1, 0.42))
 
   print(p_boxplot)
-  # Compact figure (text reads large relative to the plot); the bottom band
-  # holds the 45 deg cell-type labels.
   save_plot(p_boxplot, paste0("boxplot_", fig_suffix, ".pdf"),
             width  = max(8, n_clusters * 1.1 + 1.5) / 2,
             height = (if (long_labels) 5 else 4))
@@ -413,7 +375,7 @@ immune_metaclusters <- c("granulocytes", "T cells", "B cells", "myeloid/NK")
 # Two communities to compare for every community-based comparison.
 community_comparison <- c("1", "2")
 
-# --- Cluster-level options: the 3 originals plus all cell types incl. "other" ---
+# --- Cluster levels: metacluster, all cell types (incl. "other"), tumor, immune ---
 cluster_level_configs <- list(
   list(key = "metacluster",     cluster_level = "metacluster",
        cell_filter = rep(TRUE, ncol(sce)),                     min_samples_frac = NULL),
@@ -425,8 +387,7 @@ cluster_level_configs <- list(
        cell_filter = sce$metacluster %in% immune_metaclusters, min_samples_frac = NULL)
 )
 
-# --- Comparison options: MNA always; each community comparison only if its column
-# is present (i.e. the corresponding cellular-community script has been run) ---
+# --- Comparisons: MNA always; community comparison only if its column is present ---
 comparison_configs <- list(
   list(key = "mna", comparison = "mna", ord = c("nMNA", "MNA"), selected_communities = NULL)
 )
@@ -452,9 +413,7 @@ for (cl in cluster_level_configs) {
     } else {
       paste0(cl$key, "_", cm$key, "_", paste(cm$selected_communities, collapse = "_vs_"))
     }
-    # Short figure name for the saved boxplot: <level>_<mna|grp>, e.g.
-    # boxplot_tumor_grp.pdf. The level drops the "celltype_" prefix; every
-    # community comparison is "grp" and MYCN status is "mna".
+    # Short figure name: <level>_<mna|grp>, dropping the "celltype_" prefix.
     fig_name <- paste0(sub("^celltype_", "", cl$key),
                        if (cm$comparison == "mna") "_mna" else "_grp")
     analysis_configs[[suffix]] <- list(

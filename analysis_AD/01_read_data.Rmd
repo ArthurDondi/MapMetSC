@@ -12,9 +12,7 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Plots directory
 plot_dir <- file.path(params$output, "plots_AD/01_read_data")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
@@ -23,31 +21,25 @@ if (!dir.exists(plot_dir)) {
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
+    # base R / other: assume already drawn
     dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global knitr chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -84,11 +76,11 @@ library(patchwork)
 
 ## Preprocess adrenal gland (AD) files
 
-The AD supplementary channel `IF4_NEGATIVE_MIX` is **retained**, matching the
-main analysis. We do **not** modify the input CSVs here — the pipeline never
-writes to the input data. If you ever want to exclude `IF4_NEGATIVE_MIX` (or any
-other channel), drop it *in memory* after reading (e.g. subset the SPE rows),
-never by overwriting the input files.
+All AD samples share the input folder with the other cohorts; we read them
+as-is and never modify the input CSVs. The supplementary channel
+`IF4_NEGATIVE_MIX` is **retained**, matching the main analysis. To exclude any
+channel, drop it from the SPE in memory after reading rather than editing the
+inputs.
 ## Read single-cell measurement
 
 Replace `path` with the path to the folder where you stored the single-cell data (e.g. `path/to/folder/MapMetIP_ProcessedDataset` in case processed data was downloaded from Zenodo). 
@@ -98,20 +90,16 @@ In [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP), we exported singl
 ```{r read-steinbock}
 path <- file.path(params$input)
 
-# This pipeline processes the adrenal-gland (AD) samples ONLY. All sample types
-# (AD, TU/primary-tumour, BM) share one folder, so we select the AD files with
-# read_steinbock's `pattern` (a regex on the file names) rather than keeping a
-# separate AD folder. Without this the read would pull in every sample.
-sample_pattern <- "AD"    # adjust if your AD files are tokenised differently
+# All cohorts (AD, TU, BM) share one folder; select AD files by filename pattern.
+sample_pattern <- "AD"
 
 spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
 spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
 
-#Combine SPE objects into one object
+# Combine into one SPE: counts = 0px masks, counts_1px = 1px masks
 spe <- spe_0px
 assay(spe, "counts_1px") <- assay(spe_1px, "counts")
 
-#remove single SPE objects
 rm(spe_0px)
 rm(spe_1px)
 ```
@@ -128,13 +116,12 @@ For the adrenal gland (AD) samples there is no sample- or patient-specific metad
 
 ```{r add-coldata}
 
-#spe$sample <- gsub(spe$sample_id, pattern="([UMD]).*", replacement="\\1")
 spe$sample <- sub("_[^_]+$", "", spe$sample_id)
 spe$fm_id <- str_match(spe$sample, "_.*_(.*)_")[,2]
 
 ```
 
-Before we save the SPE object, we check the distribution of markers.
+Before we save the SPE object, we check the distribution of the two DNA channels across samples.
 
 ```{r plot by staining date}
 

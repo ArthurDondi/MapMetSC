@@ -12,44 +12,36 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
+# Plots directory
 plot_dir <- file.path(params$output, "plots/04_phenotyping")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
-# Date prefix for descriptive filenames
+# Date prefix for filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Helper: save a plot (ggplot, ComplexHeatmap, or base R)
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, subdir = NULL) {
   out_dir <- if (is.null(subdir)) plot_dir else file.path(plot_dir, subdir)
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   full_path <- file.path(out_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
+    # base R / already-rendered plots
     dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -63,13 +55,12 @@ knitr::opts_chunk$set(
 ```
 
 # Cell phenotyping {#phenotyping}
-In this Rmd file, we will perform 
-1. dimensionality reduction
-2. phenograph clustering
-3. annotate and merge clusters & metaclusters externally 
-4. retrieve tumor cells from GD2-MPO double positive cells (caused by spillover) 
-5. re-classify granulocyte metaclusters into maturity states based on morphology
-6. define color codes for all celltypes and metaclusters
+In this Rmd file, we will
+1. run UMAP for visualization
+2. cluster cells with phenograph
+3. subcluster mixed clusters with a Gaussian mixture model
+4. annotate and merge clusters into celltypes and metaclusters using the external annotation table
+5. define color codes for all celltypes and metaclusters
 
 ## Load libraries
 <details>
@@ -100,47 +91,30 @@ library(cluster)
 </details>
 
 ## Read data
-We will first read the data that passed the [second quality control step](#qc-2) and save the count data as a matrix. Low-quality markers (low SNR in a lot of samples) as well as all IF and nuclear IMC markers will be excluded for clustering. Moreover, mean intensity will be used to represent marker expression, to average out the signals arising from lateral spillover or artifacts. As explained in [the previous chapter](#qc2-save), we are using counts measured with respect to dilated masks in downstream analysis do capture membrane signal. 
+We will first read the data that passed the [second quality control step](#qc-2) and save the count data as a matrix. Low-quality markers (low SNR in a lot of samples) as well as all IF and nuclear IMC markers will be excluded for clustering. Moreover, mean intensity will be used to represent marker expression, to average out the signals arising from lateral spillover or artifacts. As explained in [the previous chapter](#qc2-save), we are using counts measured with respect to dilated masks in downstream analysis to capture membrane signal.
 
 ```{r read-data}
 spe <- readRDS(file.path(params$output,"spe_03_QC_2.rds"))
 
-#computing matrix
+# Counts matrix; keep mean-intensity channels (drop the mean-80 variants)
 intensity_mat <- assay(spe, "counts")
 colnames(intensity_mat) <- colnames(spe)
-
-#use mean intensity
 intensity_mat <- intensity_mat[!grepl("mean-80", rownames(intensity_mat)),]
 
-#exclude low-quality markers and functional marker cl.PARP
+# Keep only the high-quality clustering markers
 intensity_mat_hq <- intensity_mat[!grepl("PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(intensity_mat)),]
-intensity_mat_lq <- intensity_mat[grepl("PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(intensity_mat)),]
 
+# Drop cells negative for all clustering markers
 non_zeros <- as.logical(colSums(intensity_mat_hq)!=0)
-
 intensity_mat_hq_wo_zeros <- intensity_mat_hq[,non_zeros]
-intensity_mat_lq_wo_zeros <- intensity_mat_lq[,non_zeros]
 
-#Apply changes to SPE object
 spe <- spe[,non_zeros]
 rowData(spe)$use_channel <- !grepl("mean-80|PARP|IDO|DAPI|IF2_GD2|IF3_CD45_CD56|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))
 
-##Matrix with morph. features
-morph_mat_clipped <- (cbind("area"=spe$area_clipped, "solidity"=spe$solidity_clipped, "aspect_ratio"=spe$aspect_ratio_clipped))
-
-tissue <- spe$tissue
-cell_id <- colnames(spe)
-
 mat <- intensity_mat_hq_wo_zeros
-
-qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-col_vector_433 = colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
-
-col_sample = setNames(sample(col_vector_433, length(unique(spe$sample))), unique(spe$sample))
 ```
-We are excluding `r length(non_zeros[non_zeros==FALSE])` more cells here, as they are negative for all markers used in downstream analysis. 
-To get a first grasp of the single-cell data and potential clusters, we will plot it in a single-cell heatmap.
-spe_filtered <- spe_sub[, colData(spe_sub)$DNAIntensity >= low_dna_threshold]
+We are excluding `r length(non_zeros[non_zeros==FALSE])` more cells here, as they are negative for all markers used in downstream analysis.
+To get a first look at the single-cell data, we compute a UMAP embedding (used for visualization only).
 
 
 ## UMAP (for visualization only)
@@ -204,18 +178,13 @@ save_plot(p_markers, "UMAP-all-markers.pdf", width = 24, height = 32)
 p_markers
 ```
 
-## Bubble plot: Mean marker expression per cluster
-Let's plot the mean marker expressions per cluster in a bubble plot.
+## Phenograph clustering and marker bubble plot
+We source the shared bubble-plot helper, cluster the cells with phenograph (k = 30), and summarise each cluster in a bubble plot where dot colour encodes scaled marker expression and dot size the fraction of cells expressing the marker.
 
 ```{r vis-data-bubbleplot}
-# plot_cluster_bubble() and its colour helpers (color_seed_base,
-# get_cluster_levels, generate_cluster_colors) live in code/bubbleplot.R so the
-# AD and PT/BM pipelines share one implementation instead of each duplicating
-# ~400 lines. The function auto-detects tissue: with a `tissue` column in
-# colData(spe) it draws per-tissue (PT / BM) count barplots, otherwise a single
-# count barplot (the AD, single-tissue case).
+# Shared bubble-plot helper (also used by the AD pipeline).
 source(if (file.exists("code/bubbleplot.R")) "code/bubbleplot.R" else "../code/bubbleplot.R",
-       local = TRUE)   # local=TRUE: define into the knit env so plot_cluster_bubble() sees spe/mat
+       local = TRUE)   # local=TRUE so the helper sees spe/mat
 ```
 
 ```{r phenograph-umap-bubbleplot}
@@ -223,13 +192,8 @@ set.seed(221228)
 
 k <- 30
 
-# --- Reproducible phenograph clustering (see the reproducibility note) ---------
-# Rphenoannoy uses Annoy (approximate NN, C++) + igraph::cluster_louvain, which
-# are not bit-reproducible across igraph versions, compilers or CPUs (the same
-# caveat as uwot/UMAP). We run a single k = 30 clustering, stored as `pg_clusters`.
-# A frozen labelling is loaded from R_intermediary when present (keyed by unique
-# cell id); otherwise it is computed here and saved for redistribution. Colour
-# helpers come from code/bubbleplot.R (sourced above).
+# Phenograph (k = 30) is not bit-reproducible across machines, so load a frozen
+# labelling from R_intermediary when present, else cluster here and save it.
 pg_name <- "pg_clusters_PTBM.rds"
 inter_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
                 file.path(params$input,  "R_intermediary"),
@@ -256,8 +220,7 @@ if (!is.null(pg_file)) {
   message("Saved frozen phenograph clustering: ", file.path(pg_out, pg_name))
 }
 
-# Cluster colours (get_cluster_levels / generate_cluster_colors / color_seed_base
-# are defined in code/bubbleplot.R)
+# Cluster colours (helpers from bubbleplot.R)
 if (is.null(metadata(spe)$color_vectors)) {
   metadata(spe)$color_vectors <- list()
 }
@@ -307,17 +270,16 @@ library(mclust)
 
 set.seed(221228)
 
-# NOTE: subcluster_map / marker_map below are keyed to the pg_clusters
-# (k=30) cluster IDs; re-check them against the frozen k=30 clustering.
+# NOTE: subcluster_map / marker_map are keyed to the k=30 pg_clusters IDs.
 spe$pg_clusters_beforesubclustering <- spe$pg_clusters
 
 
 spe$pg_clusters <- spe$pg_clusters_beforesubclustering
 
-# Ensure pg_clusters is character for easy reassignment
+# character, for reassignment below
 spe$pg_clusters <- as.character(spe$pg_clusters)
 
-# Mapping: original cluster -> new subcluster label for the second component
+# original cluster -> label for its second GMM component
 subcluster_map <- list(
   "5"  = "35",
   "12" = "36",
@@ -339,7 +301,7 @@ for (cl in names(subcluster_map)) {
   
   sub_mat <- t(mat[, idx])  # cells x markers
   
-  # --- select cluster-specific markers ---
+  # select cluster-specific markers
   if (cl %in% names(marker_map)) {
     markers <- marker_map[[cl]]
     keep_cols <- grep(paste0("^(", paste(markers, collapse="|"), ")"), colnames(sub_mat))
@@ -349,17 +311,14 @@ for (cl in names(subcluster_map)) {
   print(cl)
   print(head(sub_mat))
   
-  # --- clean data ---
+  # clean data
   sub_mat <- sub_mat[complete.cases(sub_mat), , drop = FALSE]
   sub_mat <- sub_mat[, apply(sub_mat, 2, var) > 0, drop = FALSE]
   print(cl)
   print(head(sub_mat))
-  
-  #if (nrow(sub_mat) < 4 || ncol(sub_mat) < 2) next
-  
+
   sub_mat <- scale(sub_mat)
-  
-  # --- GMM ---
+
   gmm_fit <- tryCatch(
     Mclust(sub_mat, G = 2, verbose = FALSE),
     error = function(e) NULL
@@ -381,7 +340,7 @@ library(viridis)
 
 genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
 
-# Define the pairs: original cluster and its new sibling
+# original/new subcluster pairs
 subcluster_pairs <- list(
   list(orig = "5",  new = "35"),
   list(orig = "12", new = "36"),
@@ -394,27 +353,26 @@ for (pair in subcluster_pairs) {
   orig_cl <- pair$orig
   new_cl  <- pair$new
 
-  # Cells belonging to either subcluster
+  # cells in either subcluster
   idx <- which(spe$pg_clusters %in% c(orig_cl, new_cl))
 
   if (length(idx) == 0) next
 
-  # Sample up to 8000 cells
   n_cells   <- min(8000, length(idx))
   rand_idx  <- sample(idx, n_cells)
 
   spe_cl <- spe[, rand_idx]
 
-  # Order cells by subcluster so the two groups appear side-by-side
+  # order cells by subcluster (groups side-by-side)
   cell_order <- order(spe_cl$pg_clusters)
 
   p1 <- dittoHeatmap(
     spe_cl[, cell_order],
     genes          = genes_use,
-    cluster_cols   = FALSE,          # preserve subcluster ordering
+    cluster_cols   = FALSE,          # keep our column order
     scaled.to.max  = TRUE,
     heatmap.colors.max.scaled = viridis(100),
-    annot.by       = "pg_clusters"   # colour bar showing subclusters
+    annot.by       = "pg_clusters"
   )
 
   save_plot(
@@ -428,17 +386,14 @@ for (pair in subcluster_pairs) {
 
 ```{r pg-clusters-final-bubbleplot}
 
-# Bubble plot AFTER subclustering (distinct filename so the before-subclustering
-# bubbleplot_pg_clusters.pdf from the earlier chunk is preserved).
+# Bubble plot after subclustering (distinct filename).
 plot_cluster_bubble(
       cluster_col = "pg_clusters",
       ncells_break_at = 100000,
       save_name = "bubbleplot_pg_clusters_after_subclustering.pdf")
 
-# UMAP coloured by pg_clusters AFTER subclustering (mirrors umap_pg_clusters.pdf
-# from before subclustering). Colours are regenerated for the new subclustered
-# levels; a temporary factor column fixes the level order so the colour panel and
-# the dittoDimPlot factor levels line up.
+# UMAP after subclustering; regenerate colours for the new levels and fix the
+# factor level order so the colour panel lines up.
 cluster_levels_after <- get_cluster_levels(spe$pg_clusters)
 col_clusters_after   <- generate_cluster_colors(cluster_levels = cluster_levels_after)[cluster_levels_after]
 spe$pg_clusters_after_plot <- factor(as.character(spe$pg_clusters), levels = cluster_levels_after)
@@ -465,31 +420,27 @@ print(p_after)
 ```
 
 
-## Define final clustering and plot clustered heatmaps for each cluster
+## Clustered heatmaps for each cluster
 
 ```{r}
 library(dittoSeq)
 library(ggplot2)
 
-# get cluster IDs
 clusters <- unique(colData(spe)$pg_clusters)
 
 genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
 
 
 for (cl in clusters) {
-  
-  # subset cells for this cluster
+
   spe_cl <- spe[, colData(spe)$pg_clusters == cl]
-  
-  # skip empty clusters (just in case)
+
+  # skip empty clusters
   if (ncol(spe_cl) == 0) next
-  
-  # sample up to 8000 cells
+
   n_cells <- min(8000, ncol(spe_cl))
   rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
-  
-  # make heatmap
+
   p1 <- dittoHeatmap(
     spe_cl[, rand_cells],
     genes = genes_use,
@@ -497,8 +448,7 @@ for (cl in clusters) {
     scaled.to.max = TRUE,
     heatmap.colors.max.scaled = viridis(100)
   )
-  
-  # save plot
+
   save_plot(
     p1,
     paste0("heatmap_after_subclustering_", cl, ".pdf"),
@@ -518,12 +468,9 @@ The chunk below regenerates the cluster-annotation template that is filled in ma
 ```{r cluster-annotation-excel, eval=FALSE}
 library(writexl)
 
-# Ensure cluster is character
 spe$pg_clusters <- as.character(spe$pg_clusters)
 
-# -----------------------------
-# 1. Absolute counts
-# -----------------------------
+# Absolute counts per tissue
 count_table <- as.data.frame(table(
   cluster = spe$pg_clusters,
   tissue  = spe$tissue
@@ -546,9 +493,7 @@ for(t in c("BM","PT")){
 count_wide <- count_wide %>%
   select(cluster, BM, PT)
 
-# -----------------------------
-# 2. Percentages WITHIN cluster
-# -----------------------------
+# Percentages within cluster
 percent_within_cluster <- count_wide %>%
   rowwise() %>%
   mutate(
@@ -559,9 +504,7 @@ percent_within_cluster <- count_wide %>%
   ungroup() %>%
   select(-total)
 
-# -----------------------------
-# 3. Add annotation columns
-# -----------------------------
+# Empty annotation columns to fill in
 annotation_template <- percent_within_cluster %>%
   mutate(
     celltype = "",
@@ -570,9 +513,7 @@ annotation_template <- percent_within_cluster %>%
   ) %>%
   arrange(as.numeric(cluster))
 
-# -----------------------------
-# 4. Write Excel
-# -----------------------------
+# Write Excel
 write_xlsx(
   annotation_template,
   file.path(params$output, "cluster_annotation_template.xlsx")
@@ -586,8 +527,7 @@ Next, we read assigned celltype and metacluster-labels for clusters from the Sup
 Let's start with celltype assignments...
 
 ```{r annotations-celltypes}
-# Supplementary_Tables may live inside the cohort dir (container layout) or
-# beside it (the Zenodo bundle keeps it next to MapMetIP_ProcessedDataset).
+# Supplementary table: inside the cohort dir or beside it.
 .suppl_cands <- file.path(c(params$input, dirname(params$input)), "Supplementary_Tables", "20260526_Suppl_Table3.xlsx")
 file_path <- .suppl_cands[file.exists(.suppl_cands)][1]
 if (is.na(file_path)) stop("Supplementary table not found in:\n  ", paste(.suppl_cands, collapse = "\n  "))
@@ -607,7 +547,7 @@ spe$metacluster <-  as.vector(metacelltypes)
 Finally, we assign colors to all celltypes and metaclusters.
 
 ```{r colors-celltypes raw_k30}
-# Cell-type and metacluster colors are defined centrally in 00_MapMet_color_code.R
+# Colours are defined centrally in 00_MapMet_color_code.R
 for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
   if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 
@@ -625,9 +565,7 @@ metadata(spe)$color_vectors$col_metacluster <- col_metacluster
 For visualization purpose, we will give the celltypes a meaningful order. This order can be downloaded from a csv file from Zenodo [(celltype_order.csv)](https://doi.org/10.5281/zenodo.13220634 )
 
 ```{r order-celltypes}
-# celltype_order.csv ships in R_intermediary (searched like the other frozen
-# intermediaries above via `inter_dirs`); fall back to params$input for older
-# data layouts.
+# celltype_order.csv ships in R_intermediary (falls back to params$input).
 order_dirs <- c(inter_dirs, params$input)
 order_file <- Find(file.exists, file.path(order_dirs, "celltype_order.csv"))
 if (is.null(order_file))
@@ -635,19 +573,14 @@ if (is.null(order_file))
 clusternames_ordered <- read.csv(order_file, sep=";", colClasses = c("order" = "character"))
 codes <- setNames(paste0(clusternames_ordered$order, "_", clusternames_ordered$celltype), clusternames_ordered$celltype)
 
-# The numeric "NN_" prefix only exists to impose the display order through the
-# default alphabetical factor() sort. Build the prefixed labels to derive that
-# order, then store celltype_ordered as a factor whose levels are the prefix-
-# STRIPPED names in that order, so every downstream plot shows "CD44+ Tu"
-# (not "01_CD44+ Tu") while keeping the intended ordering. Downstream
-# factor()/droplevels() calls preserve this level order.
+# The "NN_" prefix imposes display order via alphabetical sort; store
+# celltype_ordered as a factor in that order but with the prefix stripped.
 strip_order_prefix   <- function(x) sub("^[0-9]+_", "", x)
 celltype_prefixed    <- recode(spe$celltype, !!!codes)            # e.g. "01_CD44+ Tu"
 ordered_levels       <- strip_order_prefix(sort(unique(celltype_prefixed)))
 spe$celltype_ordered <- factor(strip_order_prefix(celltype_prefixed), levels = ordered_levels)
 
-# col_celltype is already keyed by the (unprefixed) celltype names, which now
-# match the stripped celltype_ordered levels, so reuse it directly.
+# col_celltype is keyed by the same (unprefixed) names, so reuse it.
 metadata(spe)$color_vectors$col_celltype_ordered <- metadata(spe)$color_vectors$col_celltype
 ```
 
@@ -668,9 +601,7 @@ plot_cluster_bubble(
 ```
 
 ```{r umap-final-celltypes, fig.width=10}
-# aspect.ratio = 1 fixes the UMAP panel to a square, independent of the legend
-# width, so the celltype and metacluster UMAPs render identically. The celltype
-# plot is only wider overall because its legend has more entries.
+# aspect.ratio = 1 keeps the UMAP panel square regardless of legend width.
 p1 <- dittoDimPlot(spe, var = "celltype_ordered",
              reduction.use = "UMAP", size = 0.3,
              do.label = F,
@@ -689,8 +620,7 @@ We also plot the same celltype UMAP but colour only the primary tumor (PT)
 cells, showing all other tissues as light-grey background dots.
 
 ```{r umap-celltype-PT-only, fig.width=10}
-# cells.use restricts colouring to PT cells; show.others draws the remaining
-# cells as light-grey background dots. Same square-panel format as above.
+# colour PT cells only, others as grey background
 p1_pt <- dittoDimPlot(spe, var = "celltype_ordered",
              reduction.use = "UMAP", size = 0.3,
              cells.use = spe$tissue == "PT",
@@ -723,7 +653,7 @@ p2
 ```
 
 
-Let's plot heatmap of clustered cells as a validation:
+Finally, we plot a validation heatmap of the cells in each celltype.
 
 
 ```{r}
@@ -731,10 +661,9 @@ library(dittoSeq)
 library(ggplot2)
 library(viridis)
 
-# Get cluster IDs
+# celltypes to iterate over
 clusters <- unique(colData(spe)$celltype)
 
-# Select genes to use (exclude certain markers)
 genes_use <- rownames(spe)[
   !grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", 
          rownames(spe))
@@ -742,23 +671,20 @@ genes_use <- rownames(spe)[
 
 for (cl in clusters) {
   
-  # --- 1. Make cluster name safe for filenames ---
+  # safe filename from celltype
   safe_name <- cl
   safe_name <- gsub("\\+", "plus", safe_name)
   safe_name <- gsub("-", "minus", safe_name)
-  safe_name <- gsub("[^A-Za-z0-9_]", "_", safe_name)  # replaces /, spaces, special chars
+  safe_name <- gsub("[^A-Za-z0-9_]", "_", safe_name)
   
-  # --- 2. Subset cells for this cluster ---
   spe_cl <- spe[, colData(spe)$celltype == cl]
   
-  # Skip empty clusters
+  # skip empty celltypes
   if (ncol(spe_cl) == 0) next
-  
-  # --- 3. Sample cells ---
+
   n_cells <- min(8000, ncol(spe_cl))
   rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
   
-  # --- 4. Create heatmap ---
   p1 <- dittoHeatmap(
     spe_cl[, rand_cells],
     genes = genes_use,
@@ -767,12 +693,8 @@ for (cl in clusters) {
     heatmap.colors.max.scaled = viridis(100)
   )
   
-  # --- 5. Save heatmap safely ---
   filename <- paste0("heatmap_celltype_", safe_name, ".pdf")
   save_plot(p1, filename = filename, width = 14, height = 6, subdir = "heatmap_celltype")
-  
-  # Or using ggsave directly:
-  # ggsave(full_path, plot = p1, width = 14, height = 6, dpi = 300)
 }
 ```
 ## Save object
