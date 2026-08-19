@@ -116,7 +116,6 @@ mat <- intensity_mat_hq_wo_zeros
 We are excluding `r length(non_zeros[non_zeros==FALSE])` more cells here, as they are negative for all markers used in downstream analysis.
 To get a first look at the single-cell data, we compute a UMAP embedding (used for visualization only).
 
-
 ## UMAP (for visualization only)
 ```{r umap}
 set.seed(221228)
@@ -142,14 +141,11 @@ p <- dittoDimPlot(spe, var = "fm_id",
   theme(legend.title = element_blank()) +
   ggtitle("Sample ID on UMAP")
 
-
 save_plot(p, "UMAP-vis-sampleID.pdf", width = 8, height = 6)
 
 p
 
 ```
-
-
 
 # UMAPs for each marker
 ```{r UMAP-all-markers, fig.width=24, fig.height=32}
@@ -262,7 +258,6 @@ plot_cluster_bubble(
 )
 ```
 
-
 ## Subclustering of mixed clusters using GMM
 
 ```{r gmm-subclustering}
@@ -270,11 +265,7 @@ library(mclust)
 
 set.seed(221228)
 
-# NOTE: subcluster_map / marker_map are keyed to the k=30 pg_clusters IDs.
-spe$pg_clusters_beforesubclustering <- spe$pg_clusters
-
-
-spe$pg_clusters <- spe$pg_clusters_beforesubclustering
+# subcluster_map / marker_map are keyed to the k=30 pg_clusters IDs
 
 # character, for reassignment below
 spe$pg_clusters <- as.character(spe$pg_clusters)
@@ -308,14 +299,10 @@ for (cl in names(subcluster_map)) {
     sub_mat <- sub_mat[, keep_cols, drop = FALSE]
   }
   
-  print(cl)
-  print(head(sub_mat))
   
   # clean data
   sub_mat <- sub_mat[complete.cases(sub_mat), , drop = FALSE]
   sub_mat <- sub_mat[, apply(sub_mat, 2, var) > 0, drop = FALSE]
-  print(cl)
-  print(head(sub_mat))
 
   sub_mat <- scale(sub_mat)
 
@@ -346,7 +333,6 @@ subcluster_pairs <- list(
   list(orig = "12", new = "36"),
   list(orig = "17", new = "37")
 )
-
 
 set.seed(221228)
 for (pair in subcluster_pairs) {
@@ -419,7 +405,6 @@ print(p_after)
 
 ```
 
-
 ## Clustered heatmaps for each cluster
 
 ```{r}
@@ -429,7 +414,6 @@ library(ggplot2)
 clusters <- unique(colData(spe)$pg_clusters)
 
 genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
-
 
 for (cl in clusters) {
 
@@ -459,7 +443,6 @@ for (cl in clusters) {
 }
 
 ```
-
 
 ## Write cluster proportions for manual annotation (Excel)
 
@@ -519,7 +502,6 @@ write_xlsx(
   file.path(params$output, "cluster_annotation_template.xlsx")
 )
 ```
-
 
 ## Annotation and merging of clusters
 
@@ -586,7 +568,6 @@ metadata(spe)$color_vectors$col_celltype_ordered <- metadata(spe)$color_vectors$
 
 As a last step, we generate UMAP and bubble plots for the final celltypes/metaclusters.
 
-
 ```{r bubbleplot-celltypes, fig.width=16, fig.height=14}
 
 plot_cluster_bubble(
@@ -652,9 +633,7 @@ save_plot(p2, "umap-metaclusters.pdf", width = 13, height = 8)
 p2
 ```
 
-
 Finally, we plot a validation heatmap of the cells in each celltype.
-
 
 ```{r}
 library(dittoSeq)

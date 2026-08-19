@@ -429,10 +429,9 @@ for (cl in cluster_level_configs) {
   }
 }
 
-da_results <- list()
 for (cfg in analysis_configs) {
   message("\n### Running DA analysis: ", cfg$name, " ###\n")
-  da_results[[cfg$name]] <- run_da_analysis(
+  run_da_analysis(
     sce_base         = sce,
     cell_filter      = cfg$cell_filter,
     cluster_level    = cfg$cluster_level,
