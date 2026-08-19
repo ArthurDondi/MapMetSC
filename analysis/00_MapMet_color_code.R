@@ -88,7 +88,7 @@ COL_CELLTYPE_AD <- c(
   "other"          = rgb(120, 120, 120, maxColorValue = 255),  # medium grey
   "other (Ki67+)"  = rgb( 80,  80,  80, maxColorValue = 255),  # dark grey
   "other (CXCR4+)" = rgb(195, 195, 195, maxColorValue = 255),  # mid grey
-  "other (CD15+)"  = rgb( 96, 125, 139, maxColorValue = 255)   # blue-grey (was CHGA- CD15+ chromaffin progenitors)
+  "other (CD15+)"  = rgb( 96, 125, 139, maxColorValue = 255)   # blue-grey
 )
 
 # ---- AD cohort: metaclusters (analysis_AD/04_phenotyping.Rmd) ---------------
@@ -102,8 +102,7 @@ COL_METACLUSTER_AD <- c(
 
 # ---- Sample-level annotations: MYCN status / aberrations / progression /
 #      community numbers (05.1_PT_DE_cellularcomm.Rmd, 07_spatial_analysis.Rmd) -
-# Union of the keys used across scripts; color assignment is by name, so extra
-# keys are harmless.
+# Union of the keys used across scripts (assigned by name).
 COL_CODE <- c(
   "MNA"     = rgb(202,   0,  32, maxColorValue = 255),
   "het"     = rgb(146, 197, 222, maxColorValue = 255),
@@ -169,7 +168,7 @@ COL_SEX <- c(
 
 # ---- Lee et al. reference: extra label colors (06.4_correlation_Lee.Rmd) ----
 # Added on top of the per-celltype colors read from Lee/celltype_metacluster.csv.
-COL_LEE_EXTRA <- c("tumor" = "grey70", "other" = "goldenrod1")  # grey70: visible on white (snow2 was near-white)
+COL_LEE_EXTRA <- c("tumor" = "grey70", "other" = "goldenrod1")  # grey70: visible on white
 
 # ---- Generic qualitative palette for random sample/cluster colors (02_QC_1) -
 # All named R colors except greys, used to assign arbitrary colors to samples /

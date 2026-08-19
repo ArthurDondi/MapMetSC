@@ -80,9 +80,7 @@ ad_image_params <- list(
   marker_colours = c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red",
                      "Ki-67" = "darkorange", "CXCR4" = "cyan", "CHGA" = "yellow",
                      "GD2" = "purple"),
-  # Only Ki-67 is left out of the merge (per request); that keeps the merge at
-  # cytomapper's 6-marker max. GD2 is purple (not orange) so where it overlaps
-  # ELAVL4 the blend is pale, not the green -> yellow an orange channel gave.
+  # Ki-67 sits out of the merge to keep it within cytomapper's 6-marker limit.
   merge_exclude = c("Ki-67"),
   # One zoom window per image id; NULL = whole image only (all NULL here).
   crops    = list(NULL)
@@ -106,17 +104,12 @@ render_step("analysis/06.3_correlation_Jansky.Rmd",   corr_params)
 render_step("analysis/06.4_correlation_Lee.Rmd",      corr_params)
 
 # --- Spatial analysis --------------------------------------------------------
-# Uses imcRtools::testInteractions (the fix that once required a separate spatial
-# image is in the imcRtools 1.10.0 / Bioconductor 3.19 this image pins) and the
-# tumor_community column produced by 05.1, so it now runs in the same pass.
+# Uses imcRtools::testInteractions and the tumor_community column from 05.1.
 render_step("analysis/07_spatial_analysis.Rmd",     main_params)
 
 # --- Supplementary: region / marker images (customised params) ---------------
-# Standalone image-generation step. Unlike the steps above it does NOT reuse
-# main_params: set the image, the zoom crop and the marker list here. Reads
-# spe_07_spatial_analysis.rds (compartment + cellular-neighborhood annotations),
-# so it runs after the spatial analysis. Renders both the whole image and the
-# zoomed region.
+# Standalone image step with its own params (image ids, crops, markers). Reads
+# spe_07_spatial_analysis.rds, so it runs after the spatial analysis.
 image_params <- list(
   input    = input,
   output   = output,
