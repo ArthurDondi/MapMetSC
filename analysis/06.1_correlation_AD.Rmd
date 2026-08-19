@@ -1,0 +1,363 @@
+---
+title: "Validation of cell phenotypes using the fetal adrenal gland (AD) reference"
+author: "LazDaria"
+date: "`r Sys.Date()`"
+output: 
+  workflowr::wflow_html
+editor_options:
+  chunk_output_type: inline
+params: 
+  public: !r Sys.getenv("MAPMET_PUBLIC", "/mnt/data/public_datasets")
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
+---
+
+```{r setup, include=FALSE}
+# Plot output directory
+plot_dir <- file.path(params$output, "plots/06.1_correlation_AD")
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+
+date_prefix <- format(Sys.Date(), "%Y%m%d")
+
+# Save a plot to plot_dir, dispatching on its object type
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
+  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  
+  if (inherits(plot_obj, "ggplot")) {
+    ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
+  } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
+    pdf(full_path, width = width, height = height)
+    draw(plot_obj)
+    dev.off()
+  } else {
+    dev.copy(pdf, full_path, width = width, height = height)
+    dev.off()
+  }
+  message("Saved: ", full_path)
+}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  dev = "png",
+  dpi = 300,
+  fig.width = 8,
+  fig.height = 6
+)
+```
+
+# Validation using the fetal adrenal gland (AD) reference {#ad}
+To evaluate the cell phenotype annotations, we compare the PT/BM cell expression profiles to the fetal adrenal gland (AD) reference cohort, which is processed by the parallel IMC pipeline in `analysis_AD/`. Using SingleR we transfer the AD fetal cell-type labels onto the PT/BM cells (at cluster and single-cell level) and visualise how strongly each neuroblastoma cluster resembles the fetal adrenal cell types.
+
+## Load libraries
+<details>
+   <summary>Load libraries</summary>
+   
+```{r load-libraries}
+library(SingleR)
+library(Seurat)
+library(bruceR)
+library(ComplexHeatmap)
+library(viridis)
+library(RColorBrewer)
+library(BiocParallel)
+library(dittoSeq)
+```
+</details>
+
+```{r}
+# Load packages and the AD reference (spe_AD) + PT/BM query (spe_PTBM)
+library(SpatialExperiment)
+library(SingleR)
+library(scater)
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+
+spe_AD <- readRDS(file.path(params$output,"spe_04_phenotyping_AD.rds"))
+spe_PTBM <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
+
+# Colors from the AD reference, reused by the predicted-fetal plots
+col_celltype_AD <- metadata(spe_AD)$color_vectors$col_celltype
+
+# AD celltype order (celltype_order_AD.csv), used to order plot axes/legends
+ad_order_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
+                   file.path(params$input,  "R_intermediary"),
+                   file.path(dirname(params$input), "R_intermediary"),
+                   file.path(params$output, "R_intermediary"),
+                   params$input)
+ad_order_dirs <- ad_order_dirs[nzchar(ad_order_dirs)]
+ad_order_file <- Find(file.exists, file.path(ad_order_dirs, "celltype_order_AD.csv"))
+if (is.null(ad_order_file))
+  stop("celltype_order_AD.csv not found in: ", paste(ad_order_dirs, collapse = ", "))
+ad_order <- read.csv(ad_order_file, sep = ";", colClasses = c("order" = "character"))
+ordered_AD_celltypes <- ad_order$celltype[order(ad_order$order)]
+
+# Order predicted-fetal labels by the AD celltype order (unknown labels appended)
+order_fetal <- function(x) {
+  x <- as.character(x)
+  factor(x, levels = c(ordered_AD_celltypes,
+                       setdiff(unique(x), ordered_AD_celltypes)))
+}
+```
+
+```{r}
+
+# Reference (AD) and query (PT/BM) count matrices
+ref_counts <- assay(spe_AD, "counts")
+ref_labels <- spe_AD$celltype
+
+query_counts <- assay(spe_PTBM, "counts")
+
+# SingleR label transfer, one label per PT/BM cluster
+singleR_results <- SingleR(
+  test = query_counts,
+  ref = ref_counts,
+  labels = ref_labels,
+  method = "cluster",
+  clusters = spe_PTBM$celltype
+)
+
+# Attach the predicted fetal label to each PT/BM cell
+cluster_to_label <- setNames(singleR_results$labels, rownames(singleR_results))
+spe_PTBM$predicted_fetal <- order_fetal(cluster_to_label[as.character(spe_PTBM$celltype)])
+
+```
+
+```{r}
+
+# Assemble a per-cell table of metadata + marker means (used to build the heatmap below)
+marker_df <- as.data.frame(t(assay(spe_PTBM, "counts")))  # cells x markers
+colnames(marker_df) <- rownames(spe_PTBM)
+meta_df <- as.data.frame(colData(spe_PTBM))
+df <- cbind(meta_df, marker_df)
+```
+
+```{r}
+library(tidyr)
+
+# Mean expression per cluster x predicted-fetal label, reshaped to a clusters x labels matrix
+mean_expr <- df %>%
+  group_by(pg_clusters, predicted_fetal) %>%
+  summarize(across(ends_with("_mean"), mean), .groups = "drop")
+
+heatmap_df <- mean_expr %>%
+  pivot_wider(names_from = predicted_fetal, values_from = ends_with("_mean"),
+              values_fn = mean)
+
+library(tibble)
+
+heatmap_matrix <- heatmap_df %>%
+  column_to_rownames("pg_clusters") %>%
+  as.matrix()
+
+# Correlate NB clusters (rows) against fetal types (columns) and plot
+sim_matrix <- cor(t(heatmap_matrix), use = "pairwise.complete.obs")
+sim_matrix[is.na(sim_matrix)] <- 0
+
+ph <- pheatmap(sim_matrix,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         main = "Neuroblastoma clusters vs Fetal progenitors")
+save_plot(ph, "correlation-clusters-vs-fetal.pdf", width = 8, height = 6)
+
+# UMAP coloured by cluster-level predicted fetal label
+p_umap_fetal <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal") +
+  scale_color_manual(values = col_celltype_AD) +
+  # Closed panel border (all UMAPs)
+  theme(aspect.ratio = 1,
+        axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
+save_plot(p_umap_fetal, "umap-predicted-fetal.pdf", width = 16, height = 8)
+p_umap_fetal
+
+# Spatial map coloured by predicted fetal label
+coords <- as.data.frame(spatialCoords(spe_PTBM))
+coords$predicted_fetal <- spe_PTBM$predicted_fetal
+
+p_spatial_fetal <- ggplot(coords, aes(x = Pos_X, y = Pos_Y, color = predicted_fetal)) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = col_celltype_AD) +
+  labs(title = "Spatial mapping of predicted fetal progenitors") +
+  theme_minimal()
+save_plot(p_spatial_fetal, "spatial-predicted-fetal.pdf", width = 8, height = 6)
+p_spatial_fetal
+
+```
+```{r}
+# SingleR score heatmap: PT/BM clusters (rows) x AD fetal celltypes (columns)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(forcats)
+
+# Ordered cluster names (celltype_order.csv, from R_intermediary or input)
+order_dirs <- c(Sys.getenv("MAPMET_INTERMEDIARY", ""),
+                file.path(params$input,  "R_intermediary"),
+                file.path(dirname(params$input), "R_intermediary"),
+                file.path(params$output, "R_intermediary"),
+                params$input)
+order_dirs <- order_dirs[nzchar(order_dirs)]
+order_file <- Find(file.exists, file.path(order_dirs, "celltype_order.csv"))
+if (is.null(order_file))
+  stop("celltype_order.csv not found in: ", paste(order_dirs, collapse = ", "))
+clusternames_ordered <- read.csv(order_file,
+                                sep = ";", colClasses = c("order" = "character"))
+ordered_clusters <- clusternames_ordered$celltype
+
+# SingleR scores matrix, rows relabelled with cluster IDs and reordered
+singleR_clusters <- rownames(singleR_results)
+score_matrix <- singleR_results$scores
+rownames(score_matrix) <- singleR_clusters
+score_matrix <- score_matrix[match(ordered_clusters, singleR_clusters), , drop = FALSE]
+
+# Long format for ggplot, with clusters ordered on the y-axis
+score_df <- as.data.frame(score_matrix) %>%
+  rownames_to_column("Neuroblastoma_cluster") %>%
+  pivot_longer(-Neuroblastoma_cluster, names_to = "Fetal_AD_celltype", values_to = "score")
+score_df$Neuroblastoma_cluster <- factor(score_df$Neuroblastoma_cluster, levels = ordered_clusters)
+
+p_singler_scores <- ggplot(score_df, aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = score)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(score_df$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = ordered_clusters) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "Neuroblastoma cluster", fill = "SingleR score")
+save_plot(p_singler_scores, "singler-scores-heatmap.pdf", width = 8, height = 6)
+p_singler_scores
+```
+
+```{r singler-scores-tumor-metacluster}
+# Same score heatmap, but on a hybrid grouping: tumor -> fine celltype, else -> metacluster
+hybrid_group <- ifelse(as.character(spe_PTBM$metacluster) == "tumor",
+                       as.character(spe_PTBM$celltype),
+                       as.character(spe_PTBM$metacluster))
+
+singleR_hybrid <- SingleR(
+  test     = query_counts,
+  ref      = ref_counts,
+  labels   = ref_labels,
+  method   = "cluster",
+  clusters = hybrid_group
+)
+
+# Row order: tumor celltypes first (celltype_order.csv), then other groups (alphabetical)
+tumor_cts <- ordered_clusters[ordered_clusters %in%
+             unique(as.character(spe_PTBM$celltype)[spe_PTBM$metacluster == "tumor"])]
+score_matrix_h <- singleR_hybrid$scores
+rownames(score_matrix_h) <- rownames(singleR_hybrid)
+present_rows    <- rownames(score_matrix_h)
+row_order_hybrid <- c(intersect(tumor_cts, present_rows),
+                      sort(setdiff(present_rows, tumor_cts)))
+score_matrix_h <- score_matrix_h[row_order_hybrid, , drop = FALSE]
+
+score_df_h <- as.data.frame(score_matrix_h) %>%
+  rownames_to_column("Neuroblastoma_group") %>%
+  pivot_longer(-Neuroblastoma_group, names_to = "Fetal_AD_celltype", values_to = "score")
+score_df_h$Neuroblastoma_group <- factor(score_df_h$Neuroblastoma_group, levels = row_order_hybrid)
+
+p_singler_scores_hybrid <- ggplot(score_df_h,
+    aes(x = Fetal_AD_celltype, y = Neuroblastoma_group, fill = score)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(score_df_h$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = row_order_hybrid) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "PT/BM tumor celltype / metacluster",
+       fill = "SingleR score")
+save_plot(p_singler_scores_hybrid,
+          "singler-scores-heatmap-tumor-celltypes-metaclusters.pdf",
+          width = 8, height = 6)
+p_singler_scores_hybrid
+```
+```{r}
+
+ref_counts <- assay(spe_AD, "counts")
+ref_labels <- spe_AD$celltype
+
+query_counts <- assay(spe_PTBM, "counts")
+
+# SingleR label transfer at single-cell level (one label per PT/BM cell)
+singleR_cell <- SingleR(
+  test = query_counts,
+  ref = ref_counts,
+  labels = ref_labels
+)
+
+spe_PTBM$predicted_fetal_cell <- order_fetal(singleR_cell$labels)
+```
+
+```{r}
+p_umap_fetal_cell <- plotUMAP(spe_PTBM, colour_by = "predicted_fetal_cell", point_size = 0.05) +
+  scale_color_manual(values = col_celltype_AD,
+                     name = "Predicted foetal adrenal gland celltype") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  # Closed panel border (all UMAPs); size, not linewidth, for the older ggplot2
+  theme(aspect.ratio = 1,
+        axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
+save_plot(p_umap_fetal_cell, "umap-predicted-fetal-cell.pdf", width = 16, height = 8)
+p_umap_fetal_cell
+```
+
+```{r singler-cell-composition-heatmap}
+# Cell-level composition heatmap: % of cells of each PT/BM celltype (row) assigned
+# to each AD celltype (column), from the per-cell transfer. Rows sum to 100%.
+comp_tab <- table(
+  Neuroblastoma_cluster = factor(as.character(spe_PTBM$celltype), levels = ordered_clusters),
+  Fetal_AD_celltype     = factor(as.character(singleR_cell$labels))
+)
+comp_prop <- prop.table(comp_tab, margin = 1) * 100   # row-normalised percentages
+comp_df   <- as.data.frame(comp_prop, responseName = "percent")
+
+p_singler_composition <- ggplot(comp_df,
+    aes(x = Fetal_AD_celltype, y = Neuroblastoma_cluster, fill = percent)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(comp_df$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = ordered_clusters) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "Neuroblastoma cluster",
+       fill = "% of cells")
+save_plot(p_singler_composition, "singler-celltype-composition-heatmap.pdf",
+          width = 8, height = 6)
+p_singler_composition
+```
+
+```{r singler-composition-tumor-metacluster}
+# Same composition heatmap on the hybrid grouping (tumor celltype / metacluster),
+# reusing singleR_cell, hybrid_group and row_order_hybrid from above. Rows sum to 100%.
+comp_tab_h <- table(
+  Neuroblastoma_group = factor(hybrid_group, levels = row_order_hybrid),
+  Fetal_AD_celltype   = factor(as.character(singleR_cell$labels))
+)
+comp_prop_h <- prop.table(comp_tab_h, margin = 1) * 100   # row-normalised percentages
+comp_df_h   <- as.data.frame(comp_prop_h, responseName = "percent")
+
+p_singler_composition_hybrid <- ggplot(comp_df_h,
+    aes(x = Fetal_AD_celltype, y = Neuroblastoma_group, fill = percent)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  scale_x_discrete(limits = intersect(ordered_AD_celltypes,
+                                      unique(as.character(comp_df_h$Fetal_AD_celltype)))) +
+  scale_y_discrete(limits = row_order_hybrid) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Fetal AD celltype", y = "PT/BM tumor celltype / metacluster",
+       fill = "% of cells")
+save_plot(p_singler_composition_hybrid,
+          "singler-celltype-composition-heatmap-tumor-celltypes-metaclusters.pdf",
+          width = 8, height = 6)
+p_singler_composition_hybrid
+```

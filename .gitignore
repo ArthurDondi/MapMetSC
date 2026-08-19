@@ -11,3 +11,5 @@ analysis/*_cache
 analysis/site_libs
 docker_command.txt
 mapmetsc_v1.0.sif
+# Built Apptainer/Singularity images (can be several GB)
+*.sif

@@ -7,55 +7,43 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
-  public: "/home/rstudio/daria/public_datasets"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
+  public: !r Sys.getenv("MAPMET_PUBLIC", "/mnt/data/public_datasets")
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
-plot_dir <- file.path(params$output, "plots/05_correlation_Lee")
+# Plot output directory
+plot_dir <- file.path(params$output, "plots/06.4_correlation_Lee")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot to plot_dir, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, ...) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
 
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF (extra args forwarded to draw(), e.g. annotation_legend_list)
     pdf(full_path, width = width, height = height)
     draw(plot_obj, ...)
     dev.off()
   } else if (inherits(plot_obj, "pheatmap")) {
-    # pheatmap objects (e.g. SingleR::plotScoreHeatmap) - save as PDF
     pdf(full_path, width = width, height = height)
     grid::grid.newpage()
     grid::grid.draw(plot_obj$gtable)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options
-# ================================
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -69,7 +57,7 @@ knitr::opts_chunk$set(
 ```
 
 # Validation using scRNA-seq data by Lee et al. {#lee}
-To evaluate the validity of tumor microenviroment (TME) cell phenotype annnotations, we compare the cell expression profiles to a previously generated scRNA-seq dataset of healthy human bone marrow of ages ranging from 2-84 years ([Lee et al.](https://doi.org/10.3389/fimmu.2023.1127879)) downloaded from [Zenodo]](https://doi.org/10.5281/zenodo.10275924). 
+To evaluate the validity of tumor microenvironment (TME) cell phenotype annotations, we compare the cell expression profiles to a previously generated scRNA-seq dataset of healthy human bone marrow of ages ranging from 2-84 years ([Lee et al.](https://doi.org/10.3389/fimmu.2023.1127879)) downloaded from [Zenodo](https://doi.org/10.5281/zenodo.10275924).
 
 ## Load libraries
 <details>
@@ -91,10 +79,9 @@ library(dittoSeq)
 First, we load the processed and phenotyped single-cell data from [chapter 4](#phenotyping) and the published Seurat object containing the scRNA-seq data. Please make sure to replace `params$public`with the path to the scRNA-seq data.
 
 ```{r read-data}
-# IMC data
-protein <- readRDS(file.path(params$output,"spe_final_clustering.rds"))
+# IMC data (drop tumor + "other", keep the TME cells)
+protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein <- protein[rowData(protein)$use_channel,]
-col_celltype <- metadata(protein)$color_vectors$col_celltype
 protein <- protein[,protein$metacluster!="tumor" & protein$metacluster!="other"]
 
 #scRNA-seq data
@@ -103,9 +90,9 @@ DefaultAssay(rna) <- "RNA"
 rna@assays$RNA@data <- rna@assays$RNA@counts
 ```
 
-## Set common tumor markers 
+## Set common markers 
 Next, we will set common markers between the reference and query dataset. Therefore, we have to rename the features in the imaging dataset to the names of the corresponding genes. 
-A csv files with protein-gene mappings can be obtained from Zenodo [(R_intermediary/protein2gene.csv)](https://doi.org/10.5281/zenodo.13220634).
+A csv files with protein-gene mappings can be obtained from Zenodo [(protein2gene.csv)](https://doi.org/10.5281/zenodo.13220634).
 
 ```{r set-common-tumormarkers}
 protein2gene <- read.csv(file.path(params$public,"protein2gene.csv"), sep=";")
@@ -123,12 +110,15 @@ common_features <- intersect(rownames(rna@assays$RNA@data), row.names(protein))
 ```
 ## Visualize public data
 
-Will will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq. 
+We will first visualize the scRNA-seq data. Therefore we first define a color code with similar colors for similar celltypes between IMC and scRNA-seq. 
 
 ```{r define-colors}
+# Extra label colors are defined centrally in 00_MapMet_color_code.R
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 col_clusters <- read.csv(file.path(params$public, "Lee/celltype_metacluster.csv"), sep=";")
 col_clust <- setNames(col_clusters$color, col_clusters$celltype)
-col_clust <- c(col_clust, c("tumor" = "snow2", "other"="goldenrod1"))
+col_clust <- c(col_clust, COL_LEE_EXTRA)
 ```
 
 
@@ -162,7 +152,10 @@ h_rna
 ```
 
 ```{r umap-rna, fig.width=15, fig.height=10}
-p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_clust)
+p_umap_rna <- DimPlot(rna, reduction="umap", cols=col_clust) +
+  # Closed panel border (all UMAPs); size, not linewidth, for the older ggplot2
+  theme(axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5))
 
 save_plot(p_umap_rna, "Lee_rna_umap.pdf", width = 15, height = 10)
 
@@ -177,35 +170,71 @@ rna_mat <- GetAssayData(rna, assay = "RNA", slot = "data")[common_features, ]
 rna_clusters <- rna@active.ident
 protein_mat <- assay(protein, "counts")[common_features, ]
 
-#remove Seurat and SPE object prior to parallel computation
+#free the big objects before the parallel SingleR run
 rm(rna)
 rm(protein)
 
 predicted_labels <- SingleR(test = protein_mat, ref = rna_mat, labels = rna_clusters, BPPARAM = MulticoreParam(workers=16, RNGseed=20231030))
+
+# plotScoreHeatmap needs a colour for every Labels level or pheatmap errors, so give
+# any label missing from col_clust a neutral grey.
+score_labels <- union(colnames(predicted_labels$scores),
+                      as.character(predicted_labels$labels))
+missing_labs <- setdiff(score_labels, names(col_clust))
+if (length(missing_labs)) {
+  col_clust[missing_labs] <- "grey80"
+  message("plotScoreHeatmap: filled ", length(missing_labs),
+          " uncolored label(s) with grey: ", paste(missing_labs, collapse = ", "))
+}
+
 p_score <- plotScoreHeatmap(predicted_labels[sample(seq_len(nrow(predicted_labels)), 2000),],annotation_colors=list(Labels = col_clust), annotation_legend=F, treeheight_row=0) #define colors first
 
 save_plot(p_score, "Lee_singleR_labeltransfer_scoreheatmap.pdf", width = 13, height = 9)
 ```
 
-We will plot the predicted metalabels in a UMAP.
+We will plot the predicted celltypes in a UMAP.
 
 ```{r predicted-umap}
 #save predicted labels in separate slot
-protein <- readRDS(file.path(params$output,"spe_final.rds"))
+protein <- readRDS(file.path(params$output,"spe_04_phenotyping.rds"))
 protein$celltype_predicted <- "tumor"
 protein[,protein$metacluster=="other"]$celltype_predicted <- "other"
 protein[,rownames(predicted_labels)]$celltype_predicted <- predicted_labels$labels
 metadata(protein)$color_vectors$col_predicted_label <- col_clust
 
-p1 <- dittoDimPlot(protein, var = "celltype_predicted", 
-             reduction.use = "UMAP", size = 0.3, labels.size=2,
-             do.label = F,
-             legend.show=F) +
-  scale_color_manual(values = metadata(protein)$color_vectors$col_predicted_label) +
-  theme(legend.title = element_blank()) +
+# UMAP of all cells coloured by predicted label. Tumor/other background cells are
+# drawn first (bottom) so the Lee-predicted cells sit on top, and listed last in the legend.
+col_pred  <- metadata(protein)$color_vectors$col_predicted_label
+bg_types  <- intersect(c("tumor", "other"), as.character(protein$celltype_predicted))
+lee_types <- setdiff(sort(unique(as.character(protein$celltype_predicted))), bg_types)
+
+umap_df <- data.frame(
+  UMAP_1 = SingleCellExperiment::reducedDim(protein, "UMAP")[, 1],
+  UMAP_2 = SingleCellExperiment::reducedDim(protein, "UMAP")[, 2],
+  label  = as.character(protein$celltype_predicted)
+)
+
+pred_levels  <- c(lee_types, bg_types)                     # Lee types first, PT/BM last
+umap_df$pred <- factor(umap_df$label, levels = pred_levels)
+umap_df      <- umap_df[order(umap_df$label %in% lee_types), ]  # bg first (bottom), lee on top
+
+pred_cols <- col_pred[pred_levels]
+pred_cols[is.na(pred_cols)] <- "grey80"                    # never drop a category to NA
+names(pred_cols) <- pred_levels
+
+p1 <- ggplot(umap_df, aes(UMAP_1, UMAP_2, colour = pred)) +
+  geom_point(size = 0.3) +
+  scale_colour_manual(name = "Predicted celltype", values = pred_cols) +
+  guides(colour = guide_legend(ncol = 3, override.aes = list(size = 3))) +
+  theme_classic() +
+  # Harmonised square panel border (all UMAPs).
+  theme(aspect.ratio = 1,
+        axis.line    = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5)) +
   ggtitle("Predicted celltype on UMAP")
 
-save_plot(p1, "Lee_predicted_celltype_umap.pdf", width = 8, height = 6)
+# Standard UMAP proportions (16x8)
+save_plot(p1, "Lee_predicted_celltype_umap.pdf", width = 16, height = 8)
 
 p1
 ```

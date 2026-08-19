@@ -8,4 +8,39 @@ editor_options:
   chunk_output_type: console
 ---
 
-Welcome to my research website.
+This site documents the R-based single-cell analysis workflow for Lazic et al.
+The workflow accompanies the image-processing pipeline
+[MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP) and the code in the
+[MapMetSC](https://github.com/TaschnerMandlGroup/MapMetSC) repository.
+
+The steps below are run in order. To reproduce the whole pipeline, set the four
+data paths in `run_analysis.R` (in the repository root) and run it; each step
+reads the object saved by the previous step. Shared colors are defined once in
+the helper script `00_MapMet_color_code.R`, which every step sources.
+
+## Main pipeline
+
+1. [Read single-cell and meta-data, and patient cohort overview](01_read_data.html)
+2. [Quality control – part 1](02_QC_1.html)
+3. [Quality control – part 2](03_QC_2.html)
+4. [Cell phenotyping](04_phenotyping.html)
+5. Primary-tumor differential analyses
+    - [5.1 Cellular communities](05.1_PT_DE_cellularcomm.html)
+    - [5.2 Differential abundance between genetic subtypes](05.2_PT_DE_DA.html)
+6. Validation by correlation with reference scRNA-seq datasets
+    - [6.1 Adrenal-gland (AD) fetal reference](06.1_correlation_AD.html)
+    - [6.2 Fetahu et al.](06.2_correlation_Fetahu.html)
+    - [6.3 Jansky et al.](06.3_correlation_Jansky.html)
+    - [6.4 Lee et al.](06.4_correlation_Lee.html)
+
+## Adrenal-gland (AD) reference pipeline
+
+The AD reference cohort is processed by a parallel pipeline in `analysis_AD/`
+(read data → QC → phenotyping). It produces the reference object consumed by
+step 6.1 above.
+
+## Separate analyses
+
+- [Spatial analysis in primary tumors](07_spatial_analysis.html) — kept separate
+  because it requires a different Docker image (`lazdaria/mapmetsc_spatial`, for
+  the imcRtools `testInteractions` fix); see the note at the top of the script.

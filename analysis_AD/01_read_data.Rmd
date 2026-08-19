@@ -7,15 +7,13 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/home/rstudio/data/input_AD"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc_AD"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
-plot_dir <- file.path(params$output, "plots/01_read_data")
+# Plots directory
+plot_dir <- file.path(params$output, "plots_AD/01_read_data")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -23,31 +21,25 @@ if (!dir.exists(plot_dir)) {
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
+    # base R / other: assume already drawn
     dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global knitr chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -77,37 +69,18 @@ library(circlize)
 library(paletteer)
 library(dittoSeq)
 library(readxl)
-library(writexl)
 library(dplyr)
 library(patchwork)
 ```
 </details>
 
-## Preprocess adrenal gland (AD) files to remove supplementary channels.This does not run in docker and needs to be an in parent folder of intensities.
+## Preprocess adrenal gland (AD) files
 
-```{r}
-
-# Folders to process
-folders <- c("intensities-0px/", "intensities-1px/")
-
-# Columns to remove
-cols_to_remove <- c("IF4_NEGATIVE_MIX_mean", "IF4_NEGATIVE_MIX_mean-80")
-
-# Loop through each folder
-for(folder in folders){
-  # List CSVs containing "AD"
-  ad_files <- list.files(folder, pattern="AD.*\\.csv$", full.names = TRUE)
-  print(ad_files)
-
-  # Loop through each file
-  for(f in ad_files){
-    df <- read.csv(f, check.names = FALSE)        # read CSV
-    df <- df %>% select(-any_of(cols_to_remove)) # remove columns if present
-    write.csv(df, f, row.names = FALSE)           # overwrite file
-  }
-}
-
-```
+All AD samples share the input folder with the other cohorts; we read them
+as-is and never modify the input CSVs. The supplementary channel
+`IF4_NEGATIVE_MIX` is **retained**, matching the main analysis. To exclude any
+channel, drop it from the SPE in memory after reading rather than editing the
+inputs.
 ## Read single-cell measurement
 
 Replace `path` with the path to the folder where you stored the single-cell data (e.g. `path/to/folder/MapMetIP_ProcessedDataset` in case processed data was downloaded from Zenodo). 
@@ -117,14 +90,16 @@ In [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP), we exported singl
 ```{r read-steinbock}
 path <- file.path(params$input)
 
-spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL) 
-spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL) 
+# All cohorts (AD, TU, BM) share one folder; select AD files by filename pattern.
+sample_pattern <- "AD"
 
-#Combine SPE objects into one object
+spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
+spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
+
+# Combine into one SPE: counts = 0px masks, counts_1px = 1px masks
 spe <- spe_0px
 assay(spe, "counts_1px") <- assay(spe_1px, "counts")
 
-#remove single SPE objects
 rm(spe_0px)
 rm(spe_1px)
 ```
@@ -141,13 +116,12 @@ For the adrenal gland (AD) samples there is no sample- or patient-specific metad
 
 ```{r add-coldata}
 
-#spe$sample <- gsub(spe$sample_id, pattern="([UMD]).*", replacement="\\1")
 spe$sample <- sub("_[^_]+$", "", spe$sample_id)
 spe$fm_id <- str_match(spe$sample, "_.*_(.*)_")[,2]
 
 ```
 
-Before we save the SPE object, we check the distribution of markers.
+Before we save the SPE object, we check the distribution of the two DNA channels across samples.
 
 ```{r plot by staining date}
 
@@ -170,7 +144,7 @@ Finally, the generated SPE object can be saved for further downstream processing
 
 ```{r save-objects-read-data}
 
-saveRDS(spe, file.path(params$output, "spe.rds"))
+saveRDS(spe, file.path(params$output, "spe_01_read_data_AD.rds"))
 ```
 
 ## Session Info

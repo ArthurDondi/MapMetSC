@@ -7,4 +7,11 @@ editor_options:
   chunk_output_type: console
 ---
 
-Describe your project.
+This repository (**MapMetSC**) provides the `R`-based single-cell analysis
+workflow used in Lazic et al., in which primary and metastatic neuroblastoma are
+spatially and temporally mapped by multi-modal high-plex imaging in combination
+with scRNA-seq datasets. It is the downstream counterpart of the `python`-based
+image-processing pipeline [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP).
+
+See the [Home](index.html) page for the ordered list of analysis steps, and the
+repository `README` and `run_analysis.R` for setup and reproduction instructions.

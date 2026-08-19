@@ -7,47 +7,36 @@ output:
 editor_options:
   chunk_output_type: inline
 params: 
-  input: "/home/rstudio/data/input_all"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
 plot_dir <- file.path(params$output, "plots/01_read_data")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
-# Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot (ggplot / Heatmap / base R)
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi)
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
+    # ComplexHeatmap -> PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
     dev.copy(png, full_path, width = width * dpi, height = height * dpi, res = dpi)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -62,7 +51,7 @@ knitr::opts_chunk$set(
 
 # Read in the data {#read-data}
 
-We  will first read in single-cell data, previously extracted from processed multi-modal (IMC,IF) images in [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP) or downloaded from [Zenodo](https://zenodo.org/records/13220635/files/MapMetIP_ProcessedDataset.zip). For reading the data, we use the [imcRtools](https://github.com/BodenmillerGroup/imcRtools) package. This package uses the `read_steinbock` function to read data into a `SpatialExperiment` (SPE). The [SpatialExperiment](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html) class [@Righelli2021] is an extension of the `SingleCellExperiment` class. 
+We  will first read in single-cell data, previously extracted from processed multi-modal (IMC,IF) images in [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP) or downloaded from [Zenodo](https://zenodo.org/records/13220635/files/MapMetIP_ProcessedDataset.zip). For reading the data, we use the [imcRtools](https://github.com/BodenmillerGroup/imcRtools) package. This package uses the `read_steinbock` function to read data into a `SpatialExperiment` (SPE). The [SpatialExperiment](https://bioconductor.org/packages/release/bioc/html/SpatialExperiment.html) class [@Righelli2021] is an extension of the `SingleCellExperiment` class.
 For more information, please refer to `?read_steinbock`. 
 
 ## Load libraries
@@ -77,29 +66,32 @@ library(circlize)
 library(paletteer)
 library(dittoSeq)
 library(readxl)
-library(writexl)
 library(dplyr)
 library(patchwork)
+library(ggplot2)
+library(grid)  # for unit() in the cohort overview figure
 ```
 </details>
 
 ## Read single-cell measurement
 
-Replace `path` with the path to the folder where you stored the single-cell data (e.g. `path/to/folder/MapMetIP_ProcessedDataset` in case processed data was downloaded from Zenodo). 
-In [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP), we exported single-cell marker measurements based on non-dilated and dilated (by 1px) segmentation masks to capture membrane signals. As both are required in the downstream analysis, we will read in both and combine them into one SPE object saving each expression matrix into one `assays`slot. Measurements based on non-dilated masks will be in the `assays`slot `counts` and the measurements based on dilated masks will be stored in `counts_1px`. 
+The single-cell data folder is given by `params$input` (e.g. `.../MapMetIP_ProcessedDataset` if the processed data was downloaded from Zenodo).
+In [MapMetIP](https://github.com/TaschnerMandlGroup/MapMetIP), we exported single-cell marker measurements based on non-dilated and dilated (by 1px) segmentation masks to capture membrane signals. As both are required in the downstream analysis, we read in both and combine them into one SPE object, saving each expression matrix into one `assays`slot. Measurements based on non-dilated masks will be in the `assays`slot `counts` and the measurements based on dilated masks will be stored in `counts_1px`. 
 
 
 ```{r read-steinbock}
 path <- file.path(params$input)
 
-spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL) 
-spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL) 
+# Read only the primary-tumour (TU) and bone-marrow (BM) files; the adrenal-gland
+# (AD) reference is analysed separately in analysis_AD/.
+sample_pattern <- "TU|BM"
 
-#Combine SPE objects into one object
+spe_0px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-0px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
+spe_1px <- read_steinbock(path=path, image_file=NULL, panel_file = file.path(path, 'NB_Panel.csv'), intensities_folder = "intensities-1px",regionprops_folder = "regionprops", graphs_folder=NULL, pattern = sample_pattern)
+
 spe <- spe_0px
 assay(spe, "counts_1px") <- assay(spe_1px, "counts")
 
-#remove single SPE objects
 rm(spe_0px)
 rm(spe_1px)
 ```
@@ -112,16 +104,18 @@ We set the `colnames` of the object to generate unique identifiers per cell.
 colnames(spe) <- paste0(spe$sample_id, "_", spe$ObjectNumber)
 ```
 
-When then read sample and patient-specific metadata from the metadata file provided on Zenodo [(Supplementary_Tables/20240808_Suppl_Table1.xlsx)](https://doi.org/10.5281/zenodo.13220634). 
+We then read sample- and patient-specific metadata from the file provided on Zenodo [(Supplementary_Tables/20260526_Suppl_Table1.xlsx)](https://doi.org/10.5281/zenodo.13220634).
 
 ```{r read-metadata}
 
-file_path <- file.path(params$input, 'Supplementary_Tables/20260526_Suppl_Table1.xlsx')
+# Supplementary_Tables may sit inside the input dir or beside it (Zenodo layout).
+.suppl_cands <- file.path(c(params$input, dirname(params$input)), "Supplementary_Tables", '20260526_Suppl_Table1.xlsx')
+file_path <- .suppl_cands[file.exists(.suppl_cands)][1]
+if (is.na(file_path)) stop("Supplementary table not found in:\n  ", paste(.suppl_cands, collapse = "\n  "))
 sample_spec_metadata <- read_excel(file_path, sheet = "sample_spec_metadata")
 patient_spec_clinical <- read_excel(file_path, sheet = "patient_spec_clinical")
 patient_spec_genetic <- read_excel(file_path, sheet = "patient_spec_genetic")
 
-# Merge patient and sample-specific data
 merged_data <- sample_spec_metadata %>%
   left_join(patient_spec_clinical, by = "Patient_ID")
 
@@ -133,7 +127,6 @@ and assign it to the colData slot in our SPE object.
 
 ```{r add-coldata}
 
-#spe$sample <- gsub(spe$sample_id, pattern="([UMD]).*", replacement="\\1")
 spe$sample <- sub("_[^_]+$", "", spe$sample_id)
 spe$fm_id <- str_match(spe$sample, "_.*_(.*)_")[,2]  
 spe$tissue <- str_match(spe$sample, "^.*_.*_(.*)")[,2] 
@@ -148,10 +141,10 @@ spe$control <- meta$control[match(paste(spe$fm_id, spe$tissue), paste(meta$Sampl
 spe$patient_id <- meta$Patient_ID[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 spe$timepoint <- meta$Timepoint[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
 
-# Keeping only primary tumor (PT) diagnosis (DE) samples + bone marrow (BM) control samples
+# Keep primary tumor (PT) diagnosis (DE) samples + bone marrow (BM) controls
 spe <- spe[, (spe$timepoint == "DE" & spe$tissue == "PT") | spe$control == "yes"]
 
-# Removing Patient_018 (after investigation, it's not a PT sample but a lymph node sample):
+# Drop Patient_018 (lymph node, not a PT sample)
 spe <- spe[, spe$patient_id != "Patient_018"]
 
 spe$stage <- meta$INSS_stage[match(paste(spe$fm_id, spe$tissue), paste(meta$Sample_ID, meta$Tissue))]
@@ -172,7 +165,7 @@ spe$year <- str_c("20", str_extract(spe$fm_id, "^[0-9]+"))
 
 ```
 
-Before we save the SPE object, we check the distribution of markers.
+Before saving, we check the distribution of the two DNA channels across tissue types.
 
 ```{r plot by staining date}
 
@@ -191,13 +184,130 @@ p
 save_plot(p, "DNA_markers_rawdata.png", width = 24, height = 12)
 
 ```
+
+# Patient cohort overview {#cohort-overview}
+
+We summarise the diagnostic primary tumor (PT, DE) cohort in a single overview figure: patient age at diagnosis as a bar plot, together with sex and the key genetic / clinical tracks (MYCN amplification, 1p loss and progression) drawn as colored tiles — one column per patient. The table is built directly from the sample- and patient-level metadata (`meta`, read above), so this figure does not depend on any processed single-cell object.
+
+```{r cohort-table}
+# Diagnostic PT cohort, one row per patient; drop Patient_018 (lymph node, not PT).
+cohort <- meta %>%
+  filter(Timepoint == "DE",
+         Tissue %in% c("PT", "TU"),
+         Patient_ID != "Patient_018") %>%
+  distinct(Patient_ID, .keep_all = TRUE) %>%
+  transmute(
+    patient_id = as.character(Patient_ID),
+    age        = round(as.numeric(age_at_diag)),
+    sex        = as.character(sex_aab),
+    mycn       = as.character(MYCN_amp),
+    loss1p     = as.character(X1p_loss),
+    prog       = as.character(efs)
+  ) %>%
+  arrange(patient_id)
+
+# Recode MYCN / 1p loss to a shared yes/no/het scheme (unknown -> white tile) so
+# the genetic / clinical tracks can share one legend.
+recode_ynh <- function(x) dplyr::recode(as.character(x),
+  "1" = "yes", "0" = "no", "2" = "het", "9" = NA_character_,
+  "MNA" = "yes", "nMNA" = "no", "het" = "het", "unknown" = NA_character_,
+  "yes" = "yes", "no" = "no",
+  .default = NA_character_)
+
+cohort$mycn   <- recode_ynh(cohort$mycn)
+cohort$loss1p <- recode_ynh(cohort$loss1p)
+
+cohort$prog <- dplyr::recode(as.character(cohort$prog),
+  "1" = "yes", "0" = "no", "9" = NA_character_,
+  "Prog" = "yes", "NoProg" = "no", "yes" = "yes", "no" = "no",
+  .default = NA_character_)
+
+# sex -> f / m
+cohort$sex <- dplyr::recode(as.character(cohort$sex),
+  "1" = "f", "2" = "m", "female" = "f", "male" = "m", "F" = "f", "M" = "m",
+  .default = as.character(cohort$sex))
+
+# Fix patient order and factor levels
+lvl_ynh <- c("yes", "no", "het")
+cohort$patient_id <- factor(cohort$patient_id, levels = cohort$patient_id)
+cohort$mycn   <- factor(cohort$mycn,   levels = lvl_ynh)
+cohort$loss1p <- factor(cohort$loss1p, levels = lvl_ynh)
+cohort$prog   <- factor(cohort$prog,   levels = lvl_ynh)
+cohort$sex    <- factor(cohort$sex,    levels = c("f", "m"))
+```
+
+The panels share the same discrete x-axis (one column per patient) and are stacked with `patchwork`, with the genetic / clinical tracks collected into a single legend.
+
+```{r cohort-overview-figure, fig.width=7, fig.height=2.5}
+# Track colors from 00_MapMet_color_code.R
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
+col_ynh <- COL_YNH
+col_sex <- COL_SEX
+
+# Shared x-axis expansion so panels align column-by-column.
+X_EXPAND <- expansion(add = 0.5)
+
+max_age <- max(cohort$age, na.rm = TRUE)
+p_age <- ggplot(cohort, aes(x = patient_id, y = age)) +
+  geom_col(fill = "grey35", width = 0.8) +
+  scale_x_discrete(expand = X_EXPAND) +
+  scale_y_continuous(breaks = c(0, max_age),
+                     expand = expansion(mult = c(0, 0.05))) +
+  labs(y = "age[months]") +
+  theme_minimal() +
+  theme(
+    axis.text.x  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.y  = element_text(size = 7),
+    axis.title.y = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 8),
+    panel.grid   = element_blank(),
+    plot.margin  = margin(2, 2, 0, 2)
+  )
+
+tile_track <- function(var, fill_vals, breaks, legend_name, y_lab) {
+  ggplot(cohort, aes(x = patient_id, y = 1, fill = .data[[var]])) +
+    geom_tile(color = "white", linewidth = 0.4) +
+    scale_x_discrete(expand = X_EXPAND) +
+    scale_fill_manual(values = fill_vals, breaks = breaks, name = legend_name,
+                      na.value = "white", drop = FALSE) +
+    labs(y = y_lab) +
+    theme_void() +
+    theme(
+      legend.position  = "right",
+      legend.direction = "vertical",
+      legend.key.size  = unit(0.3, "cm"),
+      legend.text      = element_text(size = 7),
+      legend.title     = element_text(size = 8, face = "bold"),
+      axis.title.y     = element_text(angle = 0, vjust = 0.5, hjust = 1, size = 8),
+      plot.margin      = margin(0, 2, 0, 2)
+    )
+}
+
+p_sex  <- tile_track("sex",    col_sex, c("f", "m"), "sex (AAB)",             "sex (AAB)")
+p_mycn <- tile_track("mycn",   col_ynh, lvl_ynh,     "MNA / 1p loss / prog.", "MYCN amp.")
+p_1p   <- tile_track("loss1p", col_ynh, lvl_ynh,     "MNA / 1p loss / prog.", "1p loss")
+p_prog <- tile_track("prog",   col_ynh, lvl_ynh,     "MNA / 1p loss / prog.", "progression")
+
+# ---- Stack panels; collect legends into one column ----
+p_cohort <- (p_age / p_sex / p_mycn / p_1p / p_prog) +
+  plot_layout(heights = c(2, 0.5, 0.5, 0.5, 0.5), guides = "collect") &
+  theme(legend.direction = "vertical", legend.box = "vertical",
+        legend.justification = "top")
+
+p_cohort
+
+save_plot(p_cohort, "Fig1a_patient_cohort_overview.pdf", width = 7, height = 2.5)
+```
+
 ## Save object
 
 Finally, the generated SPE object can be saved for further downstream processing and analysis.
 
 ```{r save-objects-read-data}
 
-saveRDS(spe, file.path(params$output, "spe.rds"))
+saveRDS(spe, file.path(params$output, "spe_01_read_data.rds"))
 ```
 
 ## Session Info

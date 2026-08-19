@@ -1,4 +1,4 @@
- ---
+---
 title: "Quality control - Part 2 - AD"
 author: "LazDaria"
 date: "`r Sys.Date()`"
@@ -7,16 +7,14 @@ output:
 editor_options:
   chunk_output_type: inline
 params:
-  input: "/home/rstudio/data/input_AD"
-  output: "/scratch/research/taschnermandl/rstudio/mapmetsc_AD"
+  input: !r Sys.getenv("MAPMET_INPUT", "/mnt/data/input_all")
+  output: !r Sys.getenv("MAPMET_OUTPUT", "/mnt/data/output")
 ---
 
 
 ```{r setup, include=FALSE}
-# ================================
-# Create plots directory
-# ================================
-plot_dir <- file.path(params$output, "plots/03_QC_2")
+# Plots directory
+plot_dir <- file.path(params$output, "plots_AD/03_QC_2")
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
@@ -24,31 +22,25 @@ if (!dir.exists(plot_dir)) {
 # Date prefix for descriptive filenames
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# ================================
-# Helper function to save plots
-# ================================
+# Save a plot, dispatching on its object type
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
   full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
   
   if (inherits(plot_obj, "ggplot")) {
-    # ggplot2 objects
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
   } else if (inherits(plot_obj, "Heatmap") || inherits(plot_obj, "HeatmapList")) {
-    # ComplexHeatmap objects - save as PDF
     pdf(full_path, width = width, height = height)
     draw(plot_obj)
     dev.off()
   } else {
-    # Base R plots or other objects - assume already rendered, save via dev.copy
+    # base R / other: assume already drawn
     dev.copy(pdf, full_path, width = width, height = height)
     dev.off()
   }
   message("Saved: ", full_path)
 }
 
-# ================================
-# Global chunk options - no automatic plot saving
-# ================================
+# Global knitr chunk options
 knitr::opts_chunk$set(
   echo = TRUE,
   error = FALSE,
@@ -82,7 +74,7 @@ We will first read the spatial experiment object (SPE) that passed the [first qu
 
 ```{r read-steinbock}
 path <- params$output
-spe <- readRDS(file.path(path,"spe_qc1.rds"))
+spe <- readRDS(file.path(path,"spe_02_QC_1_AD.rds"))
 ```
 
 For the exclusion of segmentation artifacts, we will examine three morphological features (area, solidity and aspect ratio). All samples here are adrenal gland (AD) tissue, so — unlike the combined primary tumor / bone marrow analysis — we process all samples together with a single set of thresholds.
@@ -95,7 +87,7 @@ morph_names <- c("area",
 ```
 
 ## Threshold identification for AD samples
-Next, we plot distributions of morphological features in histograms to identify feature-individual thresholds for the exclusion of segmentation artifacts.
+Next, we plot the distributions of the morphological features (as density plots) to identify feature-specific thresholds for excluding segmentation artifacts.
 
 ```{r plot-histograms-ad}
 morph_mat <- as.matrix(t(colData(spe)[,morph_names]))
@@ -114,7 +106,7 @@ for(i in 1: ncol(df)){
   geom_density(adjust = 1, color="darkblue", fill="lightblue")
 }
 
-plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #change this to the number of morphological features
+plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3)
 
 
 save_plot(plot, "morpho_features_AD.pdf", width = 12, height = 12)
@@ -123,7 +115,7 @@ save_plot(plot, "morpho_features_AD.pdf", width = 12, height = 12)
 plot
 ```
 
-In the plots above, the distributions are skewed indicating the presence of outliers. Let's examine these outliers cells. We will identify their cell ID and check their morphology in images and masks. We start with the largest cells.
+In the plots above, the distributions are skewed, indicating the presence of outliers. Let's examine these outlier cells. We will identify their cell ID and check their morphology in images and masks. We start with the largest cells.
 
 ```{r quality-control-outliers}
 feat <- "area"
@@ -145,9 +137,8 @@ img <- loadImages(file.path(params$input, "img", paste0(image, ".tif")))
 mcols(masks) <- DataFrame(sample_id = names(masks))
 mcols(img) <- DataFrame(sample_id = names(img))
 
-# The raw AD images may still carry channels (e.g. IF4_NEGATIVE_MIX) that were
-# dropped from the cleaned intensity tables. Name the channels from the marker
-# (_mean) names using the image's actual channel count so the lengths match.
+# Raw images may carry extra channels (e.g. IF4_NEGATIVE_MIX); name channels
+# from the marker (_mean) names, padded to the image's actual channel count.
 marker_names <- rownames(spe)[grepl("_mean$", rownames(spe))]
 n_ch <- dim(img[[1]])[3]
 channelNames(img) <- if (n_ch <= length(marker_names)) {
@@ -197,16 +188,14 @@ outlier_cell <- names(morph_mat_order[1])
 print(paste("The outlier cell with ", feat, "=", morph_mat_order[outlier_cell], " with ID", sub(".*_", "", outlier_cell), "is in image", sub("_[^_]*$", "", outlier_cell),". Check, whether this cell is an artifact by inspecting the large segmentation masks in napari."))
 ```
 
-Using the code above and cross-checking images of corresponding nuclei in napari, we identify an appropriate lower threshold for nuclear area. Adrenal gland is solid tissue, so — as for primary tumor — the largest cells are typically correctly segmented and no upper threshold is strictly required; inspect the histograms above to decide whether an upper threshold is needed.
+Using the code above and cross-checking images of corresponding nuclei in napari, we identify an appropriate lower threshold for nuclear area. Adrenal gland is solid tissue, so — as for primary tumor — the largest cells are typically correctly segmented and no upper threshold is strictly required; inspect the distributions above to decide whether an upper threshold is needed.
 
 ## Exclusion of segmentation artifacts
 Let's exclude outliers from the SPE object and the morph. feature matrix based on defined thresholds.
 
 ```{r exclude-outliers}
-# Thresholds for AD (adrenal gland) segmentation-artifact removal.
-# Adjust these values based on the AD morphology histograms above. Set
-# area_upper_thresh to a finite value if the histograms reveal oversized
-# artifacts (Inf = no upper threshold, as for solid primary-tumor tissue).
+# AD segmentation-artifact thresholds; Inf = no upper limit (set a finite
+# value if the distributions above reveal oversized artifacts).
 area_lower_thresh <- 100
 area_upper_thresh <- Inf
 
@@ -214,7 +203,7 @@ outliers <- (spe$area <= area_lower_thresh | spe$area >= area_upper_thresh)
 
 spe <- spe[,!outliers]
 
-#Rebuild the matrix of morphological features of the remaining cells
+# rebuild the morphology matrix for the kept cells
 morph_mat <- as.matrix(t(colData(spe)[,morph_names]))
 rownames(morph_mat) <- gsub('-0','',rownames(morph_mat))
 ```
@@ -266,7 +255,7 @@ for(i in 1: ncol(df)){
   geom_density(adjust = 5, color="darkblue", fill="lightblue")
 }
 
-plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3) #change this to the number of morphological features
+plot <- plot_grid(plotlist = plot_list, nrow=ceiling(ncol(df)/3), ncol=3)
 
 
 
@@ -279,13 +268,11 @@ plot
 ...and visualize the masks in one representative AD sample.
 
 ```{r visualize-clipped-morph}
-# Define morphs
 morph_names_clipped <- c("area_clipped", "solidity_clipped", "aspect_ratio_clipped")
 
-# Pick one representative AD sample to visualize (adjust as needed)
+# one representative AD sample
 sample_to_plot <- unique(spe$sample_id)[1]
 
-# Load mask for that sample
 masks <- loadImages(
   file.path(params$input, "masks", paste0(sample_to_plot, ".tif")),
   as.is = TRUE
@@ -294,10 +281,7 @@ masks <- loadImages(
 names(masks) <- sample_to_plot
 mcols(masks)$sample_id <- sample_to_plot
 
-# Store plots
-plot_list <- list()
-
-# Loop over morphs
+# one mask plot per clipped morphology feature
 for (m in seq_along(morph_names_clipped)) {
 
   current_id <- sample_to_plot
@@ -305,7 +289,6 @@ for (m in seq_along(morph_names_clipped)) {
 
   message(paste0("Plotting: ", current_morph, " | ", current_id))
 
-  # Generate plot for the mask/image
   p <- plotCells(
     masks,
     object = spe,
@@ -317,16 +300,12 @@ for (m in seq_along(morph_names_clipped)) {
     legend = NULL
   )
 
-  # Save plot with morph + image ID
   save_plot(
     p,
     filename = paste0(current_morph, "_", current_id, ".pdf"),
     width = 12,
     height = 12
   )
-
-  # Store plot in list (optional)
-  plot_list[[paste0(current_morph, "_", current_id)]] <- p
 }
 ```
 
@@ -338,7 +317,7 @@ From now on, we will use intensity measurements computed based on the dilated ma
 assay(spe, "counts") <- assay(spe, "counts_1px")
 assay(spe, "counts_1px") <- NULL
 
-saveRDS(spe, file.path(params$output, "spe_qc2.rds"))
+saveRDS(spe, file.path(params$output, "spe_03_QC_2_AD.rds"))
 ```
 
 ## Session Info

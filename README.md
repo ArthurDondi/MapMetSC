@@ -37,9 +37,52 @@ For reproducibility, we provide a docker image. Pull the docker image using:
  ```bash
 docker run -p 8787:8787 -e PASSWORD=mapmetsc -v <path/to/MapMetSC>:/home/rstudio/MapMetSC -v <path/to/extracted/singlecelldata>:/mnt/data lazdaria/mapmetsc:v1.0
  ```
- An RStudio server session can then be accessed via your browser at `localhost:8787` with the `username: rstudio` and `password: mapmetsc`. Due to a bug fix for the `testInteractions` function in later versions of imcRtools, we provide another docker image ([lazdaria/mapmetsc_spatial:v1.0](https://hub.docker.com/repository/docker/lazdaria/mapmetsc_spatial/general)) for [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/10_spatial_analysis.Rmd).
+ An RStudio server session can then be accessed via your browser at `localhost:8787` with the `username: rstudio` and `password: mapmetsc`. Due to a bug fix for the `testInteractions` function in later versions of imcRtools, we provide another docker image ([lazdaria/mapmetsc_spatial:v1.0](https://hub.docker.com/repository/docker/lazdaria/mapmetsc_spatial/general)) for [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/07_spatial_analysis.Rmd).
 
-To reproduce results from Lazic et al., proceed with the provided [RMD files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis). Alternatively, already rendered [html files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) are provided to demonstrate each step of the pipeline. 
+### Apptainer / Singularity (single image, incl. spatial analysis)
+
+For HPC and other rootless environments we provide an [Apptainer](https://apptainer.org/) definition ([`apptainer/mapmetsc.def`](apptainer/mapmetsc.def)) that builds **one** image covering the whole R workflow — including `analysis/07_spatial_analysis.Rmd`. It is built from scratch on the same `rocker/rstudio:4.4.0` base as the Dockerfile, which resolves to Bioconductor 3.19 and therefore **imcRtools 1.10.0** — already past the `testInteractions` fix (first released in imcRtools 1.6.0). A single image thus replaces both `lazdaria/mapmetsc:v1.0` *and* `lazdaria/mapmetsc_spatial:v1.0`, and it adds the packages the Docker image was missing (`ggdendro`, `EBImage`, `batchelor`, `harmony`, `ggrastr`, `hexbin`, `lme4`, `writexl`, `workflowr`).
+
+```bash
+# build (needs Apptainer; on HPC login nodes it uses --fakeroot automatically)
+./apptainer/build.sh                       # -> ./mapmetsc.sif
+
+# render the whole pipeline (headless)
+apptainer exec --bind <path/to/extracted/singlecelldata>:/mnt/data \
+    mapmetsc.sif Rscript run_analysis.R
+```
+
+See [`apptainer/README.md`](apptainer/README.md) for single-script rendering, interactive R, and running RStudio Server from the image.
+
+### Reproducing the analysis
+
+The scripts expect the extracted single-cell data (and the small annotation/metadata files) under the Docker mount point `/mnt/data`, organised as:
+
+```
+/mnt/data
+├── input_all           # main cohort (MapMetIP_ProcessedDataset: intensities-*, regionprops, masks, img, neighbors),
+│                       #   plus NB_Panel.csv, protein2gene.csv and Supplementary_Tables/*.xlsx
+├── input_AD            # adrenal-gland (AD) reference cohort (same layout as input_all)
+├── R_intermediary      # celltype_order.csv (+ _AD) and the frozen phenograph .rds (see data/R_intermediary/README.md)
+├── public_datasets     # public scRNA-seq references (Fetahu/, Jansky/, Lee/)
+└── output              # created automatically: intermediate spe_*.rds objects and figures
+```
+
+All scripts are parameterised through this single mount, so the only paths a user has to set are the four in [`run_analysis.R`](https://github.com/TaschnerMandlGroup/MapMetSC/blob/main/run_analysis.R). Shared figure colors are defined once in `analysis/00_MapMet_color_code.R`, which every script sources. To render the whole pipeline in order, run from the repository root:
+
+```bash
+Rscript run_analysis.R
+```
+
+The steps run in the following order (see the [rendered site](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) for each step):
+
+1. `analysis_AD/` — read → QC → phenotyping for the AD reference cohort (produces the reference object used in step 6.1).
+2. `analysis/` main pipeline — `01_read_data` → `02_QC_1` → `03_QC_2` → `04_phenotyping` → `05.1_PT_DE_cellularcomm` → `05.2_PT_DE_DA`.
+3. `analysis/` correlation/validation (run last) — `06.1_correlation_AD`, `06.2_correlation_Fetahu`, `06.3_correlation_Jansky`, `06.4_correlation_Lee`.
+
+Each script reads the `spe_*.rds` object written by the previous step and writes its own, so the steps must be run in order. Alternatively, the individual [RMD files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis) can be knit one by one, and already-rendered [html files](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/docs) demonstrate each step.
+
+The [spatial analysis](https://github.com/TaschnerMandlGroup/MapMetSC/tree/main/analysis/07_spatial_analysis.Rmd) is kept separate from `run_analysis.R` because it needs a tumor-only cellular-community step that the streamlined pipeline does not yet produce (see the note at the top of the script). Software-wise it needs only the fixed `imcRtools`: with Docker, use the `lazdaria/mapmetsc_spatial:v1.0` image; the [Apptainer image](apptainer/README.md) already includes it, so no separate image is required there.
 
  ### Cell-cell communication (CCC) analysis
  
