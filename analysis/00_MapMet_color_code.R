@@ -6,16 +6,7 @@
 # Shared color palettes for the single-cell (IMC/IF) analysis, collected here so
 # that every script uses the same colors. Source this file near the top of a
 # script (path-robust across working directories) and then assign the vector(s)
-# you need, e.g.
-#
-# the loop variable name below is deliberately obscure so it never clobbers a
-# plot object named `p` in the caller's environment:
-#   for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R",
-#                            "../analysis/00_MapMet_color_code.R"))
-#     if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
-#   col_celltype <- COL_CELLTYPE
-#
-# All colors are base R rgb()/hex/named colors, so no extra packages are needed.
+# you need.
 # ============================================================================
 
 # ---- Main cohort: cell types (04_phenotyping.Rmd) --------------------------
