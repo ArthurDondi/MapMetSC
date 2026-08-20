@@ -117,6 +117,14 @@ COL_CODE <- c(
   "3"       = "green"
 )
 
+# ---- Tumor compartments (07_spatial_analysis.Rmd, 08_generate_images.Rmd) ---
+# ggplot2 default 3-hue palette: border = salmon, core = green, stroma = blue.
+COL_COMPARTMENT <- c(
+  "core"   = "#00BA38",  # green
+  "border" = "#F8766D",  # salmon
+  "stroma" = "#619CFF"   # blue
+)
+
 # ---- Fetahu et al. reference: RNA cluster colors (06.2_correlation_Fetahu.Rmd)
 COL_FETAHU_CLUSTERS <- c(
   "B (3)"       = rgb(145,   2, 144, maxColorValue = 255),
