@@ -206,8 +206,10 @@ rotate90_ccw <- function(cil) {
   out
 }
 
-# border/core/stroma in the ggplot2 default palette, matching chapter 07.
-compartment_cols <- setNames(scales::hue_pal()(3), c("border", "core", "stroma"))
+# Compartment colours (border/core/stroma) from 00_MapMet_color_code.R.
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
+compartment_cols <- COL_COMPARTMENT
 
 # Same Set3 palette / neighborhood numbering as Fig4f in chapter 07.
 cn_levels <- levels(factor(spe$cn_celltypes_2))

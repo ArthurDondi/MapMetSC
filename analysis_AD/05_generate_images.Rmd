@@ -22,11 +22,9 @@ params:
   # (token before the first "_"; "DNA1" keys the DNA channel). Markers without an
   # entry fall back to a spare-colour palette.
   marker_colours: !r c("DNA1" = "blue", "ELAVL4" = "green", "Vimentin" = "red", "Ki-67" = "darkorange", "CXCR4" = "cyan", "CHGA" = "yellow", "GD2" = "purple")
-  # Short marker names to draw individually but leave OUT of the colour merge
-  # (each still gets its own panel). Only Ki-67 sits out (per request); with 7
-  # markers this keeps the merge at cytomapper's 6-marker maximum. GD2 is purple
-  # (not orange) so that where it overlaps ELAVL4 the additive blend is pale
-  # rather than the green -> yellow an orange channel produced.
+  # Short marker names drawn individually but left out of the colour merge (each
+  # still gets its own panel). Ki-67 sits out to keep the merge within
+  # cytomapper's 6-marker limit.
   merge_exclude: !r c("Ki-67")
   # Zoom window(s) c(xmin, xmax, ymin, ymax) in pixel coordinates of the image
   # array (x = first image dimension, y = second). Both the whole image AND any

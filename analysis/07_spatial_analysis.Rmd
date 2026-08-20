@@ -921,6 +921,7 @@ for (th in thresholds) {
     img_id = "sample_id",
     node_size_fix = 0.5
   ) +
+    scale_color_manual(values = COL_COMPARTMENT) +
     ggtitle(paste("Border size =", th))
 
   save_plot(
@@ -1107,7 +1108,8 @@ p_spatial_compartment <- plotSpatial(spe,
             node_color_by = "compartment",
             img_id = "sample_id",
             ncols = 6,
-            node_size_fix = 0.5)
+            node_size_fix = 0.5) +
+    scale_color_manual(values = COL_COMPARTMENT)
 
 save_plot(p_spatial_compartment, "Fig4f_spatial_compartment_images.pdf", width = 20, height = 49)
 
