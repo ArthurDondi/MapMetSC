@@ -1367,6 +1367,183 @@ for (cells in cells_list) {
 }
 ```
 
+As a sensitivity check, we repeat the same compartment DA test with the unit of
+replication changed from patient/tumor-block (`fm_id`) to individual **image**
+(`sample_id`): every image now contributes its own core/border/stroma
+pseudo-sample, while `fm_id` is kept as a blocking covariate in the `diffcyt`
+design so patient is still controlled for. This trades the patient-level
+test's protection against pseudo-replication (images from the same block are
+not independent) for more pseudo-samples per compartment and a test that asks
+whether the compartment effect holds up image-by-image rather than
+patient-by-patient; results should be read alongside, not instead of, the
+patient-level test above.
+
+```{r compartment-boxplots-all-comparisons-perimage}
+# Same DA question as above, but sample_id = one image x compartment instead
+# of one patient/tumor-block x compartment. fm_id is kept as the blocking
+# covariate so multiple images from the same block are still paired by patient.
+
+for (cells in cells_list) {
+
+  order     <- if (cells == "immune") immune_order else tumor_order
+  keep_meta <- if (cells == "immune") spe$metacluster %in% immune_order else spe$metacluster == "tumor"
+
+  # 1. diffcyt DA results for every compartment pair, one pseudo-sample per image
+  diffcyt_results_img <- list()
+
+  for (pair in comparison_pairs) {
+    comps     <- pair
+    key       <- paste(comps, collapse = "-")
+    keep_cols <- keep_meta & spe$compartment %in% comps
+
+    if (sum(keep_cols) < 10) { diffcyt_results_img[[key]] <- NULL; next }
+
+    sce_da_img <- SingleCellExperiment(
+      assays = list(
+        counts = assay(spe, "counts")[keep_rows, keep_cols],
+        exprs  = assay(spe, "counts")[keep_rows, keep_cols]
+      )
+    )
+    sce_da_img$fm_id       <- spe[keep_rows, keep_cols]$fm_id
+    sce_da_img$image_id    <- factor(spe[keep_rows, keep_cols]$sample_id)
+    sce_da_img$compartment <- factor(spe[keep_rows, keep_cols]$compartment, levels = comps)
+    sce_da_img$sample_id   <- factor(paste0(sce_da_img$image_id, "_", sce_da_img$compartment))
+    sce_da_img$condition   <- factor(sce_da_img$compartment, levels = comps)
+    sce_da_img$cluster_id  <- factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+
+    metadata(sce_da_img)$cluster_codes   <- data.frame(
+      celltype = factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+    )
+    metadata(sce_da_img)$experiment_info <- as.data.frame(colData(sce_da_img)) %>%
+      dplyr::group_by(sample_id, condition, image_id, fm_id) %>%
+      dplyr::summarise(n_cells = dplyr::n(), .groups = "drop") %>%
+      as.data.frame()
+
+    exp_info_img           <- metadata(sce_da_img)$experiment_info
+    exp_info_img           <- exp_info_img[match(unique(sce_da_img$sample_id), exp_info_img$sample_id), ]
+    exp_info_img$condition <- factor(exp_info_img$condition, levels = comps)
+
+    df_list_img <- lapply(unique(sce_da_img$sample_id), function(x)
+      as.data.frame(t(counts(sce_da_img[, sce_da_img$sample_id == x]))))
+    names(df_list_img) <- unique(sce_da_img$sample_id)
+
+    d_se_img <- prepareData(df_list_img, exp_info_img, marker_info_da)
+    rowData(d_se_img)$cluster_id     <- sce_da_img[, rownames(d_se_img)]$cluster_id
+    metadata(d_se_img)$cluster_codes <- metadata(sce_da_img)$cluster_codes
+    d_se_img     <- transformData(d_se_img)
+    d_counts_img <- calcCounts(d_se_img)
+
+    # block on patient (fm_id), test the compartment (condition) effect
+    design_img   <- createDesignMatrix(exp_info_img, cols_design = c("condition", "fm_id"))
+    contrast_img <- createContrast(c(0, 1, rep(0, length(unique(exp_info_img$fm_id)) - 1)))
+
+    res_DA_img <- tryCatch(
+      testDA_edgeR(d_counts_img, design_img, contrast_img,
+                   min_cells = 3,
+                   min_samples = round(ncol(d_counts_img) * 0.2)),
+      error = function(e) { message("diffcyt (per-image) failed for ", key, ": ", e$message); NULL }
+    )
+    diffcyt_results_img[[key]] <- if (!is.null(res_DA_img)) data.frame(rowData(res_DA_img)) else NULL
+  }
+
+  # 2. Per-image proportions (% within compartment) for plotting - one point
+  #    per image instead of one point per patient
+  comp_df_img <- data.frame(
+    image_id    = spe$sample_id,
+    compartment = spe$compartment,
+    celltype_2  = spe$celltype_2,
+    keep        = keep_meta
+  )
+  comp_df_img <- comp_df_img[comp_df_img$keep & comp_df_img$compartment %in% comp_levels, ]
+  comp_df_img$compartment <- factor(comp_df_img$compartment, levels = comp_levels)
+
+  sample_totals_img <- comp_df_img %>%
+    dplyr::group_by(image_id, compartment) %>%
+    dplyr::summarise(total = dplyr::n(), .groups = "drop")
+
+  plot_data_list_img <- list()
+  for (cluster_name in order) {
+    cluster_counts_img <- comp_df_img %>%
+      dplyr::filter(celltype_2 == cluster_name) %>%
+      dplyr::group_by(image_id, compartment) %>%
+      dplyr::summarise(n = dplyr::n(), .groups = "drop")
+
+    plot_data_list_img[[cluster_name]] <- dplyr::left_join(
+      sample_totals_img, cluster_counts_img, by = c("image_id", "compartment")
+    ) %>%
+      dplyr::mutate(
+        n         = dplyr::if_else(is.na(n), 0L, n),
+        Freq      = 100 * n / total,
+        condition = factor(compartment, levels = comp_levels),
+        sample_id = image_id
+      )
+  }
+
+  # 3. Collate diffcyt stats for all pairs into one table
+  all_stats_list_img <- list()
+  for (cluster_name in order) {
+    for (pair in comparison_pairs) {
+      key      <- paste(pair, collapse = "-")
+      res_pair <- diffcyt_results_img[[key]]
+      if (!is.null(res_pair) && cluster_name %in% rownames(res_pair)) {
+        p_adj <- res_pair[cluster_name, "p_adj"]
+        logFC <- res_pair[cluster_name, "logFC"]
+      } else {
+        p_adj <- NA_real_; logFC <- NA_real_
+      }
+      p_signif <- if (!is.na(p_adj)) gtools::stars.pval(p_adj) else "NA"
+      if (p_signif == " ") p_signif <- "ns"
+      all_stats_list_img <- c(all_stats_list_img, list(data.frame(
+        cluster_name = cluster_name,
+        group1       = pair[1],
+        group2       = pair[2],
+        p_adj        = p_adj,
+        logFC        = round(logFC, 2),
+        label        = paste0(round(logFC, 2), " (",
+                              if (!is.na(p_adj)) sprintf("%.3f", p_adj) else "NA",
+                              " ", p_signif, ")")
+      )))
+    }
+  }
+  all_stats_img <- dplyr::bind_rows(all_stats_list_img)
+
+  # 4. Boxplots with diffcyt annotation (one dot = one image)
+  plot_list_comp_img <- list()
+  for (cluster_name in order) {
+    proportions <- plot_data_list_img[[cluster_name]]
+    stats_df    <- all_stats_img[all_stats_img$cluster_name == cluster_name, ]
+
+    stats_df$y.position <- bracket_positions[seq_len(nrow(stats_df))]
+
+    color_cluster <- cluster_color(cluster_name)
+
+    plot_list_comp_img[[cluster_name]] <- ggboxplot(
+      proportions, x = "condition", y = "Freq", order = comp_levels,
+      color = "condition", palette = rep(color_cluster, 3),
+      add = "jitter"
+    ) +
+      stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
+      ggtitle(str_wrap(cluster_name, width = 18)) +
+      scale_y_continuous(breaks = seq(0, y_axis_max, 25),
+                         expand = expansion(mult = c(0.02, 0))) +
+      coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
+      theme(aspect.ratio = 1.0, legend.position = "none",
+            plot.title  = element_text(hjust = 0.5, size = 14,
+                                       margin = margin(b = title_gap)),
+            plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
+  }
+
+  p_comp_img <- gridExtra::grid.arrange(
+    grobs = plot_list_comp_img,
+    ncol  = min(length(plot_list_comp_img), max_plot_columns)
+  )
+
+  save_plot(p_comp_img,
+            paste0("Fig4m_boxplot_compartments_", cells, "_perimage.pdf"),
+            width = 12, height = 8)
+}
+```
+
 Finally, we summarize the cell-type composition of each compartment as stacked bars, drawn for every border size and shown for immune metaclusters, tumor celltypes, and the two pooled together.
 
 ```{r composition-stacked-bars}
