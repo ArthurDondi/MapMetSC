@@ -75,6 +75,7 @@ This standalone supplementary report renders each requested image — as the
 * each requested **marker** as a separate pixel image,
 * a colour **merge** of all requested markers,
 * the **cell types**,
+* the **metaclusters**,
 * the **spatial compartment** (tumor core / border / stroma), and
 * the **cellular neighborhood**.
 
@@ -291,6 +292,15 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
               missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
     paste0(tag, "_celltype.png"), 10, 8)
+
+  # --- metaclusters (on the masks) ---
+  render_and_save(
+    plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
+              colour_by = "metacluster",
+              colour = list(metacluster = metadata(spe)$color_vectors$col_metacluster),
+              missing_colour = "white", image_title = NULL, scale_bar = NULL,
+              legend = NULL, return_plot = TRUE),
+    paste0(tag, "_metacluster.png"), 10, 8)
 
   # --- spatial compartment (on the masks) ---
   render_and_save(
