@@ -863,40 +863,82 @@ plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"],
     scale_color_gradient2(low = "dark blue", mid = "white", high = "dark red")
 ```
 
-The distance distribution per celltype can be shown in ridge plots. The
-core/border/stroma compartments (defined below using a 200 px threshold on
-this same distance) are shaded in the background, with the +/-200 px border
-cutoff marked as dashed lines.
+The distance distribution per (fine-grained) celltype can be shown in ridge
+plots. The core/border/stroma compartments (defined below using a 200 px
+threshold on this same distance) are marked in two ways: once as shaded
+background regions, and once as a green/red/blue compartment bar beneath a
+plain-background ridge plot.
 
-```{r ridges-distance, fig.height=10,fig.width=8}
+```{r ridges-distance, fig.height=5,fig.width=8}
 # Border threshold shown here matches `canonical_border` set in the
 # spatial-compartments section below (kept as a literal since that section
 # runs after this chunk).
 border_threshold <- 200
 
-p_dist <- ggplot(as.data.frame(colData(spe)) %>%
-         mutate(celltype_2 = fct_reorder(celltype_2, distToCells, .fun = median, .desc = TRUE))) +
+dist_data <- as.data.frame(colData(spe)) %>%
+  mutate(celltype = fct_reorder(celltype, distToCells, .fun = median, .desc = TRUE))
+
+x_range <- range(dist_data$distToCells, na.rm = TRUE)
+
+# Shared ridge layers for both variants below.
+ridge_layers <- list(
+  stat_density_ridges(aes(distToCells, celltype, fill = celltype),
+                      quantiles = c(0.5), quantile_lines = TRUE, scale = 3,
+                      # plain filled legend keys (no median line)
+                      key_glyph = "rect"),
+  geom_vline(xintercept = 0, color = "dark red", linewidth = 0.5),
+  geom_vline(xintercept = c(-border_threshold, border_threshold),
+             color = "black", linewidth = 0.5, linetype = "dashed"),
+  scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype, name = "Celltypes"),
+  labs(y = "Celltype"),
+  theme(legend.position = "none")
+)
+
+# --- Variant 1: compartments shown as shaded background regions ---
+p_dist_shaded <- ggplot(dist_data) +
   annotate("rect", xmin = -Inf, xmax = -border_threshold, ymin = -Inf, ymax = Inf,
            fill = COL_COMPARTMENT[["core"]], alpha = 0.15) +
   annotate("rect", xmin = -border_threshold, xmax = border_threshold, ymin = -Inf, ymax = Inf,
            fill = COL_COMPARTMENT[["border"]], alpha = 0.15) +
   annotate("rect", xmin = border_threshold, xmax = Inf, ymin = -Inf, ymax = Inf,
            fill = COL_COMPARTMENT[["stroma"]], alpha = 0.15) +
-  stat_density_ridges(aes(distToCells, celltype_2, fill = celltype_2),
-                      quantiles = c(0.5), quantile_lines = TRUE, scale = 3,
-                      # plain filled legend keys (no median line)
-                      key_glyph = "rect") +
-  geom_vline(xintercept = 0, color = "dark red", linewidth = 0.5) +
+  ridge_layers +
+  coord_cartesian(xlim = x_range, expand = FALSE) +
+  theme_ridges()
+
+save_plot(p_dist_shaded, "Fig4j_border_distance_shaded.pdf", width = 8, height = 5)
+
+p_dist_shaded
+
+# --- Variant 2: plain white background, compartments shown as a bar below ---
+p_dist_plain <- ggplot(dist_data) +
+  ridge_layers +
+  coord_cartesian(xlim = x_range, expand = FALSE) +
+  theme_ridges() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+compartment_bar <- ggplot() +
+  annotate("rect", xmin = -Inf, xmax = -border_threshold, ymin = 0, ymax = 1,
+           fill = COL_COMPARTMENT[["core"]]) +
+  annotate("rect", xmin = -border_threshold, xmax = border_threshold, ymin = 0, ymax = 1,
+           fill = COL_COMPARTMENT[["border"]]) +
+  annotate("rect", xmin = border_threshold, xmax = Inf, ymin = 0, ymax = 1,
+           fill = COL_COMPARTMENT[["stroma"]]) +
   geom_vline(xintercept = c(-border_threshold, border_threshold),
              color = "black", linewidth = 0.5, linetype = "dashed") +
-  scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2, name = "Celltypes") +
-  labs(y = "Celltype") +
-  theme_ridges() +
-  theme(legend.position = "none")
+  coord_cartesian(xlim = x_range, ylim = c(0, 1), expand = FALSE) +
+  labs(x = "distToCells") +
+  theme_minimal() +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(), panel.grid = element_blank(),
+        panel.border = element_blank())
 
-save_plot(p_dist, "Fig4j_border_distance.pdf", width = 8, height = 10)
+p_dist_bar <- p_dist_plain / compartment_bar + plot_layout(heights = c(20, 1))
 
-p_dist
+save_plot(p_dist_bar, "Fig4j_border_distance_bar.pdf", width = 8, height = 5)
+
+p_dist_bar
 ```
 
 Based on the calculated distance for each cell, three compartments - tumor core, tumor/stroma border and stroma - can be defined using a distance threshold. We sweep border sizes from 100 to 300 pixels, visualizing the compartments and counting immune and tumor cells in each, and then adopt a border of 200 pixels for all downstream analyses. Image `20221018_20220906_03-018_TU_001` lacks tumor patches, therefore all cells are defined as `stroma` for this image.
