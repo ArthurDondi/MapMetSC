@@ -916,12 +916,14 @@ plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"],
     scale_color_gradient2(low = "dark blue", mid = "white", high = "dark red")
 ```
 
-The distance distribution per (fine-grained) celltype can be shown in ridge
-plots, with no legend (the y-axis labels already name every group) so the
-ridges themselves get the full plot width. The core/border/stroma compartments
-(defined below using a 200 px threshold on this same distance) are shown as a
-green/red/blue compartment bar beneath the ridges, with the +/-200 px cutoff
-also marked as dashed lines.
+The distance distribution per celltype can be shown in ridge plots, with no
+legend (the y-axis labels already name every group) so the ridges themselves
+get the full plot width. We show this for both `celltype_2` (tumor celltypes +
+non-tumor metaclusters) and the fine-grained `celltype`, and for each we mark
+the core/border/stroma compartments (defined below using a 200 px threshold on
+this same distance) in two ways: as translucent shaded background regions, or
+as a green/red/blue compartment bar beneath a plain-background ridge plot. The
++/-200 px cutoff is also marked as dashed lines in every version.
 
 ```{r ridges-distance, fig.height=5,fig.width=8}
 # Border threshold shown here matches `canonical_border` set in the
@@ -930,7 +932,7 @@ also marked as dashed lines.
 border_threshold <- 200
 x_range <- range(spe$distToCells, na.rm = TRUE)
 
-# Compartment bar (green/red/blue core/border/stroma), shared by every
+# Compartment bar (green/red/blue core/border/stroma), shared by every "bar"
 # distance-ridge figure below - only depends on border_threshold/x_range, not
 # on the grouping variable.
 compartment_bar <- ggplot() +
@@ -950,13 +952,28 @@ compartment_bar <- ggplot() +
         panel.border = element_blank())
 
 # Ridge plot (no legend - group names are the y-axis labels) for one grouping
-# variable, stacked on the compartment bar above. Reused below for celltypes
-# and for cellular neighborhoods.
-plot_dist_ridge_bar <- function(group_var, y_label, fill_values, filename) {
+# variable, in one of two compartment-display variants:
+#  - "bar":    plain background, stacked on the shared compartment_bar below
+#  - "shaded": core/border/stroma shown as translucent background regions
+# Reused below for celltype_2, celltype, and cellular neighborhoods.
+plot_dist_ridge <- function(group_var, y_label, fill_values, filename,
+                            variant = c("bar", "shaded")) {
+  variant <- match.arg(variant)
+
   dist_data <- as.data.frame(colData(spe)) %>%
     mutate(!!group_var := fct_reorder(.data[[group_var]], distToCells, .fun = median, .desc = TRUE))
 
-  p_top <- ggplot(dist_data) +
+  shaded_bg <- if (variant == "shaded") list(
+    annotate("rect", xmin = -Inf, xmax = -border_threshold, ymin = -Inf, ymax = Inf,
+             fill = COL_COMPARTMENT[["core"]], alpha = 0.15),
+    annotate("rect", xmin = -border_threshold, xmax = border_threshold, ymin = -Inf, ymax = Inf,
+             fill = COL_COMPARTMENT[["border"]], alpha = 0.15),
+    annotate("rect", xmin = border_threshold, xmax = Inf, ymin = -Inf, ymax = Inf,
+             fill = COL_COMPARTMENT[["stroma"]], alpha = 0.15)
+  ) else NULL
+
+  p_ridge <- ggplot(dist_data) +
+    shaded_bg +
     stat_density_ridges(aes(distToCells, .data[[group_var]], fill = .data[[group_var]]),
                         quantiles = c(0.5), quantile_lines = TRUE, scale = 3,
                         key_glyph = "rect") +
@@ -967,29 +984,52 @@ plot_dist_ridge_bar <- function(group_var, y_label, fill_values, filename) {
     labs(y = y_label) +
     coord_cartesian(xlim = x_range, expand = FALSE) +
     theme_ridges() +
-    theme(legend.position = "none",
-          axis.title.x = element_blank(), axis.text.x = element_blank(),
-          axis.ticks.x = element_blank())
+    theme(legend.position = "none")
 
-  p <- p_top / compartment_bar + plot_layout(heights = c(20, 1))
+  if (variant == "bar") {
+    p_ridge <- p_ridge +
+      theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+            axis.ticks.x = element_blank())
+    p <- p_ridge / compartment_bar + plot_layout(heights = c(20, 1))
+  } else {
+    p <- p_ridge
+  }
+
   save_plot(p, filename, width = 8, height = 5)
   p
 }
 
-p_dist <- plot_dist_ridge_bar("celltype", "Celltype",
-                              metadata(spe)$color_vectors$col_celltype,
-                              "Fig4j_border_distance.pdf")
+# 1-2. celltype_2 (tumor celltypes + non-tumor metaclusters), bar and shaded
+p_dist_celltype2_bar <- plot_dist_ridge(
+  "celltype_2", "Celltype", metadata(spe)$color_vectors$col_celltype_2,
+  "Fig4j_border_distance_celltype2_bar.pdf", variant = "bar")
+p_dist_celltype2_bar
 
-p_dist
+p_dist_celltype2_shaded <- plot_dist_ridge(
+  "celltype_2", "Celltype", metadata(spe)$color_vectors$col_celltype_2,
+  "Fig4j_border_distance_celltype2_shaded.pdf", variant = "shaded")
+p_dist_celltype2_shaded
+
+# 3-4. fine-grained celltype (all celltypes), bar and shaded
+p_dist_celltype_bar <- plot_dist_ridge(
+  "celltype", "Celltype (fine-grained)", metadata(spe)$color_vectors$col_celltype,
+  "Fig4j_border_distance_celltype_bar.pdf", variant = "bar")
+p_dist_celltype_bar
+
+p_dist_celltype_shaded <- plot_dist_ridge(
+  "celltype", "Celltype (fine-grained)", metadata(spe)$color_vectors$col_celltype,
+  "Fig4j_border_distance_celltype_shaded.pdf", variant = "shaded")
+p_dist_celltype_shaded
 ```
 
 The same distance distribution, now grouped by cellular neighborhood (CN,
 `cn_celltypes_2`, computed further below) instead of celltype.
 
 ```{r ridges-distance-neighborhood, fig.height=5, fig.width=8}
-p_dist_cn <- plot_dist_ridge_bar("cn_celltypes_2", "Cellular neighborhood",
-                                 metadata(spe)$color_vectors$col_cn,
-                                 "Fig4j_border_distance_neighborhood.pdf")
+p_dist_cn <- plot_dist_ridge("cn_celltypes_2", "Cellular neighborhood",
+                             metadata(spe)$color_vectors$col_cn,
+                             "Fig4j_border_distance_neighborhood.pdf",
+                             variant = "bar")
 
 p_dist_cn
 ```
