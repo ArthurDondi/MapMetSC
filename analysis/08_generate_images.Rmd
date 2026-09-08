@@ -212,10 +212,9 @@ for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_cod
   if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 compartment_cols <- COL_COMPARTMENT
 
-# Same Set3 palette / neighborhood numbering as Fig4f in chapter 07.
-cn_levels <- levels(factor(spe$cn_celltypes_2))
-cn_cols   <- setNames(brewer.pal(max(3, length(cn_levels)), "Set3")[seq_along(cn_levels)],
-                      cn_levels)
+# Same neighborhood palette as Fig4f in chapter 07 (col_cn, set there from the
+# centralized COL_CN in 00_MapMet_color_code.R and carried in spe's metadata).
+cn_cols <- metadata(spe)$color_vectors$col_cn
 
 # Scale bar (IMC pixel = 1 um), drawn only on the merge panel.
 scale_bar_spec <- list(length = 100, label = "100 µm", cex = 1.5)

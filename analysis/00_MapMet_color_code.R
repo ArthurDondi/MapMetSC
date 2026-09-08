@@ -125,6 +125,12 @@ COL_COMPARTMENT <- c(
   "stroma" = "#619CFF"   # blue
 )
 
+# ---- Cellular neighborhoods (07_spatial_analysis.Rmd, 08_generate_images.Rmd) --
+# k-means (k=6) clusters on neighbor cell-type composition (cn_celltypes_2);
+# RColorBrewer Set3, keyed by cluster number as character so it can be indexed
+# directly by spe$cn_celltypes_2's factor levels.
+COL_CN <- setNames(RColorBrewer::brewer.pal(6, "Set3"), as.character(1:6))
+
 # ---- Fetahu et al. reference: RNA cluster colors (06.2_correlation_Fetahu.Rmd)
 COL_FETAHU_CLUSTERS <- c(
   "B (3)"       = rgb(145,   2, 144, maxColorValue = 255),
