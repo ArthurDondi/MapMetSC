@@ -387,8 +387,8 @@ for (d in colnames(cont_df)[1:ncol(cont_df)-1]) {
   df <- cont_df[,c(d, "community_cluster")]
 
 plot_list[[d]] <- ggboxplot(df, x = "community_cluster", y = d,
-                color = "community_cluster", palette = community_palette,
-                add = "jitter")+
+                fill = "community_cluster", palette = community_palette, color = "black",
+                add = "jitter", add.params = list(color = "black"))+
                 stat_compare_means() +
                 theme(aspect.ratio = 1.5, legend.position="none")
 }
