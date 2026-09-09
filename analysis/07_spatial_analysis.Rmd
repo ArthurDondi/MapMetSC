@@ -593,8 +593,10 @@ for(i in 1:length(unique(p$data$cluster_id))){
   stats_df$p_adj_signif[is.na(stats_df$p_adj_signif) | stats_df$p_adj_signif==" "] <- "ns"
   stats_df$p_fc <- paste0(stats_df$logFC, " (", stats_df$p_adj, ")", " (", stats_df$p_adj_signif, ")")
   
+  color <- unname(metadata(spe)$color_vectors$col_cn[as.character(cluster_name)])
+
   plot_list_fc[[i]] <- ggboxplot(proportions, x = "condition", y = "Freq", order=c("nMNA", "MNA"),
-              fill = "condition", palette = COL_CODE[c("nMNA", "MNA")], color = "black",
+              fill = "condition", palette = c(color, color), color = "black",
               add.params = list(size = 1.5, color = "black"),
               add = "jitter",
               title=cluster_name, show.legend = F) +
@@ -1069,6 +1071,13 @@ tumor_order <- intersect(tumor_order,
                          unique(as.character(spe$celltype_2[spe$metacluster == "tumor"])))
 
 neighborhood_order <- levels(spe$cn_celltypes_2)
+
+# Color lookup, falling back to grey if a cluster has no (or NA) color. Looks
+# up col_celltype_2 by default; pass color_vec = col_cn for neighborhoods.
+cluster_color <- function(name, color_vec = metadata(spe)$color_vectors$col_celltype_2) {
+  col <- unname(color_vec[as.character(name)])
+  if (length(col) == 0 || is.na(col)) "grey50" else col
+}
 ```
 
 
@@ -1078,9 +1087,10 @@ neighborhood_order <- levels(spe$cn_celltypes_2)
 
 ```{r compartment-boxplots-all-comparisons}
 # For each cell class: run diffcyt (testDA_edgeR) for every compartment pair,
-# then draw boxplots. Boxes are filled by compartment (COL_COMPARTMENT), with
-# black outlines/points; the diffcyt DA test and its log2FC/p-value annotation
-# are computed and drawn for every class except "neighborhood".
+# then draw boxplots. Boxes are filled by the cluster's own identity color
+# (celltype_2/CN), with black outlines/points; the diffcyt DA test and its
+# log2FC/p-value annotation are computed and drawn for every class except
+# "neighborhood".
 
 cells_list       <- c("tumor", "immune", "neighborhood")
 comp_levels      <- c("core", "border", "stroma")
@@ -1120,9 +1130,11 @@ for (cells in cells_list) {
                       immune       = spe$metacluster %in% immune_order,
                       tumor        = spe$metacluster == "tumor",
                       neighborhood = rep(TRUE, ncol(spe)))
-  # celltype_2 for tumor/immune; cn_celltypes_2 for neighborhoods, so every
-  # cell (no metacluster subsetting) counts.
+  # celltype_2 for tumor/immune; cn_celltypes_2 (and its color vector) for
+  # neighborhoods, so every cell (no metacluster subsetting) counts.
   cluster_field <- if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2"
+  color_vec     <- if (cells == "neighborhood") metadata(spe)$color_vectors$col_cn else
+                                                 metadata(spe)$color_vectors$col_celltype_2
   # Neighborhood boxplots skip the diffcyt DA test entirely (no p-value
   # annotation for cellular neighborhoods).
   compute_pvals <- cells != "neighborhood"
@@ -1248,15 +1260,17 @@ for (cells in cells_list) {
     all_stats <- dplyr::bind_rows(all_stats_list)
   }
 
-  # 4. Boxplots, filled by compartment (COL_COMPARTMENT) with black
-  # outlines/points; diffcyt annotation added only when computed above.
+  # 4. Boxplots, filled by the cluster's own identity color (celltype_2/CN,
+  # same color for all 3 compartments in a panel) with black outlines/points;
+  # diffcyt annotation added only when computed above.
   plot_list_comp <- list()
   for (cluster_name in order) {
     proportions <- plot_data_list[[cluster_name]]
+    color_cluster <- cluster_color(cluster_name, color_vec)
 
     p_box <- ggboxplot(
       proportions, x = "condition", y = "Freq", order = comp_levels,
-      fill = "condition", palette = COL_COMPARTMENT[comp_levels], color = "black",
+      fill = "condition", palette = rep(color_cluster, length(comp_levels)), color = "black",
       add = "jitter", add.params = list(color = "black")
     ) +
       # wrap long celltype names so they are not cropped in narrow panels
