@@ -278,42 +278,35 @@ p_map <- regionMap(spe,
 
 p_map <- p_map + ggplot2::coord_flip() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Replace the plain "1".."6" region-axis labels with colored, rounded-corner
-# badges (CN color background, black number, no border) drawn in a separate
-# thin column next to the heatmap, combined via patchwork - this needs only
-# grid (base R) and patchwork (already loaded), no extra text-rendering
-# package. regionMap() maps `region` to the x aesthetic (aes(x = region,
-# y = cellType, ...) - see lisaClust's R/LISA.R) with an unmodified default
-# discrete scale (6 categories, ggplot2's standard +0.6 expansion each side);
-# coord_flip() only changes where that renders (here, the now-blanked
-# y-axis). The badge column below reproduces that exact same default
-# discrete-scale layout for the same 6 categories, so patchwork - which
-# aligns combined plots' panel heights - lines its rows up with the
-# heatmap's exactly.
+# Replace the plain "1".."6" region-axis labels with colored badges (CN
+# color fill, black number, no border) drawn in a separate column next to
+# the heatmap, combined via patchwork. Built from plain geom_point()/
+# geom_text() layers (not annotation_custom + raw grid grobs, which need an
+# already-established coordinate system and are easy to get silently wrong
+# on an empty ggplot()) so the scale is trained normally like any other plot.
+# regionMap() maps `region` to the x aesthetic (aes(x = region, y = cellType,
+# ...) - see lisaClust's R/LISA.R); coord_flip() only changes where that
+# renders (here, the now-blanked y-axis). The badge column maps the same 6
+# region categories onto its own y axis, so it gets the identical default
+# discrete-scale layout regionMap() uses, and patchwork's panel-height
+# alignment lines its rows up with the heatmap's.
 p_map <- p_map + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
                         axis.title.y = element_blank())
 
 region_levels <- levels(spe$cn_celltypes_2)
-region_hex    <- metadata(spe)$color_vectors$col_cn[region_levels]
+region_df <- data.frame(x = 1, region = factor(region_levels, levels = region_levels))
 
-p_region_labels <- ggplot2::ggplot() +
-  ggplot2::scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
-  ggplot2::scale_y_discrete(limits = region_levels, expand = ggplot2::expansion(add = 0.6)) +
+p_region_labels <- ggplot2::ggplot(region_df, ggplot2::aes(x = x, y = region)) +
+  ggplot2::geom_point(ggplot2::aes(fill = region), shape = 21, size = 11, colour = NA) +
+  ggplot2::geom_text(ggplot2::aes(label = region), colour = "black", fontface = "bold", size = 4) +
+  ggplot2::scale_fill_manual(values = metadata(spe)$color_vectors$col_cn, guide = "none") +
+  ggplot2::scale_x_continuous(limits = c(0.5, 1.5), expand = c(0, 0)) +
   ggplot2::labs(y = "Region") +
   ggplot2::theme_void() +
   ggplot2::theme(axis.title.y = ggplot2::element_text(angle = 90, size = 11),
                  plot.margin  = ggplot2::margin(0, 2, 0, 2))
 
-for (i in seq_along(region_levels)) {
-  badge <- grid::grobTree(
-    grid::roundrectGrob(gp = grid::gpar(fill = region_hex[i], col = NA), r = grid::unit(0.3, "snpc")),
-    grid::textGrob(region_levels[i], gp = grid::gpar(col = "black", fontsize = 12, fontface = "bold"))
-  )
-  p_region_labels <- p_region_labels +
-    ggplot2::annotation_custom(badge, xmin = 0.15, xmax = 0.85, ymin = i - 0.35, ymax = i + 0.35)
-}
-
-p_map <- p_region_labels + p_map + patchwork::plot_layout(widths = c(1, 6))
+p_map <- (p_region_labels | p_map) + patchwork::plot_layout(widths = c(1, 6))
 
 save_plot(p_map, "Fig4c_spatial_neighborhood_map.pdf", width = 8.5, height = 4)
 
