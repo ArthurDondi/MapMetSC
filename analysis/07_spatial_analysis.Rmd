@@ -278,6 +278,32 @@ p_map <- regionMap(spe,
 
 p_map <- p_map + ggplot2::coord_flip() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+# Style the "1".."6" cellular-neighborhood axis labels as colored,
+# rounded-corner badges (CN color background, black number, no border),
+# slightly larger than the default axis text. Requires ggtext; falls back to
+# plain (still enlarged) black text if it isn't installed. The same labeller
+# is passed to both scale_x/y_discrete since coord_flip() keeps each
+# aesthetic's original scale identity - whichever one is actually the
+# neighborhood axis picks up the badges, the other (celltype names) passes
+# through unchanged.
+cn_hex <- metadata(spe)$color_vectors$col_cn
+cn_badge_labels <- function(x) {
+  ifelse(x %in% names(cn_hex),
+         sprintf("<span style='background-color:%s; border-radius:6px; padding:2px 9px; color:black;'>%s</span>",
+                 cn_hex[x], x),
+         x)
+}
+
+if (requireNamespace("ggtext", quietly = TRUE)) {
+  p_map <- p_map +
+    ggplot2::scale_x_discrete(labels = cn_badge_labels) +
+    ggplot2::scale_y_discrete(labels = cn_badge_labels) +
+    theme(axis.text.y = ggtext::element_markdown(size = 12))
+} else {
+  message("ggtext not installed - showing plain (larger) neighborhood labels without the color badge.")
+  p_map <- p_map + theme(axis.text.y = element_text(size = 12))
+}
+
 save_plot(p_map, "Fig4c_spatial_neighborhood_map.pdf", width = 8, height = 4)
 
 p_map
@@ -1044,7 +1070,7 @@ p_spatial_celltype
 
 ### DA analysis in spatial compartments
 
-Next, we will plot the differential abundance of cell types with respect to spatial compartment on a sample level. We analyse tumor celltypes, immune metaclusters, and cellular neighborhoods, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing, except for cellular neighborhoods, where the DA test (and its p-value annotation) is skipped and only the compartment boxplots are drawn.
+Next, we will plot the differential abundance of cell types with respect to spatial compartment on a sample level. We analyse tumor celltypes, immune metaclusters, and cellular neighborhoods, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing.
 
 ```{r define-markers}
 
@@ -1072,6 +1098,11 @@ tumor_order <- intersect(tumor_order,
 
 neighborhood_order <- levels(spe$cn_celltypes_2)
 
+# Remaining non-tumor, non-immune metaclusters (mesenchymal, other), used to
+# pad the pooled "tumor_immune" stacked bar to all cells (so its n= total
+# matches the "neighborhood" stacked bar, which counts every cell).
+other_order <- intersect(c("mesenchymal", "other"), unique(as.character(spe$celltype_2)))
+
 # Color lookup, falling back to grey if a cluster has no (or NA) color. Looks
 # up col_celltype_2 by default; pass color_vec = col_cn for neighborhoods.
 cluster_color <- function(name, color_vec = metadata(spe)$color_vectors$col_celltype_2) {
@@ -1087,10 +1118,9 @@ cluster_color <- function(name, color_vec = metadata(spe)$color_vectors$col_cell
 
 ```{r compartment-boxplots-all-comparisons}
 # For each cell class: run diffcyt (testDA_edgeR) for every compartment pair,
-# then draw boxplots. Boxes are filled by the cluster's own identity color
-# (celltype_2/CN), with black outlines/points; the diffcyt DA test and its
-# log2FC/p-value annotation are computed and drawn for every class except
-# "neighborhood".
+# then draw boxplots labelled with log2FC + adjusted p-value and stars. Boxes
+# are filled by the cluster's own identity color (celltype_2/CN), with black
+# outlines/points.
 
 cells_list       <- c("tumor", "immune", "neighborhood")
 comp_levels      <- c("core", "border", "stroma")
@@ -1135,14 +1165,11 @@ for (cells in cells_list) {
   cluster_field <- if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2"
   color_vec     <- if (cells == "neighborhood") metadata(spe)$color_vectors$col_cn else
                                                  metadata(spe)$color_vectors$col_celltype_2
-  # Neighborhood boxplots skip the diffcyt DA test entirely (no p-value
-  # annotation for cellular neighborhoods).
-  compute_pvals <- cells != "neighborhood"
 
-  # 1. diffcyt DA results for every compartment pair (skipped for neighborhoods)
+  # 1. diffcyt DA results for every compartment pair
   diffcyt_results <- list()
 
-  if (compute_pvals) for (pair in comparison_pairs) {
+  for (pair in comparison_pairs) {
     comps     <- pair
     key       <- paste(comps, collapse = "-")
     keep_cols <- keep_meta & spe$compartment %in% comps
@@ -1228,70 +1255,63 @@ for (cells in cells_list) {
       )
   }
 
-  # 3. Collate diffcyt stats for all pairs into one table (skipped for
-  # neighborhoods, alongside the diffcyt test itself in step 1)
-  all_stats <- NULL
-  if (compute_pvals) {
-    all_stats_list <- list()
-    for (cluster_name in order) {
-      for (pair in comparison_pairs) {
-        key      <- paste(pair, collapse = "-")
-        res_pair <- diffcyt_results[[key]]
-        if (!is.null(res_pair) && cluster_name %in% rownames(res_pair)) {
-          p_adj <- res_pair[cluster_name, "p_adj"]
-          logFC <- res_pair[cluster_name, "logFC"]
-        } else {
-          p_adj <- NA_real_; logFC <- NA_real_
-        }
-        p_signif <- if (!is.na(p_adj)) gtools::stars.pval(p_adj) else "NA"
-        if (p_signif == " ") p_signif <- "ns"
-        all_stats_list <- c(all_stats_list, list(data.frame(
-          cluster_name = cluster_name,
-          group1       = pair[1],
-          group2       = pair[2],
-          p_adj        = p_adj,
-          logFC        = round(logFC, 2),
-          label        = paste0(round(logFC, 2), " (",
-                                if (!is.na(p_adj)) sprintf("%.3f", p_adj) else "NA",
-                                " ", p_signif, ")")
-        )))
+  # 3. Collate diffcyt stats for all pairs into one table
+  all_stats_list <- list()
+  for (cluster_name in order) {
+    for (pair in comparison_pairs) {
+      key      <- paste(pair, collapse = "-")
+      res_pair <- diffcyt_results[[key]]
+      if (!is.null(res_pair) && cluster_name %in% rownames(res_pair)) {
+        p_adj <- res_pair[cluster_name, "p_adj"]
+        logFC <- res_pair[cluster_name, "logFC"]
+      } else {
+        p_adj <- NA_real_; logFC <- NA_real_
       }
+      p_signif <- if (!is.na(p_adj)) gtools::stars.pval(p_adj) else "NA"
+      if (p_signif == " ") p_signif <- "ns"
+      all_stats_list <- c(all_stats_list, list(data.frame(
+        cluster_name = cluster_name,
+        group1       = pair[1],
+        group2       = pair[2],
+        p_adj        = p_adj,
+        logFC        = round(logFC, 2),
+        label        = paste0(round(logFC, 2), " (",
+                              if (!is.na(p_adj)) sprintf("%.3f", p_adj) else "NA",
+                              " ", p_signif, ")")
+      )))
     }
-    all_stats <- dplyr::bind_rows(all_stats_list)
   }
+  all_stats <- dplyr::bind_rows(all_stats_list)
 
   # 4. Boxplots, filled by the cluster's own identity color (celltype_2/CN,
-  # same color for all 3 compartments in a panel) with black outlines/points;
-  # diffcyt annotation added only when computed above.
+  # same color for all 3 compartments in a panel) with black outlines/points,
+  # annotated with the diffcyt log2FC/p-value.
   plot_list_comp <- list()
   for (cluster_name in order) {
     proportions <- plot_data_list[[cluster_name]]
+    stats_df    <- all_stats[all_stats$cluster_name == cluster_name, ]
+
+    # fixed bracket heights, identical for every panel
+    stats_df$y.position <- bracket_positions[seq_len(nrow(stats_df))]
+
     color_cluster <- cluster_color(cluster_name, color_vec)
 
-    p_box <- ggboxplot(
+    plot_list_comp[[cluster_name]] <- ggboxplot(
       proportions, x = "condition", y = "Freq", order = comp_levels,
       fill = "condition", palette = rep(color_cluster, length(comp_levels)), color = "black",
       add = "jitter", add.params = list(color = "black")
     ) +
+      stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
       # wrap long celltype names so they are not cropped in narrow panels
       ggtitle(str_wrap(cluster_name, width = 18)) +
       scale_y_continuous(breaks = seq(0, y_axis_max, 25),
                          expand = expansion(mult = c(0.02, 0))) +
-      # lock axis to 0-100; brackets (when present) draw outside it
+      # lock axis to 0-100; brackets draw outside it
       coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
       theme(aspect.ratio = 1.0, legend.position = "none",
             plot.title  = element_text(hjust = 0.5, size = 14,
                                        margin = margin(b = title_gap)),
             plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
-
-    if (compute_pvals) {
-      stats_df <- all_stats[all_stats$cluster_name == cluster_name, ]
-      # fixed bracket heights, identical for every panel
-      stats_df$y.position <- bracket_positions[seq_len(nrow(stats_df))]
-      p_box <- p_box + stat_pvalue_manual(stats_df, y.position = "y.position", label = "label")
-    }
-
-    plot_list_comp[[cluster_name]] <- p_box
   }
 
   p_comp <- gridExtra::grid.arrange(
@@ -1305,7 +1325,7 @@ for (cells in cells_list) {
 }
 ```
 
-Finally, we summarize the cell-type composition of each compartment as stacked bars, drawn for every border size and shown for immune metaclusters, tumor celltypes, the two pooled together, and cellular neighborhoods.
+Finally, we summarize the cell-type composition of each compartment as stacked bars, drawn for every border size and shown for immune metaclusters, tumor celltypes, all celltypes pooled together (tumor + immune + mesenchymal + other, so its total matches the neighborhood bar below), and cellular neighborhoods.
 
 ```{r composition-stacked-bars}
 # spe$compartment (the canonical-border assignment) is left untouched;
@@ -1324,8 +1344,9 @@ compartment_at <- function(spe, border) {
 }
 
 # One stacked-bar figure for a compartment vector and a cell class: "immune"
-# (metaclusters), "tumor" (celltypes), "tumor_immune" (the two pooled), or
-# "neighborhood" (cellular neighborhoods, all cells).
+# (metaclusters), "tumor" (celltypes), "tumor_immune" (all celltypes pooled -
+# tumor + immune + mesenchymal + other), or "neighborhood" (cellular
+# neighborhoods, all cells).
 make_compartment_stackedbar <- function(comp_vec, cells, border) {
   if (cells == "immune") {
     keep <- spe$metacluster %in% immune_order;                       order <- immune_order
@@ -1333,9 +1354,11 @@ make_compartment_stackedbar <- function(comp_vec, cells, border) {
     keep <- spe$metacluster == "tumor";                              order <- tumor_order
   } else if (cells == "neighborhood") {
     keep <- rep(TRUE, ncol(spe));                                    order <- neighborhood_order
-  } else {                                                           # tumor_immune (pooled)
-    keep <- spe$metacluster == "tumor" | spe$metacluster %in% immune_order
-    order <- c(tumor_order, immune_order)
+  } else {                       # tumor_immune (pooled; incl. mesenchymal/other so
+                                  # its n= total matches the "neighborhood" bar)
+    keep <- spe$metacluster == "tumor" | spe$metacluster %in% immune_order |
+      spe$metacluster %in% other_order
+    order <- c(tumor_order, immune_order, other_order)
   }
 
   cluster_field <- if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2"
@@ -1355,7 +1378,7 @@ make_compartment_stackedbar <- function(comp_vec, cells, border) {
                   cluster_id  = factor(cluster_id,  levels = order))
 
   color_vec <- color_vec_all[order]
-  lab       <- if (cells == "tumor_immune") "tumor + immune" else cells
+  lab       <- if (cells == "tumor_immune") "all celltypes" else cells
 
   p_stack <- ggplot(df_prop, aes(x = compartment, y = pct, fill = cluster_id)) +
     geom_bar(stat = "identity", width = 0.7) +
