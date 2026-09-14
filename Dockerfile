@@ -13,8 +13,7 @@ RUN apt-get -y update \
 
 RUN R -e 'install.packages(c("rmarkdown", "pheatmap", "viridis", "BiocManager", "devtools", "tiff", \
                              "ggrepel", "patchwork", "mclust", "RColorBrewer", "uwot", "Seurat", \
-                             "SeuratObject", "cowplot", "ggridges", "gridGraphics", "scales", "Matrix", \
-                             "ggtext"))'
+                             "SeuratObject", "cowplot", "ggridges", "gridGraphics", "scales", "Matrix"))'
 RUN R -e 'BiocManager::install(c("CATALYST", "scater", "dittoSeq", "tidyverse", "lisaClust", "imcRtools", \
                                  "cytomapper", "ComplexHeatmap", "BiocParallel", "SingleR", "diffcyt", \
                                  "BioQC", "edgeR", "stringr", "circlize", "paletteer", "tidyHeatmap", "bruceR", \
