@@ -280,12 +280,13 @@ p_map <- p_map + ggplot2::coord_flip() + theme(axis.text.x = element_text(angle 
 
 # Style the "1".."6" cellular-neighborhood axis labels as colored,
 # rounded-corner badges (CN color background, black number, no border),
-# slightly larger than the default axis text. Requires ggtext; falls back to
-# plain (still enlarged) black text if it isn't installed. The same labeller
-# is passed to both scale_x/y_discrete since coord_flip() keeps each
-# aesthetic's original scale identity - whichever one is actually the
-# neighborhood axis picks up the badges, the other (celltype names) passes
-# through unchanged.
+# slightly larger than the default axis text. regionMap() maps `region` to
+# the x aesthetic (aes(x = region, y = cellType, ...) - see lisaClust's
+# R/LISA.R); coord_flip() only changes rendering, not aesthetic/scale
+# identity, so the region tick labels are still controlled by
+# scale_x_discrete() even though they render on the left (as axis.text.y)
+# after the flip. Requires ggtext; falls back to plain (still enlarged) black
+# text if it isn't installed.
 cn_hex <- metadata(spe)$color_vectors$col_cn
 cn_badge_labels <- function(x) {
   ifelse(x %in% names(cn_hex),
@@ -297,7 +298,6 @@ cn_badge_labels <- function(x) {
 if (requireNamespace("ggtext", quietly = TRUE)) {
   p_map <- p_map +
     ggplot2::scale_x_discrete(labels = cn_badge_labels) +
-    ggplot2::scale_y_discrete(labels = cn_badge_labels) +
     theme(axis.text.y = ggtext::element_markdown(size = 12))
 } else {
   message("ggtext not installed - showing plain (larger) neighborhood labels without the color badge.")
