@@ -377,7 +377,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag, out_dir) {
               colour = list(metacluster = metadata(spe)$color_vectors$col_metacluster),
               missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
-    paste0(tag, "_metacluster.png"), 10, 8)
+    file.path(nm_dir, paste0(tag, "_metacluster.png")), 10, 8)
 
   # --- spatial compartment (on the masks) ---
   render_and_save(
