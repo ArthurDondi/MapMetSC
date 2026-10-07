@@ -258,6 +258,47 @@ plot_cluster_bubble(
 )
 ```
 
+## Clustered heatmaps for each cluster before subclustering
+
+Same single-cell heatmaps as in "Clustered heatmaps for each cluster" below
+(up to 8000 random cells per cluster), but on the phenograph clusters before
+the GMM subclustering.
+
+```{r heatmaps-before-subclustering}
+library(dittoSeq)
+library(viridis)
+
+genes_use <- rownames(spe)[!grepl("-80|PARP|IDO|IF2_GD2|IF3_CD45_CD56|DAPI|DNA|H4K12Ac|H3K9Ac|CXCR2|PNMT|Fibro|FOXP3", rownames(spe))]
+
+set.seed(221228)
+for (cl in as.character(unique(spe$pg_clusters))) {
+
+  spe_cl <- spe[, as.character(spe$pg_clusters) == cl]
+
+  # skip empty clusters
+  if (ncol(spe_cl) == 0) next
+
+  n_cells <- min(8000, ncol(spe_cl))
+  rand_cells <- sample(seq_len(ncol(spe_cl)), n_cells)
+
+  p1 <- dittoHeatmap(
+    spe_cl[, rand_cells],
+    genes = genes_use,
+    cluster_cols = TRUE,
+    scaled.to.max = TRUE,
+    heatmap.colors.max.scaled = viridis(100)
+  )
+
+  save_plot(
+    p1,
+    paste0("heatmap_before_subclustering_", cl, ".pdf"),
+    width = 14,
+    height = 6,
+    subdir = "heatmap_before_subclustering"
+  )
+}
+```
+
 ## Subclustering of mixed clusters using GMM
 
 ```{r gmm-subclustering}

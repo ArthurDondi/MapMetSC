@@ -44,9 +44,13 @@ if (!dir.exists(plot_dir)) {
 
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
-# Save a plot to plot_dir (dispatches on plot type)
+# Save a plot to plot_dir (dispatches on plot type). `filename` may carry a
+# relative subfolder (e.g. "<image_id>/no_mask/x.png"); it is created if needed
+# and the date prefix goes on the file name only.
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
-  full_path <- file.path(plot_dir, paste0(date_prefix, "_", filename))
+  out_dir   <- file.path(plot_dir, dirname(filename))
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  full_path <- file.path(out_dir, paste0(date_prefix, "_", basename(filename)))
 
   if (inherits(plot_obj, "ggplot")) {
     ggsave(full_path, plot = plot_obj, width = width, height = height, dpi = dpi, bg = "white")
@@ -75,8 +79,19 @@ This standalone supplementary report renders each requested image — as the
 * each requested **marker** as a separate pixel image,
 * a colour **merge** of all requested markers,
 * the **cell types**,
+* the **metaclusters**,
 * the **spatial compartment** (tumor core / border / stroma), and
 * the **cellular neighborhood**.
+
+Plots are grouped per image in `plots/08_generate_images/<image_id>/`, with three
+subfolders:
+
+* `no_mask/` — all panels above, pixel images unmasked;
+* `masks/` — the marker images and the merge restricted to the segmentation
+  mask (the same mask the cell-type panel is drawn on): signal is kept only
+  inside cells, everything else is black, and the mask outline is drawn as a
+  1 px white border just *outside* the cells;
+* `mask_no_border/` — the same masked images without the white border.
 
 The cell-level panels (cell types, compartment, neighborhood) are drawn on the
 segmentation **masks** (`plotCells`), not as points. It is meant to be rendered
@@ -211,10 +226,9 @@ for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_cod
   if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
 compartment_cols <- COL_COMPARTMENT
 
-# Same Set3 palette / neighborhood numbering as Fig4f in chapter 07.
-cn_levels <- levels(factor(spe$cn_celltypes_2))
-cn_cols   <- setNames(brewer.pal(max(3, length(cn_levels)), "Set3")[seq_along(cn_levels)],
-                      cn_levels)
+# Same neighborhood palette as Fig4f in chapter 07 (col_cn, set there from the
+# centralized COL_CN in 00_MapMet_color_code.R and carried in spe's metadata).
+cn_cols <- metadata(spe)$color_vectors$col_cn
 
 # Scale bar (IMC pixel = 1 um), drawn only on the merge panel.
 scale_bar_spec <- list(length = 100, label = "100 µm", cex = 1.5)
@@ -248,9 +262,72 @@ render_and_save <- function(plot_call, filename, width, height) {
 # Markers to draw individually but leave out of the merge (via params$merge_exclude).
 .merge_exclude <- markers[sub("_.*$", "", markers) %in% params$merge_exclude]
 
+# 1 px border just outside the foreground: background pixels that touch a
+# foreground pixel (8-neighbourhood).
+.outer_border <- function(fg) {
+  nx <- nrow(fg); ny <- ncol(fg)
+  pad <- matrix(FALSE, nx + 2, ny + 2)
+  pad[2:(nx + 1), 2:(ny + 1)] <- fg
+  dil <- fg
+  for (dx in -1:1) for (dy in -1:1)
+    dil <- dil | pad[(2:(nx + 1)) + dx, (2:(ny + 1)) + dy]
+  dil & !fg
+}
+
+# Masked colour composite of markers `ms`, returned as a 3-channel (R, G, B)
+# CytoImageList. Each marker is min-max scaled on the UNMASKED image (as
+# plotPixels does for the no_mask panels, so brightness matches), coloured
+# black -> its colour, summed and clipped to [0, 1]; pixels outside the cell
+# mask (label 0) are set to 0 and, if `border`, the outer mask border to white.
+masked_rgb <- function(img_v, masks_v, ms, border = TRUE) {
+  dat <- EBImage::imageData(img_v[[1]])
+  fg  <- EBImage::imageData(masks_v[[1]]) > 0
+  if (!identical(dim(fg), dim(dat)[1:2]))
+    stop("mask (", paste(dim(fg), collapse = " x "), ") and image (",
+         paste(dim(dat)[1:2], collapse = " x "), ") sizes differ")
+  if (!any(fg)) stop("no cells in the mask")
+  rgb <- array(0, dim = c(dim(fg), 3))
+  for (m in ms) {
+    ch  <- dat[, , which(channelNames(img_v) == m)[1]]
+    rng <- range(ch, na.rm = TRUE)
+    if (!(diff(rng) > 0)) stop("flat channel ", m)
+    v   <- (ch - rng[1]) / diff(rng) * fg
+    col <- grDevices::col2rgb(.marker_col_map[[m]])[, 1] / 255
+    for (k in 1:3) rgb[, , k] <- rgb[, , k] + v * col[k]
+  }
+  rgb <- pmin(rgb, 1)
+  if (border) {
+    bd <- .outer_border(fg)
+    for (k in 1:3) { ch <- rgb[, , k]; ch[bd] <- 1; rgb[, , k] <- ch }
+  }
+  out <- CytoImageList(list(EBImage::Image(rgb)))
+  names(out) <- names(img_v)
+  mcols(out) <- mcols(img_v)
+  channelNames(out) <- c("R", "G", "B")
+  out
+}
+
+# Draw a masked_rgb() composite with plotPixels (same orientation / scale bar
+# as the no_mask panels). The composite is already in [0, 1], so scale = FALSE
+# keeps plotPixels from re-stretching each R/G/B channel to its own max.
+plot_masked <- function(img_v, masks_v, ms, scale_bar = NULL, border = TRUE) {
+  rgb_cil <- masked_rgb(img_v, masks_v, ms, border = border)
+  plotPixels(rgb_cil, colour_by = c("R", "G", "B"),
+             colour = list(R = c("black", "red"), G = c("black", "green"),
+                           B = c("black", "blue")),
+             bcg = list(R = c(0, 1, 1), G = c(0, 1, 1), B = c(0, 1, 1)),
+             scale = FALSE, image_title = NULL, scale_bar = scale_bar,
+             legend = NULL, return_plot = TRUE)
+}
+
 # Render every panel (individual markers, merge, celltype, compartment,
-# neighborhood) for one view; tag goes into the filename. No legends.
-plot_region <- function(img_v, masks_v, tmp, markers, tag) {
+# neighborhood) for one view into <out_dir>/no_mask, plus the masked marker
+# and merge images into <out_dir>/masks (white outer border) and
+# <out_dir>/mask_no_border; tag goes into the filename. No legends.
+plot_region <- function(img_v, masks_v, tmp, markers, tag, out_dir) {
+  nm_dir <- file.path(out_dir, "no_mask")
+  mk_dir <- file.path(out_dir, "masks")
+  nb_dir <- file.path(out_dir, "mask_no_border")
 
   # --- individual markers, each in its assigned colour; keep the ones that render ---
   usable <- character(0)
@@ -261,8 +338,14 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
                  bcg = setNames(list(c(0, 1, 1)), m),
                  image_title = NULL, scale_bar = NULL,
                  legend = NULL, return_plot = TRUE),
-      paste0(tag, "_marker_", m, ".png"), 8, 8)
-    if (isTRUE(ok)) usable <- c(usable, m)
+      file.path(nm_dir, paste0(tag, "_marker_", m, ".png")), 8, 8)
+    if (isTRUE(ok)) {
+      usable <- c(usable, m)
+      render_and_save(plot_masked(img_v, masks_v, m),
+                      file.path(mk_dir, paste0(tag, "_marker_", m, "_masked.png")), 8, 8)
+      render_and_save(plot_masked(img_v, masks_v, m, border = FALSE),
+                      file.path(nb_dir, paste0(tag, "_marker_", m, "_masked_no_border.png")), 8, 8)
+    }
   }
 
   # --- merge of the rendered markers, minus the individual-only ones; scale bar
@@ -280,7 +363,12 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
       plotPixels(img_v, colour_by = merge_markers, colour = colour_list,
                  bcg = bcg_list, image_title = NULL, scale_bar = scale_bar_spec,
                  legend = NULL, return_plot = TRUE),
-      paste0(tag, "_markers_merge.png"), 8, 8)
+      file.path(nm_dir, paste0(tag, "_markers_merge.png")), 8, 8)
+    render_and_save(plot_masked(img_v, masks_v, merge_markers, scale_bar = scale_bar_spec),
+                    file.path(mk_dir, paste0(tag, "_markers_merge_masked.png")), 8, 8)
+    render_and_save(plot_masked(img_v, masks_v, merge_markers, scale_bar = scale_bar_spec,
+                                border = FALSE),
+                    file.path(nb_dir, paste0(tag, "_markers_merge_masked_no_border.png")), 8, 8)
   }
 
   # --- cell types (on the masks) ---
@@ -290,7 +378,16 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
               colour = list(celltype = metadata(spe)$color_vectors$col_celltype),
               missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
-    paste0(tag, "_celltype.png"), 10, 8)
+    file.path(nm_dir, paste0(tag, "_celltype.png")), 10, 8)
+
+  # --- metaclusters (on the masks) ---
+  render_and_save(
+    plotCells(masks_v, object = tmp, cell_id = "ObjectNumber", img_id = "sample_id",
+              colour_by = "metacluster",
+              colour = list(metacluster = metadata(spe)$color_vectors$col_metacluster),
+              missing_colour = "white", image_title = NULL, scale_bar = NULL,
+              legend = NULL, return_plot = TRUE),
+    file.path(nm_dir, paste0(tag, "_metacluster.png")), 10, 8)
 
   # --- spatial compartment (on the masks) ---
   render_and_save(
@@ -299,7 +396,7 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
               colour = list(compartment = compartment_cols),
               missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
-    paste0(tag, "_compartment.png"), 10, 8)
+    file.path(nm_dir, paste0(tag, "_compartment.png")), 10, 8)
 
   # --- cellular neighborhood (on the masks) ---
   render_and_save(
@@ -308,14 +405,15 @@ plot_region <- function(img_v, masks_v, tmp, markers, tag) {
               colour = list(cn_celltypes_2 = cn_cols),
               missing_colour = "white", image_title = NULL, scale_bar = NULL,
               legend = NULL, return_plot = TRUE),
-    paste0(tag, "_cellular_neighborhood.png"), 10, 8)
+    file.path(nm_dir, paste0(tag, "_cellular_neighborhood.png")), 10, 8)
 }
 ```
 
 ## Whole image and zoom
 Every image in `image_ids` is rendered as a whole image; when that image has a
 zoom window in `crops`, the zoomed region is rendered too. Every output filename
-carries the image id and `_whole` / `_zoom`.
+carries the image id and `_whole` / `_zoom`, and is written under
+`<image_id>/no_mask/`, `<image_id>/masks/` or `<image_id>/mask_no_border/`.
 
 ```{r generate}
 for (i in seq_along(image_ids)) {
@@ -338,7 +436,7 @@ for (i in seq_along(image_ids)) {
     img_v   <- rotate90_ccw(img_v)
     masks_v <- rotate90_ccw(masks_v)
     message("=== view: ", vn, " (", paste(dim(img_v[[1]])[1:2], collapse = " x "), " px) ===")
-    plot_region(img_v, masks_v, tmp, markers, paste0(image_id, "_", vn))
+    plot_region(img_v, masks_v, tmp, markers, paste0(image_id, "_", vn), out_dir = image_id)
   }
 }
 ```

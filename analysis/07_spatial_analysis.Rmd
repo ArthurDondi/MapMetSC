@@ -24,12 +24,15 @@ date_prefix <- format(Sys.Date(), "%Y%m%d")
 
 # Save a plot (ggplot / ComplexHeatmap / base) into a figure subfolder
 save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
-  # Route figures into subfolders by filename. The compartment check runs before
-  # patch so Fig4g3 panels (named "..._patch_...") land under compartments/.
-  subdir <- if (grepl("_spatial_neighborhood|Fig4d_combined_stacked|Fig4d1|Fig4d2|Fig4d3", filename)) "neighborhood" else
-            if (grepl("compartment|stackedbar|bordersize|Fig4g3|Fig4m", filename))                    "compartments" else
-            if (grepl("patch|border_distance|Fig4h_DA|Fig4i_DA|Fig4j", filename))                      "patch"        else ""
-  out_dir   <- if (nzchar(subdir)) file.path(plot_dir, subdir) else plot_dir
+  # Route every figure into exactly one of three subfolders by filename:
+  # cell-cell_interaction (Fig4b), neighborhood_level (anything CN/neighborhood-
+  # related, incl. the combined Fig4d stack), celltype_level (everything else -
+  # tumor/immune celltype breakdowns, spatial compartments, border distance by
+  # celltype).
+  subdir <- if (grepl("cell-cell_interactions", filename))               "cell-cell_interaction" else
+            if (grepl("neighborhood|Fig4d_combined_stacked", filename))  "neighborhood_level"    else
+                                                                          "celltype_level"
+  out_dir   <- file.path(plot_dir, subdir)
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   full_path <- file.path(out_dir, paste0(date_prefix, "_", filename))
 
@@ -112,6 +115,12 @@ We can now read in the neighbors.
 For the spatial interaction analysis, we will use the metaclusters for non-tumor cells, since these represent the minority in the PT samples, and the celltype level annotations for the tumor cells (majority).
 
 ```{r read-data}
+# Sample-annotation and structural colors (COL_CODE, COL_COMPARTMENT, COL_CN)
+# from 00_MapMet_color_code.R - sourced early so they are available as soon as
+# the corresponding columns are derived below / further down this file.
+for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
+  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
+
 # Load the phenotyped object from 05.1 (carries the tumor_community column used below)
 spe <- readRDS(file.path(params$output,"spe_05.1_PT_DE_cellularcomm.rds"))
 spe <- spe[,spe$tissue=="PT"]
@@ -129,13 +138,9 @@ tumor_names <- unique(spe[,spe$metacluster=="tumor"]$celltype)
 metadata(spe)$color_vectors$col_celltype_2 <- metadata(spe)$color_vectors$col_metacluster
 metadata(spe)$color_vectors$col_celltype_2 <- c(metadata(spe)$color_vectors$col_celltype_2, metadata(spe)$color_vectors$col_celltype[tumor_names])
 
-#celltype 3
+#celltype 3 (used below to count "immune" cells per compartment)
 spe$celltype_3 <- spe$metacluster
 spe[,spe$metacluster=="T cells" | spe$metacluster=="B cells" | spe$metacluster=="granulocytes" | spe$metacluster=="myeloid/NK"]$celltype_3 <- "immune"
-
-# generate new color vector
-metadata(spe)$color_vectors$col_celltype_3 <- metadata(spe)$color_vectors$col_metacluster
-metadata(spe)$color_vectors$col_celltype_3 <- c(metadata(spe)$color_vectors$col_celltype_3, "immune" = "red")
 ```
 
 ## Interaction analysis
@@ -185,6 +190,50 @@ p_heatmap <- pheatmap(data_wide,
 save_plot(p_heatmap, "Fig4b_cell-cell_interactions.pdf", width = 6, height = 6)
 ```
 
+We repeat the same analysis, this time at the resolution of all (fine-grained)
+celltypes rather than the celltype/metacluster mixture used above.
+
+```{r interaction-analysis-celltype}
+out_celltype <- testInteractions(spe,
+                        group_by = "sample_id",
+                        label = "celltype",
+                        colPairName = "neighborhood",
+                        BPPARAM = SerialParam(RNGseed = 221029))
+```
+
+```{r interaction-heatmap-celltype, fig.width=12, fig.height=12}
+
+data_celltype <- out_celltype %>% as_tibble() %>%
+    group_by(from_label, to_label) %>%
+    summarize(sum_sigval = sum(sigval, na.rm = TRUE))
+
+data_wide_celltype <- data_celltype %>%
+  pivot_wider(
+    names_from = to_label,
+    values_from = sum_sigval
+  )
+
+data_wide_celltype <- tibble::column_to_rownames(data_wide_celltype, var = "from_label")
+
+# Fixed symmetric color range (+/-50), so breaks are centred on 0
+max_range_celltype <- max(abs(50), abs(50))
+breaks_celltype <- seq(-max_range_celltype, max_range_celltype, length.out = 101)
+
+# blue-white-red scale
+colors_celltype <- colorRampPalette(c("blue", "white", "red"))(length(breaks_celltype) - 1)
+
+p_heatmap_celltype <- pheatmap(data_wide_celltype,
+         color = colors_celltype,
+         breaks = breaks_celltype,
+         cellwidth = 12,
+         cellheight = 12,
+         fontsize = 7,
+         display_numbers = TRUE,
+         number_format = "%.0f")
+
+save_plot(p_heatmap_celltype, "Fig4b_cell-cell_interactions_all_celltypes.pdf", width = 14, height = 14)
+```
+
 ## Cellular neighborhoods
 
 In a next step, we detect cellular neighborhoods (CNs). For each cell, we compute the fraction of each cell type (celltype_2) among its neighbors, and then aggregate cells into a predefined number of neighborhoods (here 6) by k-means.
@@ -202,12 +251,16 @@ n_neighborhoods <- 6
 cn_1 <- kmeans(spe$aggregatedNeighbors, centers = n_neighborhoods)
 spe$cn_celltypes_2 <- as.factor(cn_1$cluster)
 
-p_spatial <- plotSpatial(spe, 
-            node_color_by = "cn_celltypes_2", 
-            img_id = "sample_id", 
+# Centralized neighborhood palette (COL_CN, from 00_MapMet_color_code.R) so the
+# same CN -> color mapping is reused everywhere below (and in 08_generate_images).
+metadata(spe)$color_vectors$col_cn <- COL_CN[levels(spe$cn_celltypes_2)]
+
+p_spatial <- plotSpatial(spe,
+            node_color_by = "cn_celltypes_2",
+            img_id = "sample_id",
             ncols=6,
             node_size_fix = 0.5) +
-    scale_color_brewer(palette = "Set3")
+    scale_color_manual(values = metadata(spe)$color_vectors$col_cn)
 
 save_plot(p_spatial, "Fig4f_spatial_neighborhood_images.pdf", width = 20, height = 49)
 
@@ -225,7 +278,37 @@ p_map <- regionMap(spe,
 
 p_map <- p_map + ggplot2::coord_flip() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-save_plot(p_map, "Fig4c_spatial_neighborhood_map.pdf", width = 8, height = 4)
+# Replace the plain "1".."6" region-axis labels with colored badges (CN
+# color fill, black number, no border) drawn in a separate column next to
+# the heatmap, combined via patchwork. Built from plain geom_point()/
+# geom_text() layers (not annotation_custom + raw grid grobs, which need an
+# already-established coordinate system and are easy to get silently wrong
+# on an empty ggplot()) so the scale is trained normally like any other plot.
+# regionMap() maps `region` to the x aesthetic (aes(x = region, y = cellType,
+# ...) - see lisaClust's R/LISA.R); coord_flip() only changes where that
+# renders (here, the now-blanked y-axis). The badge column maps the same 6
+# region categories onto its own y axis, so it gets the identical default
+# discrete-scale layout regionMap() uses, and patchwork's panel-height
+# alignment lines its rows up with the heatmap's.
+p_map <- p_map + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+                        axis.title.y = element_blank())
+
+region_levels <- levels(spe$cn_celltypes_2)
+region_df <- data.frame(x = 1, region = factor(region_levels, levels = region_levels))
+
+p_region_labels <- ggplot2::ggplot(region_df, ggplot2::aes(x = x, y = region)) +
+  ggplot2::geom_point(ggplot2::aes(fill = region), shape = 21, size = 11, colour = NA) +
+  ggplot2::geom_text(ggplot2::aes(label = region), colour = "black", fontface = "bold", size = 4) +
+  ggplot2::scale_fill_manual(values = metadata(spe)$color_vectors$col_cn, guide = "none") +
+  ggplot2::scale_x_continuous(limits = c(0.5, 1.5), expand = c(0, 0)) +
+  ggplot2::labs(y = "Region") +
+  ggplot2::theme_void() +
+  ggplot2::theme(axis.title.y = ggplot2::element_text(angle = 90, size = 11),
+                 plot.margin  = ggplot2::margin(0, 2, 0, 2))
+
+p_map <- (p_region_labels | p_map) + patchwork::plot_layout(widths = c(1, 6))
+
+save_plot(p_map, "Fig4c_spatial_neighborhood_map.pdf", width = 8.5, height = 4)
 
 p_map
 ```
@@ -271,8 +354,8 @@ set.seed(20231103)
 distance <- "manhattan"
 linkage <- "complete"
 
-p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=brewer.pal(n_neighborhoods, "Set3"), 
-                    linkage = linkage, distance= distance) 
+p <- plotAbundances(sce, k = "celltype", by = "sample", col_clust=T, k_pal=metadata(spe)$color_vectors$col_cn,
+                    linkage = linkage, distance= distance)
 
 save_plot(p, "Fig4d1_spatial_neighborhood_clustering.pdf", width = 6, height = 4)
 
@@ -319,9 +402,8 @@ rownames(sample_summary) <- sample_summary$sample_id
 sample_summary <- sample_summary %>% select(-sample_id)
 
 
-# Sample-annotation colors from 00_MapMet_color_code.R
-for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_code.R", "../analysis/00_MapMet_color_code.R"))
-  if (file.exists(mapmet_cc_path)) { source(mapmet_cc_path); break }
+# Sample-annotation colors (COL_CODE sourced from 00_MapMet_color_code.R in the
+# read-data chunk above)
 col_code <- COL_CODE
 
 # Explicit patient-group palette (col_code's 1/2/3 = blue/red/green is used
@@ -395,7 +477,7 @@ p_meta_group <- p_meta_group + theme(plot.margin = margin(0, 2, 2, 2))
 
 # Abundance barplot: rename the CN legend and drop the placeholder "na" facet
 p_abund <- p +
-  scale_fill_manual(values = brewer.pal(n_neighborhoods, "Set3"),
+  scale_fill_manual(values = metadata(spe)$color_vectors$col_cn,
                     name = "Cellular neighborhood") +
   facet_null() +
   scale_x_discrete(expand = expansion(add = 0.5)) +
@@ -541,12 +623,12 @@ for(i in 1:length(unique(p$data$cluster_id))){
   stats_df$p_adj_signif[is.na(stats_df$p_adj_signif) | stats_df$p_adj_signif==" "] <- "ns"
   stats_df$p_fc <- paste0(stats_df$logFC, " (", stats_df$p_adj, ")", " (", stats_df$p_adj_signif, ")")
   
-  color <- brewer.pal(n_neighborhoods, "Set3")[cluster_name]
-  
+  color <- unname(metadata(spe)$color_vectors$col_cn[as.character(cluster_name)])
+
   plot_list_fc[[i]] <- ggboxplot(proportions, x = "condition", y = "Freq", order=c("nMNA", "MNA"),
-              color = "condition", palette =c(color, color), 
-              add.params = list(size = 1.5),
-              add = "jitter", 
+              fill = "condition", palette = c(color, color), color = "black",
+              add.params = list(size = 1.5, color = "black"),
+              add = "jitter",
               title=cluster_name, show.legend = F) +
       stat_pvalue_manual(
         stats_df,
@@ -581,7 +663,7 @@ p <- ggplot(df, aes(fill=cluster, y=logFC, x=cluster)) +
     stat="identity",
     position="dodge",
     show.legend = F) + 
-  scale_fill_manual(values = brewer.pal(6, "Set3")) +
+  scale_fill_manual(values = metadata(spe)$color_vectors$col_cn) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   geom_text(aes(label = p_adj_signif), vjust = 0)
 
@@ -603,250 +685,6 @@ spe <- patchDetection(spe,
                       colPairName = "neighborhood")
 ```
 
-We can now plot the tumor patch in the neighborhood graph of individual samples.
-
-```{r plot-patch}
-p_s1<- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"], 
-            node_color_by = "GD2_Gd155_mean", 
-            assay_type = "counts",
-            img_id = "sample_id", 
-            draw_edges = TRUE, 
-            colPairName = "neighborhood", 
-            nodes_first = FALSE, 
-            node_size_by = "area", 
-            directed = FALSE,
-            edge_color_fix = "grey") + 
-    scale_size_continuous(range = c(0.1, 2)) +
-    ggtitle("GD2")
-
-
-save_plot(p_s1, "Fig4g1_tumor_patch.pdf", width = 6, height = 6)
-
-p_s2 <- plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"], 
-            node_color_by = "patch_id", 
-            img_id = "sample_id", 
-            node_size_fix = 0.5) +
-    theme(legend.position = "none")
-
-save_plot(p_s2, "Fig4g2_tumor_patch.pdf", width = 6, height = 6)
-
-(p_s1 | p_s2)
-```
-
-
-Then we determine, per sample, the frequency of cells within tumor patches belonging to each metacluster, and compare these frequencies with respect to MYCN amplification status.
-
-```{r patch-freq-mycn, fig.width=14, fig.height=7}
-variable <- "MYCN_amp"
-plot_list <- list()
-celltypes <- unique(spe$metacluster)
-
-for(i in 1:length(unique(celltypes))){
-  
-  c <- celltypes[i]
-  
-  cell_freq_per_patch <- colData(spe) %>% as_tibble() %>%
-      group_by(patch_id, sample) %>%
-      summarize(cell_count = sum(metacluster == c),
-                patch_size = n(),
-                cell_freq = cell_count / patch_size) %>%
-      filter(!is.na(patch_id)) 
-    
-  mean_cell_freq_per_sample <- cell_freq_per_patch %>%
-    group_by(sample) %>%
-    summarise(mean_cell_freq = mean(cell_freq, na.rm = TRUE))%>%
-    arrange(desc(mean_cell_freq))
-  
-  df <- data.frame(
-    sample = spe$sample,
-    condition = colData(spe)[,variable]
-  )
-  
-  progression_per_sample <- df %>%
-    group_by(sample) %>%
-    summarise(condition = first(condition))
-  
-  combined_data <- mean_cell_freq_per_sample %>%
-    left_join(progression_per_sample, by = "sample")
-  
-  # log2FC of mean frequency between the two condition levels
-  freq_by_cond <- combined_data %>%
-    group_by(condition) %>%
-    summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE))
-  grp <- sort(unique(as.character(freq_by_cond$condition)))
-  log2fc_df <- data.frame(log2FC = log2(
-    freq_by_cond$mean_freq[match(grp[2], as.character(freq_by_cond$condition))] /
-    freq_by_cond$mean_freq[match(grp[1], as.character(freq_by_cond$condition))]))
-  
-  stats_df <- compare_means(mean_cell_freq ~ condition,  
-                            method = "wilcox.test",  
-                            data = combined_data) 
-    
-  stats_df$p_adj_signif <- stars.pval(stats_df$p.adj)
-  stats_df$p_adj_signif[is.na(stats_df$p_adj_signif) | stats_df$p_adj_signif==" "] <- "ns"
-  stats_df$p_long <- paste0("log2FC: ", round(log2fc_df$log2FC, 2), 
-                            " (", stats_df$p.adj, " ", stats_df$p_adj_signif, ")")
-  
-  color <- unname(metadata(spe)$color_vectors$col_metacluster[as.character(c)])
-  
-  plot_list[[c]] <- ggboxplot(combined_data, x = "condition", y = "mean_cell_freq",
-                  color = "condition", palette = rep(color, length(unique(combined_data$condition))),
-                  add.params = list(size = 3),
-                  add = "jitter",
-                  title=c) + 
-                  stat_pvalue_manual(stats_df, label = "p_long", y.position = max(combined_data$mean_cell_freq), step.increase = 0.4,) +
-                  theme(aspect.ratio = 1.6, legend.position="none") +
-      scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
-                  
-  
-}
-
-p_box <- grid.arrange(grobs = plot_list, ncol = 6)
-
-save_plot(p_box, paste0("Fig4i_DA_",variable,".pdf"), width = 16, height = 12)
-
-p_box
-
-```
-
-We repeat the same comparison across patient groups (`tumor_community`).
-
-```{r patch-freq-comm, fig.width=14, fig.height=7}
-variable <- "tumor_community"
-plot_list <- list()
-celltypes <- unique(spe$metacluster)
-
-for(i in 1:length(unique(celltypes))){
-  
-  c <- celltypes[i]
-  
-  cell_freq_per_patch <- colData(spe) %>% as_tibble() %>%
-      group_by(patch_id, sample) %>%
-      summarize(cell_count = sum(metacluster == c),
-                patch_size = n(),
-                cell_freq = cell_count / patch_size) %>%
-      filter(!is.na(patch_id)) 
-    
-  mean_cell_freq_per_sample <- cell_freq_per_patch %>%
-    group_by(sample) %>%
-    summarise(mean_cell_freq = mean(cell_freq, na.rm = TRUE))%>%
-    arrange(desc(mean_cell_freq))
-  
-  df <- data.frame(
-    sample = spe$sample,
-    condition = colData(spe)[,variable]
-  )
-  
-  progression_per_sample <- df %>%
-    group_by(sample) %>%
-    summarise(condition = first(condition))
-  
-  combined_data <- mean_cell_freq_per_sample %>%
-    left_join(progression_per_sample, by = "sample")
-  
-  # log2FC of mean frequency between the two condition levels
-  freq_by_cond <- combined_data %>%
-    group_by(condition) %>%
-    summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE))
-  grp <- sort(unique(as.character(freq_by_cond$condition)))
-  log2fc_df <- data.frame(log2FC = log2(
-    freq_by_cond$mean_freq[match(grp[2], as.character(freq_by_cond$condition))] /
-    freq_by_cond$mean_freq[match(grp[1], as.character(freq_by_cond$condition))]))
-  
-  stats_df <- compare_means(mean_cell_freq ~ condition,  
-                            method = "wilcox.test",  
-                            data = combined_data) 
-    
-  stats_df$p_adj_signif <- stars.pval(stats_df$p.adj)
-  stats_df$p_adj_signif[is.na(stats_df$p_adj_signif) | stats_df$p_adj_signif==" "] <- "ns"
-  stats_df$p_long <- paste0("log2FC: ", round(log2fc_df$log2FC, 2), 
-                            " (", stats_df$p.adj, " ", stats_df$p_adj_signif, ")")
-  
-  color <- unname(metadata(spe)$color_vectors$col_metacluster[as.character(c)])
-  
-  plot_list[[c]] <- ggboxplot(combined_data, x = "condition", y = "mean_cell_freq",
-                  color = "condition", palette = rep(color, length(unique(combined_data$condition))),
-                  add.params = list(size = 3),
-                  add = "jitter",
-                  title=c) + 
-                  stat_pvalue_manual(stats_df, label = "p_long", y.position = max(combined_data$mean_cell_freq), step.increase = 0.4,) +
-                  theme(aspect.ratio = 1.6, legend.position="none") +
-      scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
-                  
-  
-}
-
-p_box <- grid.arrange(grobs = plot_list, ncol = 6)
-
-save_plot(p_box, paste0("Fig4h_DA_",variable,".pdf"), width = 16, height = 12)
-
-p_box
-
-```
-
-We repeat the same for immune cells overall, here comparing their patch frequency with respect to progression status.
-
-```{r patch-freq-immune}
-variable <- "progression"
-  
-c <- "immune"
-
-cell_freq_per_patch <- colData(spe) %>% as_tibble() %>%
-    group_by(patch_id, sample) %>%
-    summarize(cell_count = sum(celltype_3 == c),
-              patch_size = n(),
-              cell_freq = cell_count / patch_size) %>%
-    filter(!is.na(patch_id)) 
-  
-mean_cell_freq_per_sample <- cell_freq_per_patch %>%
-  group_by(sample) %>%
-  summarise(mean_cell_freq = mean(cell_freq, na.rm = TRUE))%>%
-  arrange(desc(mean_cell_freq))
-
-df <- data.frame(
-  sample = spe$sample,
-  condition = colData(spe)[,variable]
-)
-
-progression_per_sample <- df %>%
-  group_by(sample) %>%
-  summarise(condition = first(condition))
-
-combined_data <- mean_cell_freq_per_sample %>%
-  left_join(progression_per_sample, by = "sample")
-
-# log2FC of mean frequency between the two condition levels
-freq_by_cond <- combined_data %>%
-  group_by(condition) %>%
-  summarise(mean_freq = mean(mean_cell_freq, na.rm = TRUE))
-grp <- sort(unique(as.character(freq_by_cond$condition)))
-log2fc_df <- data.frame(log2FC = log2(
-  freq_by_cond$mean_freq[match(grp[2], as.character(freq_by_cond$condition))] /
-  freq_by_cond$mean_freq[match(grp[1], as.character(freq_by_cond$condition))]))
-
-stats_df <- compare_means(mean_cell_freq ~ condition,  
-                          method = "wilcox.test",  
-                          data = combined_data) 
-  
-stats_df$p_adj_signif <- stars.pval(stats_df$p.adj)
-stats_df$p_adj_signif[is.na(stats_df$p_adj_signif) | stats_df$p_adj_signif==" "] <- "ns"
-stats_df$p_long <- paste0("log2FC: ", round(log2fc_df$log2FC, 2), 
-                          " (", stats_df$p.adj, " ", stats_df$p_adj_signif, ")")
-
-color <- unname(metadata(spe)$color_vectors$col_celltype_3[as.character(c)])
-
-p <- ggboxplot(combined_data, x = "condition", y = "mean_cell_freq",
-                color = "condition", palette =c(color, color),
-                add.params = list(size = 3),
-                add = "jitter",
-                title=c) + 
-                stat_pvalue_manual(stats_df, label = "p_long", y.position = max(combined_data$mean_cell_freq), step.increase = 0.4,) +
-                theme(aspect.ratio = 1.6, legend.position="none") +
-    scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
-                  
-p
-```
-
 ### Distance to tumor-stroma border
 
 Based on detected patches, the distance to the tumor stroma border can be computed. Therefore the [minDistToCells](https://bodenmillergroup.github.io/imcRtools/reference/minDistToCells.html) can be used. Negative values indicate cells within patches and positive values cells outside of patches.
@@ -863,22 +701,122 @@ plotSpatial(spe[,spe$sample_id == "20220926_20220809_16-006_TU_003"],
     scale_color_gradient2(low = "dark blue", mid = "white", high = "dark red")
 ```
 
-The distance distribution per celltype can be shown in ridge plots.
+The distance distribution per celltype can be shown in ridge plots, with no
+legend (the y-axis labels already name every group) so the ridges themselves
+get the full plot width. We show this for both `celltype_2` (tumor celltypes +
+non-tumor metaclusters) and the fine-grained `celltype`, and for each we mark
+the core/border/stroma compartments (defined below using a 200 px threshold on
+this same distance) in two ways: as translucent shaded background regions, or
+as a green/red/blue compartment bar beneath a plain-background ridge plot. The
++/-200 px cutoff is also marked as dashed lines in every version.
 
-```{r ridges-distance, fig.height=10,fig.width=16}
-p_dist <- ggplot(as.data.frame(colData(spe)) %>%
-         mutate(celltype_2 = fct_reorder(celltype_2, distToCells, .fun = median))) +
-  stat_density_ridges(aes(distToCells, celltype_2, fill = celltype_2),
-                      quantiles = c(0.5), quantile_lines = TRUE, scale = 3,
-                      # plain filled legend keys (no median line)
-                      key_glyph = "rect") +
-  geom_vline(xintercept = 0, color = "dark red", linewidth = 0.5) +
-  scale_fill_manual(values = metadata(spe)$color_vectors$col_celltype_2, name = "Celltypes") +
-  theme_ridges()
+```{r ridges-distance, fig.height=5,fig.width=8}
+# Border threshold shown here matches `canonical_border` set in the
+# spatial-compartments section below (kept as a literal since that section
+# runs after this chunk).
+border_threshold <- 200
+x_range <- range(spe$distToCells, na.rm = TRUE)
 
-save_plot(p_dist, "Fig4j_border_distance.pdf", width = 12, height = 10)
+# Compartment bar (green/red/blue core/border/stroma), shared by every "bar"
+# distance-ridge figure below - only depends on border_threshold/x_range, not
+# on the grouping variable.
+compartment_bar <- ggplot() +
+  annotate("rect", xmin = -Inf, xmax = -border_threshold, ymin = 0, ymax = 1,
+           fill = COL_COMPARTMENT[["core"]]) +
+  annotate("rect", xmin = -border_threshold, xmax = border_threshold, ymin = 0, ymax = 1,
+           fill = COL_COMPARTMENT[["border"]]) +
+  annotate("rect", xmin = border_threshold, xmax = Inf, ymin = 0, ymax = 1,
+           fill = COL_COMPARTMENT[["stroma"]]) +
+  geom_vline(xintercept = c(-border_threshold, border_threshold),
+             color = "black", linewidth = 0.5, linetype = "dashed") +
+  coord_cartesian(xlim = x_range, ylim = c(0, 1), expand = FALSE) +
+  labs(x = "distToCells") +
+  theme_minimal() +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(), panel.grid = element_blank(),
+        panel.border = element_blank())
 
-p_dist
+# Ridge plot (no legend - group names are the y-axis labels) for one grouping
+# variable, in one of two compartment-display variants:
+#  - "bar":    plain background, stacked on the shared compartment_bar below
+#  - "shaded": core/border/stroma shown as translucent background regions
+# Reused below for celltype_2, celltype, and cellular neighborhoods.
+plot_dist_ridge <- function(group_var, y_label, fill_values, filename,
+                            variant = c("bar", "shaded")) {
+  variant <- match.arg(variant)
+
+  dist_data <- as.data.frame(colData(spe)) %>%
+    mutate(!!group_var := fct_reorder(.data[[group_var]], distToCells, .fun = median, .desc = TRUE))
+
+  shaded_bg <- if (variant == "shaded") list(
+    annotate("rect", xmin = -Inf, xmax = -border_threshold, ymin = -Inf, ymax = Inf,
+             fill = COL_COMPARTMENT[["core"]], alpha = 0.15),
+    annotate("rect", xmin = -border_threshold, xmax = border_threshold, ymin = -Inf, ymax = Inf,
+             fill = COL_COMPARTMENT[["border"]], alpha = 0.15),
+    annotate("rect", xmin = border_threshold, xmax = Inf, ymin = -Inf, ymax = Inf,
+             fill = COL_COMPARTMENT[["stroma"]], alpha = 0.15)
+  ) else NULL
+
+  p_ridge <- ggplot(dist_data) +
+    shaded_bg +
+    stat_density_ridges(aes(distToCells, .data[[group_var]], fill = .data[[group_var]]),
+                        quantiles = c(0.5), quantile_lines = TRUE, scale = 3,
+                        key_glyph = "rect") +
+    geom_vline(xintercept = 0, color = "dark red", linewidth = 0.5) +
+    geom_vline(xintercept = c(-border_threshold, border_threshold),
+               color = "black", linewidth = 0.5, linetype = "dashed") +
+    scale_fill_manual(values = fill_values) +
+    labs(y = y_label) +
+    coord_cartesian(xlim = x_range, expand = FALSE) +
+    theme_ridges() +
+    theme(legend.position = "none")
+
+  if (variant == "bar") {
+    p_ridge <- p_ridge +
+      theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+            axis.ticks.x = element_blank())
+    p <- p_ridge / compartment_bar + plot_layout(heights = c(20, 1))
+  } else {
+    p <- p_ridge
+  }
+
+  save_plot(p, filename, width = 8, height = 5)
+  p
+}
+
+# 1-2. celltype_2 (tumor celltypes + non-tumor metaclusters), bar and shaded
+p_dist_celltype2_bar <- plot_dist_ridge(
+  "celltype_2", "Celltype", metadata(spe)$color_vectors$col_celltype_2,
+  "Fig4j_border_distance_celltype2_bar.pdf", variant = "bar")
+p_dist_celltype2_bar
+
+p_dist_celltype2_shaded <- plot_dist_ridge(
+  "celltype_2", "Celltype", metadata(spe)$color_vectors$col_celltype_2,
+  "Fig4j_border_distance_celltype2_shaded.pdf", variant = "shaded")
+p_dist_celltype2_shaded
+
+# 3-4. fine-grained celltype (all celltypes), bar and shaded
+p_dist_celltype_bar <- plot_dist_ridge(
+  "celltype", "Celltype (fine-grained)", metadata(spe)$color_vectors$col_celltype,
+  "Fig4j_border_distance_celltype_bar.pdf", variant = "bar")
+p_dist_celltype_bar
+
+p_dist_celltype_shaded <- plot_dist_ridge(
+  "celltype", "Celltype (fine-grained)", metadata(spe)$color_vectors$col_celltype,
+  "Fig4j_border_distance_celltype_shaded.pdf", variant = "shaded")
+p_dist_celltype_shaded
+```
+
+The same distance distribution, now grouped by cellular neighborhood (CN,
+`cn_celltypes_2`, computed further below) instead of celltype.
+
+```{r ridges-distance-neighborhood, fig.height=5, fig.width=8}
+p_dist_cn <- plot_dist_ridge("cn_celltypes_2", "Cellular neighborhood",
+                             metadata(spe)$color_vectors$col_cn,
+                             "Fig4j_border_distance_neighborhood.pdf",
+                             variant = "bar")
+
+p_dist_cn
 ```
 
 Based on the calculated distance for each cell, three compartments - tumor core, tumor/stroma border and stroma - can be defined using a distance threshold. We sweep border sizes from 100 to 300 pixels, visualizing the compartments and counting immune and tumor cells in each, and then adopt a border of 200 pixels for all downstream analyses. Image `20221018_20220906_03-018_TU_001` lacks tumor patches, therefore all cells are defined as `stroma` for this image.
@@ -1136,7 +1074,7 @@ p_spatial_celltype
 
 ### DA analysis in spatial compartments
 
-Next, we will plot the differential abundance of cell types with respect to spatial compartment on a sample level. We analyse both tumor celltypes and immune metaclusters, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing.
+Next, we will plot the differential abundance of cell types with respect to spatial compartment on a sample level. We analyse tumor celltypes, immune metaclusters, and cellular neighborhoods, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing.
 
 ```{r define-markers}
 
@@ -1152,7 +1090,8 @@ state_markers <- c("CD274_Gd160_mean", "S100B_Dy161_mean", "CD279_Ho165_mean", "
 
 ```{r cluster-order-colors}
 # Cluster display orders used throughout the compartment analyses (immune_order
-# are metacluster names; tumor_order are current spe$celltype_2 names).
+# are metacluster names; tumor_order are current spe$celltype_2 names;
+# neighborhood_order are the cn_celltypes_2 cluster numbers, as characters).
 immune_order <- c("T cells", "B cells", "myeloid/NK", "granulocytes")
 
 tumor_order <- c("adrenergic marker-low Tu", "GD2neg Tu", "CD44+ Tu", "Ki67+ Tu",
@@ -1161,9 +1100,17 @@ tumor_order <- c("adrenergic marker-low Tu", "GD2neg Tu", "CD44+ Tu", "Ki67+ Tu"
 tumor_order <- intersect(tumor_order,
                          unique(as.character(spe$celltype_2[spe$metacluster == "tumor"])))
 
-# Color lookup, falling back to grey if a celltype has no (or NA) color
-cluster_color <- function(name) {
-  col <- unname(metadata(spe)$color_vectors$col_celltype_2[as.character(name)])
+neighborhood_order <- levels(spe$cn_celltypes_2)
+
+# Remaining non-tumor, non-immune metaclusters (mesenchymal, other), used to
+# pad the pooled "tumor_immune" stacked bar to all cells (so its n= total
+# matches the "neighborhood" stacked bar, which counts every cell).
+other_order <- intersect(c("mesenchymal", "other"), unique(as.character(spe$celltype_2)))
+
+# Color lookup, falling back to grey if a cluster has no (or NA) color. Looks
+# up col_celltype_2 by default; pass color_vec = col_cn for neighborhoods.
+cluster_color <- function(name, color_vec = metadata(spe)$color_vectors$col_celltype_2) {
+  col <- unname(color_vec[as.character(name)])
   if (length(col) == 0 || is.na(col)) "grey50" else col
 }
 ```
@@ -1175,9 +1122,11 @@ cluster_color <- function(name) {
 
 ```{r compartment-boxplots-all-comparisons}
 # For each cell class: run diffcyt (testDA_edgeR) for every compartment pair,
-# then draw boxplots labelled with log2FC + adjusted p-value and stars.
+# then draw boxplots labelled with log2FC + adjusted p-value and stars. Boxes
+# are filled by the cluster's own identity color (celltype_2/CN), with black
+# outlines/points.
 
-cells_list       <- c("tumor", "immune")
+cells_list       <- c("tumor", "immune", "neighborhood")
 comp_levels      <- c("core", "border", "stroma")
 comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
 
@@ -1207,8 +1156,19 @@ marker_info_da <- .make_marker_info(spe, keep_rows)
 
 for (cells in cells_list) {
 
-  order     <- if (cells == "immune") immune_order else tumor_order
-  keep_meta <- if (cells == "immune") spe$metacluster %in% immune_order else spe$metacluster == "tumor"
+  order     <- switch(cells,
+                      immune       = immune_order,
+                      tumor        = tumor_order,
+                      neighborhood = neighborhood_order)
+  keep_meta <- switch(cells,
+                      immune       = spe$metacluster %in% immune_order,
+                      tumor        = spe$metacluster == "tumor",
+                      neighborhood = rep(TRUE, ncol(spe)))
+  # celltype_2 for tumor/immune; cn_celltypes_2 (and its color vector) for
+  # neighborhoods, so every cell (no metacluster subsetting) counts.
+  cluster_field <- if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2"
+  color_vec     <- if (cells == "neighborhood") metadata(spe)$color_vectors$col_cn else
+                                                 metadata(spe)$color_vectors$col_celltype_2
 
   # 1. diffcyt DA results for every compartment pair
   diffcyt_results <- list()
@@ -1231,10 +1191,10 @@ for (cells in cells_list) {
     sce_da$compartment <- factor(spe[keep_rows, keep_cols]$compartment, levels = comps)
     sce_da$sample_id   <- factor(paste0(sce_da$fm_id, "_", sce_da$compartment))
     sce_da$condition   <- factor(sce_da$compartment, levels = comps)
-    sce_da$cluster_id  <- factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+    sce_da$cluster_id  <- factor(spe[keep_rows, keep_cols][[cluster_field]], levels = order)
 
     metadata(sce_da)$cluster_codes   <- data.frame(
-      celltype = factor(spe[keep_rows, keep_cols]$celltype_2, levels = order)
+      celltype = factor(spe[keep_rows, keep_cols][[cluster_field]], levels = order)
     )
     metadata(sce_da)$experiment_info <- as.data.frame(colData(sce_da)) %>%
       dplyr::group_by(sample_id, condition, sample) %>%
@@ -1271,7 +1231,7 @@ for (cells in cells_list) {
   comp_df <- data.frame(
     fm_id       = spe$fm_id,
     compartment = spe$compartment,
-    celltype_2  = spe$celltype_2,
+    cluster_id  = spe[[cluster_field]],
     keep        = keep_meta
   )
   comp_df <- comp_df[comp_df$keep & comp_df$compartment %in% comp_levels, ]
@@ -1284,7 +1244,7 @@ for (cells in cells_list) {
   plot_data_list <- list()
   for (cluster_name in order) {
     cluster_counts <- comp_df %>%
-      dplyr::filter(celltype_2 == cluster_name) %>%
+      dplyr::filter(cluster_id == cluster_name) %>%
       dplyr::group_by(fm_id, compartment) %>%
       dplyr::summarise(n = dplyr::n(), .groups = "drop")
 
@@ -1327,7 +1287,9 @@ for (cells in cells_list) {
   }
   all_stats <- dplyr::bind_rows(all_stats_list)
 
-  # 4. Boxplots with diffcyt annotation
+  # 4. Boxplots, filled by the cluster's own identity color (celltype_2/CN,
+  # same color for all 3 compartments in a panel) with black outlines/points,
+  # annotated with the diffcyt log2FC/p-value.
   plot_list_comp <- list()
   for (cluster_name in order) {
     proportions <- plot_data_list[[cluster_name]]
@@ -1336,12 +1298,12 @@ for (cells in cells_list) {
     # fixed bracket heights, identical for every panel
     stats_df$y.position <- bracket_positions[seq_len(nrow(stats_df))]
 
-    color_cluster <- cluster_color(cluster_name)
+    color_cluster <- cluster_color(cluster_name, color_vec)
 
     plot_list_comp[[cluster_name]] <- ggboxplot(
       proportions, x = "condition", y = "Freq", order = comp_levels,
-      color = "condition", palette = rep(color_cluster, 3),
-      add = "jitter"
+      fill = "condition", palette = rep(color_cluster, length(comp_levels)), color = "black",
+      add = "jitter", add.params = list(color = "black")
     ) +
       stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
       # wrap long celltype names so they are not cropped in narrow panels
@@ -1367,7 +1329,7 @@ for (cells in cells_list) {
 }
 ```
 
-Finally, we summarize the cell-type composition of each compartment as stacked bars, drawn for every border size and shown for immune metaclusters, tumor celltypes, and the two pooled together.
+Finally, we summarize the cell-type composition of each compartment as stacked bars, drawn for every border size and shown for immune metaclusters, tumor celltypes, all celltypes pooled together (tumor + immune + mesenchymal + other, so its total matches the neighborhood bar below), and cellular neighborhoods.
 
 ```{r composition-stacked-bars}
 # spe$compartment (the canonical-border assignment) is left untouched;
@@ -1386,18 +1348,28 @@ compartment_at <- function(spe, border) {
 }
 
 # One stacked-bar figure for a compartment vector and a cell class: "immune"
-# (metaclusters), "tumor" (celltypes) or "tumor_immune" (the two pooled).
+# (metaclusters), "tumor" (celltypes), "tumor_immune" (all celltypes pooled -
+# tumor + immune + mesenchymal + other), or "neighborhood" (cellular
+# neighborhoods, all cells).
 make_compartment_stackedbar <- function(comp_vec, cells, border) {
   if (cells == "immune") {
     keep <- spe$metacluster %in% immune_order;                       order <- immune_order
   } else if (cells == "tumor") {
     keep <- spe$metacluster == "tumor";                              order <- tumor_order
-  } else {                                                           # tumor_immune (pooled)
-    keep <- spe$metacluster == "tumor" | spe$metacluster %in% immune_order
-    order <- c(tumor_order, immune_order)
+  } else if (cells == "neighborhood") {
+    keep <- rep(TRUE, ncol(spe));                                    order <- neighborhood_order
+  } else {                       # tumor_immune (pooled; incl. mesenchymal/other so
+                                  # its n= total matches the "neighborhood" bar)
+    keep <- spe$metacluster == "tumor" | spe$metacluster %in% immune_order |
+      spe$metacluster %in% other_order
+    order <- c(tumor_order, immune_order, other_order)
   }
 
-  df_bar <- data.frame(compartment = comp_vec, cluster_id = spe$celltype_2, keep = keep)
+  cluster_field <- if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2"
+  color_vec_all <- if (cells == "neighborhood") metadata(spe)$color_vectors$col_cn else
+                                                 metadata(spe)$color_vectors$col_celltype_2
+
+  df_bar <- data.frame(compartment = comp_vec, cluster_id = spe[[cluster_field]], keep = keep)
   df_bar <- df_bar[df_bar$keep & df_bar$compartment %in% comp_levels, ]
 
   totals <- df_bar %>% dplyr::group_by(compartment) %>%
@@ -1409,8 +1381,8 @@ make_compartment_stackedbar <- function(comp_vec, cells, border) {
     dplyr::mutate(compartment = factor(compartment, levels = comp_levels),
                   cluster_id  = factor(cluster_id,  levels = order))
 
-  color_vec <- metadata(spe)$color_vectors$col_celltype_2[order]
-  lab       <- if (cells == "tumor_immune") "tumor + immune" else cells
+  color_vec <- color_vec_all[order]
+  lab       <- if (cells == "tumor_immune") "all celltypes" else cells
 
   p_stack <- ggplot(df_prop, aes(x = compartment, y = pct, fill = cluster_id)) +
     geom_bar(stat = "identity", width = 0.7) +
@@ -1435,7 +1407,7 @@ make_compartment_stackedbar <- function(comp_vec, cells, border) {
 
 for (border in thresholds) {
   comp_vec <- compartment_at(spe, border)
-  for (cells in c("immune", "tumor", "tumor_immune"))
+  for (cells in c("immune", "tumor", "tumor_immune", "neighborhood"))
     make_compartment_stackedbar(comp_vec, cells, border)
 }
 ```
