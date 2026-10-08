@@ -251,13 +251,13 @@ save_plot(p_tumor, "Fig3a_PT_abundance_patients_clustered_tumor.pdf", width = 12
 
 ## Plot TME cellular profiles
 
-We then plot the immune (non-tumor, non-mesenchymal) TME profiles in the same clustered order.
+We then plot the immune (non-tumor, non-mesenchymal, non-other) TME profiles in the same clustered order.
 
 ```{r plot-TME, fig.width=12, fig.height=5}
 #order samples based on above clustering
 sce$sample_id <- factor(paste0(spe[keep_rows, keep_cols]$fm_id, "_", spe[keep_rows, keep_cols]$tissue), levels=clustered_samples)
 
-sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal"]
+sce_ME <- sce[,sce$metacluster!="tumor" & sce$metacluster!="mesenchymal" & sce$metacluster!="other"]
 
 p_ME <- plotAbundances(sce_ME, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_celltype_ordered) +
   guides(fill = guide_legend(title = "Immune celltypes"))
