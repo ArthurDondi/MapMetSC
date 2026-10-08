@@ -94,7 +94,7 @@ We will then transform the SPE object into a catalyst-compatible object.
 
 ```{r catalyst-comp-object}
 keep_rows <- rowData(spe)$use_channel
-keep_cols <- spe$celltype != "other" & spe$tissue=="PT" & (spe$timepoint=="DE")
+keep_cols <- spe$tissue=="PT" & (spe$timepoint=="DE")
 
 sce <- SingleCellExperiment(assays=list(counts=assay(spe, "counts")[keep_rows, keep_cols], exprs=assay(spe, "counts")[keep_rows, keep_cols]))
 
@@ -400,22 +400,12 @@ save_plot(p_box, "Fig3c_PT_abundance_het_boxplot_metadata.pdf", width = 6, heigh
 
 ## Plot metaclusters
 
-For reference, we also plot metacluster proportions in the clustered samples, as a standalone figure; the same panel is used in the combined figure below. Unlike the other panels, this one keeps the cells of the "other" cell type, so the "other" metacluster is shown.
+For reference, we also plot metacluster proportions in the clustered samples, as a standalone figure; the same panel is used in the combined figure below.
 
 ```{r plot-metaclusters}
-# All PT/DE cells, including celltype "other" (excluded from sce via keep_cols)
-# (restricted to the clustered samples so every cell has a sample_id level)
-keep_cols_mc <- spe$tissue == "PT" & spe$timepoint == "DE" &
-  paste0(spe$fm_id, "_", spe$tissue) %in% clustered_samples
-spe_mc <- spe[keep_rows, keep_cols_mc]
-
-sce_mc <- SingleCellExperiment(assays = list(counts = assay(spe_mc, "counts"),
-                                             exprs  = assay(spe_mc, "counts")))
-# fm_id_tissue ids in the same clustered order as the immune panel
-sce_mc$sample_id   <- factor(paste0(spe_mc$fm_id, "_", spe_mc$tissue), levels = clustered_samples)
-sce_mc$cluster_id  <- factor(spe_mc$metacluster)
-sce_mc$condition   <- "na"
-metadata(sce_mc)$cluster_codes <- data.frame(celltype = factor(spe_mc$metacluster))
+sce_mc <- sce
+sce_mc$cluster_id <- sce_mc$metacluster
+metadata(sce_mc)$cluster_codes <- data.frame(celltype = factor(sce_mc$metacluster))
 p_all <- plotAbundances(sce_mc, k = "celltype", by = "sample", col_clust=F, k_pal=metadata(spe)$color_vectors$col_metacluster) +
   guides(fill = guide_legend(title = "Metaclusters"))
 
