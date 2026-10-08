@@ -357,6 +357,14 @@ for (cl in names(subcluster_map)) {
   comp2 <- which(gmm_fit$classification == 2)
   spe$pg_clusters[idx[comp2]] <- new_cl
 }
+
+# Regenerate colours for the post-subclustering levels once and store them on
+# spe, so the subcluster heatmaps, the bubble plot (which reuses
+# metadata(spe)$color_vectors) and the UMAP below share the same
+# cluster -> colour mapping.
+cluster_levels_after <- get_cluster_levels(spe$pg_clusters)
+col_clusters_after   <- generate_cluster_colors(cluster_levels = cluster_levels_after)[cluster_levels_after]
+metadata(spe)$color_vectors$col_pg_clusters <- col_clusters_after
 ```
 
 ## Single-cell heatmaps for subclustered clusters
@@ -390,6 +398,11 @@ for (pair in subcluster_pairs) {
 
   spe_cl <- spe[, rand_idx]
 
+  # factor with just the two subclusters, so annot.colors (applied by dittoHeatmap
+  # in level order) uses the post-subclustering UMAP/bubble plot colours
+  pair_levels <- intersect(c(orig_cl, new_cl), unique(spe_cl$pg_clusters))
+  spe_cl$pg_clusters <- factor(spe_cl$pg_clusters, levels = pair_levels)
+
   # order cells by subcluster (groups side-by-side)
   cell_order <- order(spe_cl$pg_clusters)
 
@@ -399,7 +412,8 @@ for (pair in subcluster_pairs) {
     cluster_cols   = FALSE,          # keep our column order
     scaled.to.max  = TRUE,
     heatmap.colors.max.scaled = viridis(100),
-    annot.by       = "pg_clusters"
+    annot.by       = "pg_clusters",
+    annot.colors   = unname(col_clusters_after[pair_levels])
   )
 
   save_plot(
@@ -412,13 +426,6 @@ for (pair in subcluster_pairs) {
 ```
 
 ```{r pg-clusters-final-bubbleplot}
-
-# Regenerate colours for the post-subclustering levels once and store them on
-# spe, so the bubble plot (which reuses metadata(spe)$color_vectors) and the
-# UMAP below share the same cluster -> colour mapping.
-cluster_levels_after <- get_cluster_levels(spe$pg_clusters)
-col_clusters_after   <- generate_cluster_colors(cluster_levels = cluster_levels_after)[cluster_levels_after]
-metadata(spe)$color_vectors$col_pg_clusters <- col_clusters_after
 
 # Bubble plot after subclustering (distinct filename).
 plot_cluster_bubble(
