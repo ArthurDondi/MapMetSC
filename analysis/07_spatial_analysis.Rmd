@@ -190,10 +190,13 @@ p_heatmap <- pheatmap(data_wide,
 save_plot(p_heatmap, "Fig4b_cell-cell_interactions.pdf", width = 6, height = 6)
 ```
 
+<!-- TEMP DISABLED for faster debug iteration (expensive full-celltype
+testInteractions across ~20+ celltypes); re-enable by removing eval=FALSE
+from both chunks below.
 We repeat the same analysis, this time at the resolution of all (fine-grained)
 celltypes rather than the celltype/metacluster mixture used above.
 
-```{r interaction-analysis-celltype}
+```{r interaction-analysis-celltype, eval=FALSE}
 out_celltype <- testInteractions(spe,
                         group_by = "sample_id",
                         label = "celltype",
@@ -201,7 +204,7 @@ out_celltype <- testInteractions(spe,
                         BPPARAM = SerialParam(RNGseed = 221029))
 ```
 
-```{r interaction-heatmap-celltype, fig.width=12, fig.height=12}
+```{r interaction-heatmap-celltype, fig.width=12, fig.height=12, eval=FALSE}
 
 data_celltype <- out_celltype %>% as_tibble() %>%
     group_by(from_label, to_label) %>%
@@ -233,6 +236,8 @@ p_heatmap_celltype <- pheatmap(data_wide_celltype,
 
 save_plot(p_heatmap_celltype, "Fig4b_cell-cell_interactions_all_celltypes.pdf", width = 14, height = 14)
 ```
+-->
+
 
 ## Cellular neighborhoods
 
@@ -272,6 +277,18 @@ using the `regionMap` function of the `lisaClust` package.
 
 ```{r regionmap, fig.height=6, fig.width=5}
 library(lisaClust)
+
+# TEMP DEBUG (grep logs for "COL_CN_DEBUG"): verify col_cn is a valid, fully
+# named 6-color vector right before plot_cn_region_map() uses it, to check
+# whether an upstream issue (not the Fig4c plotting code itself) is behind
+# the missing badge colors. Uses cat(..., file = stderr()) rather than
+# message() so it is never swallowed by this doc's global message=FALSE
+# chunk option and always reaches the render log.
+cat("COL_CN_DEBUG region_levels:", paste(levels(spe$cn_celltypes_2), collapse = ", "), "\n", file = stderr())
+cat("COL_CN_DEBUG col_cn names:", paste(names(metadata(spe)$color_vectors$col_cn), collapse = ", "), "\n", file = stderr())
+cat("COL_CN_DEBUG col_cn values:", paste(metadata(spe)$color_vectors$col_cn, collapse = ", "), "\n", file = stderr())
+cat("COL_CN_DEBUG col_cn length:", length(metadata(spe)$color_vectors$col_cn), "\n", file = stderr())
+cat("COL_CN_DEBUG col_cn class:", paste(class(metadata(spe)$color_vectors$col_cn), collapse = ", "), "\n", file = stderr())
 
 # Region map (cell-type enrichment per CN) for a given CN column of spe and its
 # CN -> color vector.
