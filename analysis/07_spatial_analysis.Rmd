@@ -327,6 +327,17 @@ plot_cn_region_map <- function(spe, region_col, col_regions) {
     ggplot2::theme(axis.title.y = ggplot2::element_text(angle = 90, size = 11),
                    plot.margin  = ggplot2::margin(0, 2, 0, 2))
 
+  # TEMP DEBUG (grep logs for "COL_CN_DEBUG"): tell apart a scale/geom bug
+  # (p_region_labels is colorless even on its own) from a patchwork
+  # combination/rendering bug (p_region_labels is fine alone, but the colors
+  # disappear once combined with p_map below) - save it standalone and log
+  # the fill colour ggplot actually computed per point.
+  cat("COL_CN_DEBUG p_region_labels computed fill (", region_col, "):",
+      paste(ggplot2::layer_data(p_region_labels, 1)$fill, collapse = ", "), "\n", file = stderr())
+  ggplot2::ggsave(
+    file.path(plot_dir, paste0(date_prefix, "_DEBUG_p_region_labels_", region_col, ".pdf")),
+    plot = p_region_labels, width = 2, height = 4)
+
   (p_region_labels | p_map) + patchwork::plot_layout(widths = c(1, 6))
 }
 
