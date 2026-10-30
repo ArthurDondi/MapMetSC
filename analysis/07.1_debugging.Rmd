@@ -63,8 +63,8 @@ detection, distances) have to be rerun. On top of the original figure, it adds
 
 * paired boxplots (point size = number of cells, lines connecting the same sample),
 * tables and plots of the number of cells per sample and compartment,
-* compartment areas per image (grid-based, same rule as for cells) and
-  densities (cells / mm²) per compartment, with a paired negative-binomial test.
+* compartment areas per image (from the tumor-patch outlines) and densities
+  (cells / mm²) per compartment, with a paired negative-binomial test.
 
 ## Load libraries
 <details>
@@ -82,7 +82,8 @@ library(gridExtra)
 library(patchwork)
 library(gtools)
 library(stringr)
-library(BiocNeighbors)
+library(sf)
+library(concaveman)
 ```
 </details>
 
@@ -633,58 +634,41 @@ for (cells in cells_list) {
 ## Compartment areas
 
 To turn counts into densities (cells per mm²), we need the area of each
-compartment per image. Compartments are defined on cells (07: `minDistToCells`
-on tumor-patch cells, then a 200 px border), so we apply the same rule to a
-regular grid of points covering each image:
+compartment per image. We use the tumor-patch outlines:
 
-* a grid point whose nearest cell belongs to a tumor patch gets minus the
-  distance to the nearest non-patch cell, any other grid point the distance to
-  the nearest patch cell (as `minDistToCells` does for cells);
-* the 200 px threshold then assigns core / border / stroma;
-* there is no tissue mask, so grid points further than `tissue_radius` from any
-  cell centre are treated as background (no tissue) and not counted.
+* each patch outline is the concave hull of all cells carrying its `patch_id`,
+  built as in `imcRtools::patchSize` / `patchDetection`
+  (`concaveman(..., concavity = 1)`);
+* core = patch outlines shrunk by the 200 px border, border = outlines grown by
+  200 px minus the core, stroma = the rest of the image;
+* there is no tissue mask, so the image (ROI) is taken as fully covered by
+  tissue; its extent is the bounding box of the cell centres (1 px = 1 µm).
 
-Each grid point stands for `grid_step`² µm² (1 px = 1 µm). Applied to the cell
-centres themselves, the rule must give back `spe$compartment`, which we check
-per image. The areas are also computed for a range of `tissue_radius` values to
-see how much the background cut-off matters.
+The cells' compartments in 07 come from cell-to-cell distances
+(`minDistToCells`), not from the outlines, so we check per image how many cells
+fall into the polygon of their own compartment.
 
 ```{r compartment-area-params}
-image_size_px       <- 4000   # images are 4000 x 4000 px, 1 px = 1 um
-grid_step           <- 5      # grid spacing in px; each grid point = grid_step^2 um^2
-tissue_radius       <- 20     # um; grid points further from any cell centre are background
-tissue_radius_sweep <- c(10, 15, 20, 30, 50)
-border_size         <- 200    # canonical border of 07 (canonical_border)
-no_patch_images     <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
-min_area_mm2        <- 0.1    # densities from smaller compartments are drawn hollow
-example_image       <- "20220926_20220809_16-006_TU_003"
+border_size     <- 200    # canonical border of 07 (canonical_border)
+no_patch_images <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
+min_area_mm2    <- 0.1    # densities from smaller compartments are drawn hollow
+example_image   <- "20220926_20220809_16-006_TU_003"
 ```
 
 ```{r compartment-areas}
-# Compartment of arbitrary points (grid points or cell centres) with the rule
-# 07 applies to cells: minDistToCells on patch cells + border threshold.
-classify_points <- function(points, cell_xy, is_patch, border) {
-  nearest <- BiocNeighbors::queryKNN(X = cell_xy, query = points, k = 1)
-  comp    <- rep("stroma", nrow(points))
+# Concave hull of a patch, as imcRtools .polygon_function (NULL for <= 2 cells)
+patch_polygon <- function(xy) {
+  if (nrow(xy) <= 2) return(NULL)
+  st_polygon(list(concaveman(xy, concavity = 1)))
+}
 
-  if (all(is_patch)) {
-    comp[] <- "core"
-  } else if (any(is_patch)) {
-    inside <- is_patch[nearest$index[, 1]]
-    dist   <- numeric(nrow(points))
-    if (any(inside))
-      dist[inside]  <- -BiocNeighbors::queryKNN(X = cell_xy[!is_patch, , drop = FALSE],
-                                                query = points[inside, , drop = FALSE],
-                                                k = 1)$distance[, 1]
-    if (any(!inside))
-      dist[!inside] <-  BiocNeighbors::queryKNN(X = cell_xy[is_patch, , drop = FALSE],
-                                                query = points[!inside, , drop = FALSE],
-                                                k = 1)$distance[, 1]
-    comp[abs(dist) <= border] <- "border"
-    comp[dist < -border]      <- "core"
-  }
-
-  list(compartment = comp, dist_to_cell = nearest$distance[, 1])
+# Assign points to the compartment polygons
+classify_by_polygon <- function(points, regions) {
+  comp <- rep("stroma", nrow(points))
+  pts  <- st_cast(st_sfc(st_multipoint(points)), "POINT")
+  comp[lengths(st_intersects(pts, regions$border)) > 0] <- "border"
+  comp[lengths(st_intersects(pts, regions$core))   > 0] <- "core"
+  comp
 }
 
 cell_coords <- spatialCoords(spe)[, c("Pos_X", "Pos_Y")]
@@ -692,104 +676,124 @@ cell_coords <- spatialCoords(spe)[, c("Pos_X", "Pos_Y")]
 area_results <- lapply(unique(spe$sample_id), function(img) {
   sel      <- spe$sample_id == img
   cell_xy  <- cell_coords[sel, , drop = FALSE]
-  is_patch <- !is.na(spe$patch_id[sel]) & !(img %in% no_patch_images)
+  patch_id <- if (img %in% no_patch_images) rep(NA, sum(sel)) else spe$patch_id[sel]
 
-  extent <- max(image_size_px, ceiling(max(cell_xy)))
-  grid   <- as.matrix(expand.grid(Pos_X = seq(grid_step / 2, extent, by = grid_step),
-                                  Pos_Y = seq(grid_step / 2, extent, by = grid_step)))
+  # image extent = bounding box of the cell centres
+  x_range <- range(cell_xy[, 1])
+  y_range <- range(cell_xy[, 2])
+  roi <- st_sfc(st_polygon(list(rbind(c(x_range[1], y_range[1]), c(x_range[2], y_range[1]),
+                                      c(x_range[2], y_range[2]), c(x_range[1], y_range[2]),
+                                      c(x_range[1], y_range[1])))))
 
-  grid_cls <- classify_points(grid, cell_xy, is_patch, border_size)
-  cell_cls <- classify_points(cell_xy, cell_xy, is_patch, border_size)
+  polygons <- Filter(Negate(is.null), lapply(unique(na.omit(patch_id)), function(p)
+    patch_polygon(cell_xy[which(patch_id == p), , drop = FALSE])))
 
-  areas <- dplyr::bind_rows(lapply(tissue_radius_sweep, function(r) {
-    in_tissue <- grid_cls$dist_to_cell <= r
-    data.frame(sample_id     = img,
-               tissue_radius = r,
-               compartment   = comp_levels,
-               area_mm2      = as.numeric(table(factor(grid_cls$compartment[in_tissue],
-                                                       levels = comp_levels))) * grid_step^2 / 1e6)
-  }))
+  empty <- st_sfc(st_polygon())
+  if (length(polygons) == 0) {
+    regions <- list(core = empty, border = empty, stroma = roi)
+  } else {
+    patches <- st_union(st_make_valid(st_sfc(polygons)))
+    core    <- st_intersection(st_buffer(patches, -border_size), roi)
+    outer   <- st_intersection(st_buffer(patches,  border_size), roi)
+    regions <- list(core   = core,
+                    border = st_difference(outer, core),
+                    stroma = st_difference(roi, outer))
+    regions <- lapply(regions, function(g) if (length(g) == 0) empty else g)
+  }
+
+  cell_comp <- classify_by_polygon(cell_xy, regions)
 
   list(
-    areas     = areas,
+    areas     = data.frame(sample_id   = img,
+                           compartment = comp_levels,
+                           area_mm2    = sapply(regions[comp_levels], function(g) sum(st_area(g))) / 1e6),
+    roi       = data.frame(sample_id = img,
+                           width_px  = diff(x_range),
+                           height_px = diff(y_range),
+                           n_patches = length(polygons)),
     agreement = data.frame(sample_id = img,
                            n_cells   = sum(sel),
-                           agreement = mean(cell_cls$compartment == spe$compartment[sel])),
-    example   = if (img == example_image)
-                  data.frame(grid, compartment = ifelse(grid_cls$dist_to_cell <= tissue_radius,
-                                                        grid_cls$compartment, NA))
+                           agreement = mean(cell_comp == spe$compartment[sel])),
+    confusion = data.frame(sample_id = img,
+                           cell_rule = spe$compartment[sel],
+                           polygon   = cell_comp) %>%
+                  dplyr::count(sample_id, cell_rule, polygon),
+    example   = if (img == example_image) regions
   )
 })
 
-# 1. the grid rule must reproduce spe$compartment on the cells themselves
-area_agreement <- dplyr::bind_rows(lapply(area_results, `[[`, "agreement"))
-save_table(area_agreement, "compartment_area_rule_agreement.csv")
-summary(area_agreement$agreement)
-area_agreement %>% dplyr::filter(agreement < 1)
+# 1. image extents (check against the expected image size)
+roi_table <- dplyr::bind_rows(lapply(area_results, `[[`, "roi"))
+save_table(roi_table, "compartment_area_image_extent.csv")
+knitr::kable(roi_table)
 
-# 2. areas per image and per sample (all images of a sample summed)
-areas_image_sweep <- dplyr::bind_rows(lapply(area_results, `[[`, "areas")) %>%
+# 2. agreement between the polygons and the cells' compartments
+area_agreement <- dplyr::bind_rows(lapply(area_results, `[[`, "agreement"))
+save_table(area_agreement, "compartment_area_polygon_agreement.csv")
+summary(area_agreement$agreement)
+
+area_confusion <- dplyr::bind_rows(lapply(area_results, `[[`, "confusion"))
+save_table(area_confusion, "compartment_area_polygon_confusion.csv")
+area_confusion %>%
+  dplyr::group_by(cell_rule, polygon) %>%
+  dplyr::summarise(n = sum(n), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = polygon, values_from = n, values_fill = 0) %>%
+  knitr::kable(caption = "Cells: compartment in 07 (rows) vs. polygon they fall into (columns)")
+
+# 3. areas per image and per sample (all images of a sample summed)
+areas_image <- dplyr::bind_rows(lapply(area_results, `[[`, "areas")) %>%
   dplyr::left_join(dplyr::distinct(cell_df, sample_id, fm_id, patient_id), by = "sample_id") %>%
   dplyr::mutate(compartment = factor(compartment, levels = comp_levels))
 
-areas_sample_sweep <- areas_image_sweep %>%
-  dplyr::group_by(patient_id, fm_id, tissue_radius, compartment) %>%
+areas_sample <- areas_image %>%
+  dplyr::group_by(patient_id, fm_id, compartment) %>%
   dplyr::summarise(area_mm2 = sum(area_mm2), .groups = "drop")
 
-areas_image  <- dplyr::filter(areas_image_sweep,  tissue_radius == !!tissue_radius)
-areas_sample <- dplyr::filter(areas_sample_sweep, tissue_radius == !!tissue_radius)
-
-save_table(areas_image_sweep  %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+save_table(areas_image  %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
            "compartment_area_per_image_mm2.csv")
-save_table(areas_sample_sweep %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+save_table(areas_sample %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
            "compartment_area_per_sample_mm2.csv")
 knitr::kable(areas_sample %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
-             digits = 3, caption = paste0("Compartment area (mm²), tissue_radius = ", tissue_radius, " um"))
+             digits = 3, caption = "Compartment area (mm²)")
 ```
 
-```{r compartment-area-plots, fig.width=12, fig.height=6}
-# 1. example image: grid compartments next to the cells' compartments
-example_grid  <- dplyr::bind_rows(lapply(area_results, `[[`, "example"))
-example_cells <- data.frame(cell_coords[spe$sample_id == example_image, , drop = FALSE],
+```{r compartment-area-plots, fig.width=8, fig.height=8}
+# 1. example image: compartment polygons with the cells (colored by their 07
+# compartment) on top; y is flipped to match plotSpatial
+flip_y      <- matrix(c(1, 0, 0, -1), 2, 2)
+example_idx <- match(example_image, unique(spe$sample_id))
+stopifnot(!is.na(example_idx))
+example_regions <- do.call(rbind, lapply(comp_levels, function(comp)
+  st_sf(compartment = comp,
+        geometry    = st_union(area_results[[example_idx]]$example[[comp]]) * flip_y)))
+example_cells <- data.frame(Pos_X       = cell_coords[spe$sample_id == example_image, 1],
+                            Pos_Y       = -cell_coords[spe$sample_id == example_image, 2],
                             compartment = spe$compartment[spe$sample_id == example_image])
+example_agreement <- area_agreement$agreement[area_agreement$sample_id == example_image]
 
-p_grid <- ggplot(example_grid, aes(x = Pos_X, y = Pos_Y, fill = compartment)) +
-  geom_raster() +
-  scale_fill_manual(values = COL_COMPARTMENT, na.value = "white") +
-  labs(title = paste0("Grid (tissue_radius = ", tissue_radius, " um)"))
-p_cells <- ggplot(example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment)) +
-  geom_point(size = 0.1) +
-  scale_color_manual(values = COL_COMPARTMENT) +
-  labs(title = "Cells (spe$compartment)")
-p_example <- (p_grid + p_cells) + plot_annotation(title = example_image) &
-  scale_y_reverse() & coord_fixed() & theme_void()
+p_example <- ggplot() +
+  geom_sf(data = example_regions, aes(fill = compartment), color = NA, alpha = 0.3) +
+  geom_point(data = example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment), size = 0.3) +
+  scale_fill_manual(values = COL_COMPARTMENT, name = "polygon") +
+  scale_color_manual(values = COL_COMPARTMENT, name = "cell (07)") +
+  labs(title = example_image,
+       subtitle = sprintf("%.1f%% of cells inside the polygon of their compartment",
+                          100 * example_agreement)) +
+  theme_void()
 
-save_plot(p_example, "compartment_area_example_image.pdf", width = 12, height = 6)
+save_plot(p_example, "compartment_area_example_image.pdf", width = 8, height = 8)
 p_example
 
 # 2. area per sample and compartment
 p_area <- ggplot(areas_sample, aes(x = paste0(patient_id, " (", fm_id, ")"), y = area_mm2, fill = compartment)) +
   geom_col() +
   scale_fill_manual(values = COL_COMPARTMENT) +
-  labs(x = NULL, y = "area (mm^2)",
-       title = paste0("Compartment area per sample (tissue_radius = ", tissue_radius, " um)")) +
+  labs(x = NULL, y = "area (mm^2)", title = "Compartment area per sample") +
   theme_pubr() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 
 save_plot(p_area, "compartment_area_per_sample.pdf", width = 10, height = 5)
 p_area
-
-# 3. sensitivity of the areas to the background cut-off
-p_radius <- ggplot(areas_sample_sweep, aes(x = tissue_radius, y = area_mm2, group = fm_id)) +
-  geom_line(color = "grey50") +
-  geom_point(size = 1) +
-  geom_vline(xintercept = tissue_radius, linetype = "dashed") +
-  facet_wrap(~ compartment, scales = "free_y") +
-  labs(x = "tissue_radius (um)", y = "area (mm^2)", title = "Compartment area vs. background cut-off") +
-  theme_pubr()
-
-save_plot(p_radius, "compartment_area_tissue_radius_sweep.pdf", width = 10, height = 4)
-p_radius
 ```
 
 ## Densities per compartment
