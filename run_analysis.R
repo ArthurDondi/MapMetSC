@@ -106,6 +106,7 @@ render_step("analysis/06.4_correlation_Lee.Rmd",      corr_params)
 # --- Spatial analysis --------------------------------------------------------
 # Uses imcRtools::testInteractions and the tumor_community column from 05.1.
 render_step("analysis/07_spatial_analysis.Rmd",     main_params)
+render_step("analysis/07.1_debugging.Rmd",          main_params)   # debugging only: compartment stats / counts / densities from spe_07_spatial_analysis.rds
 
 # --- Supplementary: region / marker images (customised params) ---------------
 # Standalone image step with its own params (image ids, crops, markers). Reads

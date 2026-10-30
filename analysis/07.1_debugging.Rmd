@@ -62,7 +62,9 @@ long-running steps of 07 (neighbors, interaction testing, CN clustering, patch
 detection, distances) have to be rerun. On top of the original figure, it adds
 
 * paired boxplots (point size = number of cells, lines connecting the same sample),
-* tables and plots of the number of cells per sample and compartment.
+* tables and plots of the number of cells per sample and compartment,
+* compartment areas per image (grid-based, same rule as for cells) and
+  densities (cells / mm²) per compartment, with a paired negative-binomial test.
 
 ## Load libraries
 <details>
@@ -80,6 +82,7 @@ library(gridExtra)
 library(patchwork)
 library(gtools)
 library(stringr)
+library(BiocNeighbors)
 ```
 </details>
 
@@ -624,6 +627,309 @@ for (cells in cells_list) {
             width = 2.2 * length(unique(p_clusters$data$cluster_id)) + 3,
             height = 0.25 * n_samples + 2)
   print(p_clusters)
+}
+```
+
+## Compartment areas
+
+To turn counts into densities (cells per mm²), we need the area of each
+compartment per image. Compartments are defined on cells (07: `minDistToCells`
+on tumor-patch cells, then a 200 px border), so we apply the same rule to a
+regular grid of points covering each image:
+
+* a grid point whose nearest cell belongs to a tumor patch gets minus the
+  distance to the nearest non-patch cell, any other grid point the distance to
+  the nearest patch cell (as `minDistToCells` does for cells);
+* the 200 px threshold then assigns core / border / stroma;
+* there is no tissue mask, so grid points further than `tissue_radius` from any
+  cell centre are treated as background (no tissue) and not counted.
+
+Each grid point stands for `grid_step`² µm² (1 px = 1 µm). Applied to the cell
+centres themselves, the rule must give back `spe$compartment`, which we check
+per image. The areas are also computed for a range of `tissue_radius` values to
+see how much the background cut-off matters.
+
+```{r compartment-area-params}
+image_size_px       <- 4000   # images are 4000 x 4000 px, 1 px = 1 um
+grid_step           <- 5      # grid spacing in px; each grid point = grid_step^2 um^2
+tissue_radius       <- 20     # um; grid points further from any cell centre are background
+tissue_radius_sweep <- c(10, 15, 20, 30, 50)
+border_size         <- 200    # canonical border of 07 (canonical_border)
+no_patch_images     <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
+min_area_mm2        <- 0.1    # densities from smaller compartments are drawn hollow
+example_image       <- "20220926_20220809_16-006_TU_003"
+```
+
+```{r compartment-areas}
+# Compartment of arbitrary points (grid points or cell centres) with the rule
+# 07 applies to cells: minDistToCells on patch cells + border threshold.
+classify_points <- function(points, cell_xy, is_patch, border) {
+  nearest <- BiocNeighbors::queryKNN(X = cell_xy, query = points, k = 1)
+  comp    <- rep("stroma", nrow(points))
+
+  if (all(is_patch)) {
+    comp[] <- "core"
+  } else if (any(is_patch)) {
+    inside <- is_patch[nearest$index[, 1]]
+    dist   <- numeric(nrow(points))
+    if (any(inside))
+      dist[inside]  <- -BiocNeighbors::queryKNN(X = cell_xy[!is_patch, , drop = FALSE],
+                                                query = points[inside, , drop = FALSE],
+                                                k = 1)$distance[, 1]
+    if (any(!inside))
+      dist[!inside] <-  BiocNeighbors::queryKNN(X = cell_xy[is_patch, , drop = FALSE],
+                                                query = points[!inside, , drop = FALSE],
+                                                k = 1)$distance[, 1]
+    comp[abs(dist) <= border] <- "border"
+    comp[dist < -border]      <- "core"
+  }
+
+  list(compartment = comp, dist_to_cell = nearest$distance[, 1])
+}
+
+cell_coords <- spatialCoords(spe)[, c("Pos_X", "Pos_Y")]
+
+area_results <- lapply(unique(spe$sample_id), function(img) {
+  sel      <- spe$sample_id == img
+  cell_xy  <- cell_coords[sel, , drop = FALSE]
+  is_patch <- !is.na(spe$patch_id[sel]) & !(img %in% no_patch_images)
+
+  extent <- max(image_size_px, ceiling(max(cell_xy)))
+  grid   <- as.matrix(expand.grid(Pos_X = seq(grid_step / 2, extent, by = grid_step),
+                                  Pos_Y = seq(grid_step / 2, extent, by = grid_step)))
+
+  grid_cls <- classify_points(grid, cell_xy, is_patch, border_size)
+  cell_cls <- classify_points(cell_xy, cell_xy, is_patch, border_size)
+
+  areas <- dplyr::bind_rows(lapply(tissue_radius_sweep, function(r) {
+    in_tissue <- grid_cls$dist_to_cell <= r
+    data.frame(sample_id     = img,
+               tissue_radius = r,
+               compartment   = comp_levels,
+               area_mm2      = as.numeric(table(factor(grid_cls$compartment[in_tissue],
+                                                       levels = comp_levels))) * grid_step^2 / 1e6)
+  }))
+
+  list(
+    areas     = areas,
+    agreement = data.frame(sample_id = img,
+                           n_cells   = sum(sel),
+                           agreement = mean(cell_cls$compartment == spe$compartment[sel])),
+    example   = if (img == example_image)
+                  data.frame(grid, compartment = ifelse(grid_cls$dist_to_cell <= tissue_radius,
+                                                        grid_cls$compartment, NA))
+  )
+})
+
+# 1. the grid rule must reproduce spe$compartment on the cells themselves
+area_agreement <- dplyr::bind_rows(lapply(area_results, `[[`, "agreement"))
+save_table(area_agreement, "compartment_area_rule_agreement.csv")
+summary(area_agreement$agreement)
+area_agreement %>% dplyr::filter(agreement < 1)
+
+# 2. areas per image and per sample (all images of a sample summed)
+areas_image_sweep <- dplyr::bind_rows(lapply(area_results, `[[`, "areas")) %>%
+  dplyr::left_join(dplyr::distinct(cell_df, sample_id, fm_id, patient_id), by = "sample_id") %>%
+  dplyr::mutate(compartment = factor(compartment, levels = comp_levels))
+
+areas_sample_sweep <- areas_image_sweep %>%
+  dplyr::group_by(patient_id, fm_id, tissue_radius, compartment) %>%
+  dplyr::summarise(area_mm2 = sum(area_mm2), .groups = "drop")
+
+areas_image  <- dplyr::filter(areas_image_sweep,  tissue_radius == !!tissue_radius)
+areas_sample <- dplyr::filter(areas_sample_sweep, tissue_radius == !!tissue_radius)
+
+save_table(areas_image_sweep  %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+           "compartment_area_per_image_mm2.csv")
+save_table(areas_sample_sweep %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+           "compartment_area_per_sample_mm2.csv")
+knitr::kable(areas_sample %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+             digits = 3, caption = paste0("Compartment area (mm²), tissue_radius = ", tissue_radius, " um"))
+```
+
+```{r compartment-area-plots, fig.width=12, fig.height=6}
+# 1. example image: grid compartments next to the cells' compartments
+example_grid  <- dplyr::bind_rows(lapply(area_results, `[[`, "example"))
+example_cells <- data.frame(cell_coords[spe$sample_id == example_image, , drop = FALSE],
+                            compartment = spe$compartment[spe$sample_id == example_image])
+
+p_grid <- ggplot(example_grid, aes(x = Pos_X, y = Pos_Y, fill = compartment)) +
+  geom_raster() +
+  scale_fill_manual(values = COL_COMPARTMENT, na.value = "white") +
+  labs(title = paste0("Grid (tissue_radius = ", tissue_radius, " um)"))
+p_cells <- ggplot(example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment)) +
+  geom_point(size = 0.1) +
+  scale_color_manual(values = COL_COMPARTMENT) +
+  labs(title = "Cells (spe$compartment)")
+p_example <- (p_grid + p_cells) + plot_annotation(title = example_image) &
+  scale_y_reverse() & coord_fixed() & theme_void()
+
+save_plot(p_example, "compartment_area_example_image.pdf", width = 12, height = 6)
+p_example
+
+# 2. area per sample and compartment
+p_area <- ggplot(areas_sample, aes(x = paste0(patient_id, " (", fm_id, ")"), y = area_mm2, fill = compartment)) +
+  geom_col() +
+  scale_fill_manual(values = COL_COMPARTMENT) +
+  labs(x = NULL, y = "area (mm^2)",
+       title = paste0("Compartment area per sample (tissue_radius = ", tissue_radius, " um)")) +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+save_plot(p_area, "compartment_area_per_sample.pdf", width = 10, height = 5)
+p_area
+
+# 3. sensitivity of the areas to the background cut-off
+p_radius <- ggplot(areas_sample_sweep, aes(x = tissue_radius, y = area_mm2, group = fm_id)) +
+  geom_line(color = "grey50") +
+  geom_point(size = 1) +
+  geom_vline(xintercept = tissue_radius, linetype = "dashed") +
+  facet_wrap(~ compartment, scales = "free_y") +
+  labs(x = "tissue_radius (um)", y = "area (mm^2)", title = "Compartment area vs. background cut-off") +
+  theme_pubr()
+
+save_plot(p_radius, "compartment_area_tissue_radius_sweep.pdf", width = 10, height = 4)
+p_radius
+```
+
+## Densities per compartment
+
+Cells per mm² of compartment, per sample (all images summed). For each cluster
+and compartment pair, densities are compared with a negative-binomial GLM on
+the counts with the compartment area as offset and the sample as a fixed effect
+(the same paired design as the `diffcyt` test, `~ condition + sample`), fitted
+per cluster with `MASS::glm.nb`. Samples with an empty compartment (area 0) or
+with no cells of the cluster in either compartment are left out of that test.
+The log2 fold change is the second compartment of the pair vs. the first (as
+in `diffcyt`), and p-values are BH-adjusted across clusters within each cell
+class and compartment pair.
+
+```{r densities}
+density_df <- counts_long %>%
+  dplyr::select(-dplyr::any_of("sample_label")) %>%
+  dplyr::left_join(dplyr::select(areas_sample, fm_id, compartment, area_mm2),
+                   by = c("fm_id", "compartment")) %>%
+  dplyr::mutate(area_mm2 = dplyr::coalesce(area_mm2, 0),
+                density  = dplyr::if_else(area_mm2 > 0, n / area_mm2, NA_real_))
+
+for (cells in cells_list) {
+  save_table(density_df %>%
+               dplyr::filter(cells == !!cells) %>%
+               dplyr::select(patient_id, fm_id, compartment, area_mm2, cluster_id, density) %>%
+               tidyr::pivot_wider(names_from = cluster_id, values_from = density) %>%
+               dplyr::arrange(patient_id, fm_id, compartment),
+             paste0("density_per_sample_compartment_", cells, ".csv"))
+}
+
+# NB GLM for one cluster and compartment pair
+test_density_pair <- function(df, pair) {
+  d <- df %>%
+    dplyr::filter(compartment %in% pair, area_mm2 > 0) %>%
+    dplyr::group_by(fm_id) %>%
+    dplyr::filter(dplyr::n() == 2, sum(n) > 0) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(compartment = factor(as.character(compartment), levels = pair),
+                  fm_id       = factor(fm_id))
+
+  if (dplyr::n_distinct(d$fm_id) < 3) return(data.frame(n_samples = dplyr::n_distinct(d$fm_id), logFC = NA_real_, p_val = NA_real_))
+
+  fit <- tryCatch(
+    suppressWarnings(MASS::glm.nb(n ~ compartment + fm_id + offset(log(area_mm2)), data = d)),
+    error = function(e) { message("glm.nb failed: ", e$message); NULL }
+  )
+  if (is.null(fit)) return(data.frame(n_samples = dplyr::n_distinct(d$fm_id), logFC = NA_real_, p_val = NA_real_))
+
+  coefs    <- summary(fit)$coefficients
+  coef_row <- if (paste0("compartment", pair[2]) %in% rownames(coefs))
+                coefs[paste0("compartment", pair[2]), ] else
+                c(Estimate = NA_real_, `Pr(>|z|)` = NA_real_)
+  data.frame(n_samples = dplyr::n_distinct(d$fm_id),
+             logFC     = unname(coef_row["Estimate"]) / log(2),
+             p_val     = unname(coef_row["Pr(>|z|)"]))
+}
+
+density_stats <- dplyr::bind_rows(lapply(cells_list, function(cells) {
+  dplyr::bind_rows(lapply(comparison_pairs, function(pair) {
+    res <- dplyr::bind_rows(lapply(class_definition(cells)$order, function(cluster_name) {
+      cluster_df <- dplyr::filter(density_df, cells == !!cells, cluster_id == cluster_name)
+      data.frame(cluster_name = cluster_name, test_density_pair(cluster_df, pair))
+    }))
+    res$p_adj  <- p.adjust(res$p_val, method = "BH")
+    res$cells  <- cells
+    res$group1 <- pair[1]
+    res$group2 <- pair[2]
+    res
+  }))
+})) %>%
+  dplyr::mutate(
+    p_signif = dplyr::if_else(is.na(p_adj), "NA", trimws(gtools::stars.pval(p_adj))),
+    p_signif = dplyr::if_else(p_signif == "", "ns", p_signif),
+    label    = paste0(round(logFC, 2), " (",
+                      dplyr::if_else(is.na(p_adj), "NA", sprintf("%.3f", p_adj)),
+                      " ", p_signif, ")")
+  )
+
+save_table(density_stats, "density_compartment_stats.csv")
+knitr::kable(density_stats %>% dplyr::select(cells, cluster_name, group1, group2, n_samples, logFC, p_adj, label),
+             digits = 3)
+```
+
+Paired density boxplots, as above: one line per sample, point size = area of
+the compartment (the denominator of the density), hollow points for
+compartments smaller than `min_area_mm2`.
+
+```{r density-boxplots}
+plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, size_limits, y_label) {
+  dens <- dplyr::filter(dens, !is.na(density))
+  dens$small_area <- factor(dens$area_mm2 < min_area_mm2, levels = c(FALSE, TRUE))
+
+  y_top <- max(dens$density, 1)
+  stats_df$y.position <- y_top * (1.08 + 0.14 * (seq_len(nrow(stats_df)) - 1))
+
+  ggplot(dens, aes(x = compartment, y = density)) +
+    geom_boxplot(fill = color_cluster, color = "black", outlier.shape = NA, width = 0.6) +
+    geom_line(aes(group = fm_id), color = "grey40", alpha = 0.6, linewidth = 0.4) +
+    geom_point(aes(size = area_mm2, shape = small_area), color = "black", fill = "white", stroke = 0.6) +
+    stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
+    scale_x_discrete(limits = comp_levels) +
+    scale_size_area(max_size = 5, limits = size_limits, name = "compartment\narea (mm^2)") +
+    scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 21), drop = FALSE,
+                       labels = c(paste0(">= ", min_area_mm2, " mm^2"),
+                                  paste0("< ", min_area_mm2, " mm^2")),
+                       name = NULL) +
+    scale_y_continuous(expand = expansion(mult = c(0.02, 0.05))) +
+    ggtitle(str_wrap(cluster_name, width = 18)) +
+    labs(x = NULL, y = y_label) +
+    theme_pubr() +
+    theme(aspect.ratio = 1.0, legend.position = "right",
+          plot.title  = element_text(hjust = 0.5, size = 14),
+          plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
+}
+
+size_limits_area <- c(0, max(areas_sample$area_mm2))
+
+for (cells in cells_list) {
+  def     <- class_definition(cells)
+  y_label <- if (cells == "neighborhood") "cells / mm^2" else paste0(cells, " cells / mm^2")
+
+  plot_list_density <- list()
+  for (cluster_name in def$order) {
+    plot_list_density[[cluster_name]] <- plot_density_paired(
+      dplyr::filter(density_df, cells == !!cells, cluster_id == cluster_name),
+      dplyr::filter(density_stats, cells == !!cells, cluster_name == !!cluster_name),
+      cluster_name, cluster_color(cluster_name, def$color_vec), size_limits_area, y_label
+    )
+  }
+
+  n_cols    <- min(length(plot_list_density), max_plot_columns)
+  p_density <- wrap_plots(plot_list_density, ncol = n_cols) +
+    plot_layout(guides = "collect")
+
+  save_plot(p_density,
+            paste0("Fig4m_density_compartments_paired_", cells, ".pdf"),
+            width = 3 * n_cols + 2,
+            height = 4 * ceiling(length(plot_list_density) / n_cols))
+  print(p_density)
 }
 ```
 
