@@ -253,7 +253,11 @@ run_compartment_da <- function(cells, min_total = 0) {
     # samples with cells in both compartments (the ones informative for the pairing)
     n_samples[[key]] <- sum(apply(pair_totals >= max(min_total, 1), 1, all))
 
-    if (sum(keep_cols) < 10) { diffcyt_results[[key]] <- NULL; next }
+    # too few cells, or (after the threshold) too few samples / compartments
+    # left for the paired design
+    if (sum(keep_cols) < 10 ||
+        length(unique(spe$fm_id[keep_cols])) < 2 ||
+        length(unique(spe$compartment[keep_cols])) < 2) { diffcyt_results[[key]] <- NULL; next }
 
     sce_da <- SingleCellExperiment(
       assays = list(
@@ -610,8 +614,11 @@ compartment per image. We use the tumor-patch outlines:
 * each patch outline is the concave hull of all cells carrying its `patch_id`,
   built as in `imcRtools::patchSize` / `patchDetection`
   (`concaveman(..., concavity = 1)`);
-* core = patch outlines shrunk by the 200 px border, border = outlines grown by
-  200 px minus the core, stroma = the rest of the image;
+* core = patch area minus everything within 200 px of a non-patch cell (the
+  rule 07 applies to patch cells: distance to the nearest non-patch cell
+  > 200 px), so image edges do not shrink the core;
+* border = patch outlines grown by 200 px, minus the core; stroma = the rest of
+  the image;
 * there is no tissue mask, so the image (ROI) is taken as fully covered by
   tissue; its extent is the bounding box of the cell centres (1 px = 1 µm).
 
@@ -623,7 +630,8 @@ fall into the polygon of their own compartment.
 border_size     <- 200    # canonical border of 07 (canonical_border)
 no_patch_images <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
 min_area_mm2    <- 0.1    # densities from smaller compartments are drawn hollow
-example_image   <- "20220926_20220809_16-006_TU_003"
+example_images  <- c("20220926_20220809_16-006_TU_003",
+                     "20220925_20220804_17-001_TU_002")
 ```
 
 ```{r compartment-areas}
@@ -663,9 +671,16 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
   if (length(polygons) == 0) {
     regions <- list(core = empty, border = empty, stroma = roi)
   } else {
-    patches <- st_union(st_make_valid(st_sfc(polygons)))
-    core    <- st_intersection(st_buffer(patches, -border_size), roi)
-    outer   <- st_intersection(st_buffer(patches,  border_size), roi)
+    patches <- st_intersection(st_union(st_make_valid(st_sfc(polygons))), roi)
+
+    # core: patch area further than border_size from any non-patch cell (only
+    # non-patch cells within border_size of a patch can cut into it)
+    non_patch <- st_cast(st_sfc(st_multipoint(cell_xy[is.na(patch_id), , drop = FALSE])), "POINT")
+    non_patch <- non_patch[lengths(st_is_within_distance(non_patch, patches, border_size)) > 0]
+    core <- if (length(non_patch) == 0) patches else
+      st_difference(patches, st_union(st_buffer(non_patch, border_size, nQuadSegs = 8)))
+
+    outer   <- st_intersection(st_buffer(patches, border_size), roi)
     regions <- list(core   = core,
                     border = st_difference(outer, core),
                     stroma = st_difference(roi, outer))
@@ -689,7 +704,7 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
                            cell_rule = spe$compartment[sel],
                            polygon   = cell_comp) %>%
                   dplyr::count(sample_id, cell_rule, polygon),
-    example   = if (img == example_image) regions
+    example   = if (img %in% example_images) regions
   )
 })
 
@@ -729,31 +744,36 @@ knitr::kable(areas_sample %>% tidyr::pivot_wider(names_from = compartment, value
 ```
 
 ```{r compartment-area-plots, fig.width=8, fig.height=8}
-# 1. example image: compartment polygons with the cells (colored by their 07
+# 1. example images: compartment polygons with the cells (colored by their 07
 # compartment) on top; y is flipped to match plotSpatial
-flip_y      <- matrix(c(1, 0, 0, -1), 2, 2)
-example_idx <- match(example_image, unique(spe$sample_id))
-stopifnot(!is.na(example_idx))
-example_regions <- do.call(rbind, lapply(comp_levels, function(comp)
-  st_sf(compartment = comp,
-        geometry    = st_union(area_results[[example_idx]]$example[[comp]]) * flip_y)))
-example_cells <- data.frame(Pos_X       = cell_coords[spe$sample_id == example_image, 1],
-                            Pos_Y       = -cell_coords[spe$sample_id == example_image, 2],
-                            compartment = spe$compartment[spe$sample_id == example_image])
-example_agreement <- area_agreement$agreement[area_agreement$sample_id == example_image]
+flip_y <- matrix(c(1, 0, 0, -1), 2, 2)
 
-p_example <- ggplot() +
-  geom_sf(data = example_regions, aes(fill = compartment), color = NA, alpha = 0.3) +
-  geom_point(data = example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment), size = 0.3) +
-  scale_fill_manual(values = COL_COMPARTMENT, name = "polygon") +
-  scale_color_manual(values = COL_COMPARTMENT, name = "cell (07)") +
-  labs(title = example_image,
-       subtitle = sprintf("%.1f%% of cells inside the polygon of their compartment",
-                          100 * example_agreement)) +
-  theme_void()
+for (example_image in example_images) {
+  example_idx <- match(example_image, unique(spe$sample_id))
+  if (is.na(example_idx)) { message("Example image not found: ", example_image); next }
 
-save_plot(p_example, "compartment_area_example_image.pdf", "areas", width = 8, height = 8)
-p_example
+  example_regions <- do.call(rbind, lapply(comp_levels, function(comp)
+    st_sf(compartment = comp,
+          geometry    = st_union(area_results[[example_idx]]$example[[comp]]) * flip_y)))
+  example_cells <- data.frame(Pos_X       = cell_coords[spe$sample_id == example_image, 1],
+                              Pos_Y       = -cell_coords[spe$sample_id == example_image, 2],
+                              compartment = spe$compartment[spe$sample_id == example_image])
+  example_agreement <- area_agreement$agreement[area_agreement$sample_id == example_image]
+
+  p_example <- ggplot() +
+    geom_sf(data = example_regions, aes(fill = compartment), color = NA, alpha = 0.3) +
+    geom_point(data = example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment), size = 0.3) +
+    scale_fill_manual(values = COL_COMPARTMENT, name = "polygon") +
+    scale_color_manual(values = COL_COMPARTMENT, name = "cell (07)") +
+    labs(title = example_image,
+         subtitle = sprintf("%.1f%% of cells inside the polygon of their compartment",
+                            100 * example_agreement)) +
+    theme_void()
+
+  save_plot(p_example, paste0("compartment_area_example_", example_image, ".pdf"), "areas",
+            width = 8, height = 8)
+  print(p_example)
+}
 
 # 2. area per sample and compartment
 p_area <- ggplot(areas_sample, aes(x = paste0(patient_id, " (", fm_id, ")"), y = area_mm2, fill = compartment)) +
