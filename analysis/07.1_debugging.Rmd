@@ -614,9 +614,10 @@ compartment per image. We use the tumor-patch outlines:
 * each patch outline is the concave hull of all cells carrying its `patch_id`,
   built as in `imcRtools::patchSize` / `patchDetection`
   (`concaveman(..., concavity = 1)`);
-* core = patch area minus everything within 200 px of a non-patch cell (the
-  rule 07 applies to patch cells: distance to the nearest non-patch cell
-  > 200 px), so image edges do not shrink the core;
+* core = patch outlines grown by 200 px, minus everything within 200 px of a
+  non-patch cell (the rule 07 applies to patch cells: distance to the nearest
+  non-patch cell > 200 px). Image edges therefore do not create a border, and
+  the strip between a patch outline and the image edge stays core;
 * border = patch outlines grown by 200 px, minus the core; stroma = the rest of
   the image;
 * there is no tissue mask, so the image (ROI) is taken as fully covered by
@@ -673,14 +674,15 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
   } else {
     patches <- st_intersection(st_union(st_make_valid(st_sfc(polygons))), roi)
 
-    # core: patch area further than border_size from any non-patch cell (only
-    # non-patch cells within border_size of a patch can cut into it)
-    non_patch <- st_cast(st_sfc(st_multipoint(cell_xy[is.na(patch_id), , drop = FALSE])), "POINT")
-    non_patch <- non_patch[lengths(st_is_within_distance(non_patch, patches, border_size)) > 0]
-    core <- if (length(non_patch) == 0) patches else
-      st_difference(patches, st_union(st_buffer(non_patch, border_size, nQuadSegs = 8)))
+    outer <- st_intersection(st_buffer(patches, border_size), roi)
 
-    outer   <- st_intersection(st_buffer(patches, border_size), roi)
+    # core: within border_size of a patch, but further than border_size from any
+    # non-patch cell (only non-patch cells within 2 x border_size of a patch can
+    # cut into it)
+    non_patch <- st_cast(st_sfc(st_multipoint(cell_xy[is.na(patch_id), , drop = FALSE])), "POINT")
+    non_patch <- non_patch[lengths(st_is_within_distance(non_patch, patches, 2 * border_size)) > 0]
+    core <- if (length(non_patch) == 0) outer else
+      st_difference(outer, st_union(st_buffer(non_patch, border_size, nQuadSegs = 8)))
     regions <- list(core   = core,
                     border = st_difference(outer, core),
                     stroma = st_difference(roi, outer))
