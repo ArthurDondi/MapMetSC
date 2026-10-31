@@ -385,7 +385,6 @@ for (cells in cells_list) {
 Same data and statistics as the Fig4m boxplots of 07, but each point is sized by the number of cells of
 the class in that sample and compartment (the denominator of the proportion),
 and the points of one sample are connected across core / border / stroma.
-Points based on fewer than `low_n_threshold` cells are drawn hollow.
 
 ```{r compartment-boxplots-paired}
 # Freq is a percentage: panels use a fixed 0-100 y-axis with the pairwise
@@ -396,23 +395,16 @@ bracket_gap       <- 14
 title_gap         <- 85
 bracket_positions <- bracket_base + (seq_along(comparison_pairs) - 1) * bracket_gap
 max_plot_columns  <- 5
-low_n_threshold   <- 50
 
 plot_compartment_paired <- function(proportions, stats_df, cluster_name,
                                     color_cluster, size_limits, y_label) {
-  proportions$low_n <- factor(proportions$total < low_n_threshold, levels = c(FALSE, TRUE))
-
   ggplot(proportions, aes(x = condition, y = Freq)) +
     geom_boxplot(fill = color_cluster, color = "black", outlier.shape = NA, width = 0.6) +
     geom_line(aes(group = sample_id), color = "grey40", alpha = 0.6, linewidth = 0.4) +
-    geom_point(aes(size = total, shape = low_n), color = "black", fill = "white", stroke = 0.6) +
+    geom_point(aes(size = total), color = "black") +
     stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
     scale_x_discrete(limits = comp_levels) +
     scale_size_area(max_size = 5, limits = size_limits, name = "cells in\ncompartment") +
-    scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 21), drop = FALSE,
-                       labels = c(paste0(">= ", low_n_threshold, " cells"),
-                                  paste0("< ", low_n_threshold, " cells")),
-                       name = NULL) +
     ggtitle(str_wrap(cluster_name, width = 18)) +
     labs(x = NULL, y = y_label) +
     scale_y_continuous(breaks = seq(0, y_axis_max, 25),
@@ -630,7 +622,6 @@ fall into the polygon of their own compartment.
 ```{r compartment-area-params}
 border_size     <- 200    # canonical border of 07 (canonical_border)
 no_patch_images <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
-min_area_mm2    <- 0.1    # densities from smaller compartments are drawn hollow
 example_images  <- c("20220926_20220809_16-006_TU_003",
                      "20220925_20220804_17-001_TU_002")
 ```
@@ -880,13 +871,11 @@ knitr::kable(density_stats %>% dplyr::select(cells, cluster_name, group1, group2
 ```
 
 Paired density boxplots, as above: one line per sample, point size = area of
-the compartment (the denominator of the density), hollow points for
-compartments smaller than `min_area_mm2`.
+the compartment (the denominator of the density).
 
 ```{r density-boxplots}
-plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, size_limits, y_label) {
+plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, size_limits) {
   dens <- dplyr::filter(dens, !is.na(density))
-  dens$small_area <- factor(dens$area_mm2 < min_area_mm2, levels = c(FALSE, TRUE))
 
   y_top <- max(dens$density, 1)
   stats_df$y.position <- y_top * (1.08 + 0.14 * (seq_len(nrow(stats_df)) - 1))
@@ -894,35 +883,33 @@ plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, siz
   ggplot(dens, aes(x = compartment, y = density)) +
     geom_boxplot(fill = color_cluster, color = "black", outlier.shape = NA, width = 0.6) +
     geom_line(aes(group = fm_id), color = "grey40", alpha = 0.6, linewidth = 0.4) +
-    geom_point(aes(size = area_mm2, shape = small_area), color = "black", fill = "white", stroke = 0.6) +
+    geom_point(aes(size = area_mm2), color = "black") +
     stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
     scale_x_discrete(limits = comp_levels) +
-    scale_size_area(max_size = 5, limits = size_limits, name = "compartment\narea (mm^2)") +
-    scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 21), drop = FALSE,
-                       labels = c(paste0(">= ", min_area_mm2, " mm^2"),
-                                  paste0("< ", min_area_mm2, " mm^2")),
-                       name = NULL) +
-    scale_y_continuous(expand = expansion(mult = c(0.02, 0.05))) +
+    scale_size_area(max_size = 5, limits = size_limits,
+                    name = expression(atop("compartment", "area (mm"^2*")"))) +
+    # headroom for the bracket labels above the top bracket
+    scale_y_continuous(expand = expansion(mult = c(0.02, 0.12))) +
+    coord_cartesian(clip = "off") +
     ggtitle(str_wrap(cluster_name, width = 18)) +
-    labs(x = NULL, y = y_label) +
+    labs(x = NULL, y = expression("cells / mm"^2)) +
     theme_pubr() +
     theme(aspect.ratio = 1.0, legend.position = "right",
-          plot.title  = element_text(hjust = 0.5, size = 14),
+          plot.title  = element_text(hjust = 0.5, size = 14, margin = margin(b = 12)),
           plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
 }
 
 size_limits_area <- c(0, max(areas_sample$area_mm2))
 
 for (cells in cells_list) {
-  def     <- class_definition(cells)
-  y_label <- if (cells == "neighborhood") "cells / mm^2" else paste0(cells, " cells / mm^2")
+  def <- class_definition(cells)
 
   plot_list_density <- list()
   for (cluster_name in def$order) {
     plot_list_density[[cluster_name]] <- plot_density_paired(
       dplyr::filter(density_df, cells == !!cells, cluster_id == cluster_name),
       dplyr::filter(density_stats, cells == !!cells, cluster_name == !!cluster_name),
-      cluster_name, cluster_color(cluster_name, def$color_vec), size_limits_area, y_label
+      cluster_name, cluster_color(cluster_name, def$color_vec), size_limits_area
     )
   }
 
