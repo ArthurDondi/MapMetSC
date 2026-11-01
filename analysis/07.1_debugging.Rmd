@@ -604,9 +604,11 @@ To turn counts into densities (cells per mm²), we need the area of each
 compartment per image (1 px = 1 µm). Space is assigned with the rules 07
 applies to cells:
 
-* tissue: there is no tissue mask, so only area within `tissue_radius` of a
+* tissue: there is no tissue mask, so only area within a tissue radius of a
   cell centre counts; larger empty regions are excluded. The image extent is
-  the bounding box of the cell centres;
+  the bounding box of the cell centres. Areas (and the densities below) are
+  computed for tissue radii of 50, 75 and 100 µm, with the outputs of each
+  radius in its own `tissue_radius_<r>um` subfolder;
 * tumor side / stroma side: each point takes the side of its nearest cell
   (patch cell or not), i.e. the union of the Voronoi tiles of the patch cells;
 * core = tumor side further than 200 px from any non-patch cell (07: distance
@@ -624,7 +626,8 @@ fall into the polygon of their own compartment.
 
 ```{r compartment-area-params}
 border_size     <- 200    # canonical border of 07 (canonical_border)
-tissue_radius   <- 50     # um; area further than this from any cell is empty (no tissue)
+tissue_radii       <- c(50, 75, 100)   # um; area further than this from any cell is empty (no tissue)
+tissue_radius_main <- 50               # um; densities used by the threshold check
 no_patch_images <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
 example_images  <- c("20220926_20220809_16-006_TU_003",
                      "20220925_20220804_17-001_TU_002")
@@ -663,146 +666,193 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
   polygons <- Filter(Negate(is.null), lapply(unique(na.omit(patch_id)), function(p)
     patch_polygon(cell_xy[which(patch_id == p), , drop = FALSE])))
 
-  # tissue = area within tissue_radius of a cell centre
   cells_sfc <- st_cast(st_sfc(st_multipoint(cell_xy)), "POINT")
-  tissue    <- st_intersection(st_union(st_buffer(cells_sfc, tissue_radius, nQuadSegs = 4)), roi)
+  empty     <- st_sfc(st_polygon())
 
-  empty <- st_sfc(st_polygon())
-  if (length(polygons) == 0) {
-    regions <- list(core = empty, border = empty, stroma = tissue)
-  } else {
-    patches <- st_intersection(st_union(st_make_valid(st_sfc(polygons))), roi)
-
-    # tumor side: Voronoi tiles of the patch cells
+  # independent of the tissue radius: patch outlines, tumor side, and the area
+  # within border_size of a non-patch cell (only non-patch cells within
+  # border_size + the largest tissue radius of a patch cell matter)
+  if (length(polygons) > 0) {
+    patches    <- st_intersection(st_union(st_make_valid(st_sfc(polygons))), roi)
     tiles      <- st_collection_extract(st_voronoi(st_sfc(st_multipoint(cell_xy)), envelope = roi), "POLYGON")
     tumor_side <- st_union(tiles[lengths(st_intersects(tiles, cells_sfc[!is.na(patch_id)])) > 0])
 
-    # core: tumor side further than border_size from any non-patch cell (only
-    # non-patch cells within border_size + tissue_radius of a patch cell matter)
-    near_non_patch <- which(is.na(patch_id) & spe$distToCells[sel] <= border_size + tissue_radius)
-    core <- st_intersection(tissue, tumor_side)
-    if (length(near_non_patch) > 0)
-      core <- st_difference(core, st_union(st_buffer(cells_sfc[near_non_patch], border_size, nQuadSegs = 8)))
-
-    # stroma: stroma side further than border_size from the patch outlines
-    stroma <- st_difference(st_difference(tissue, tumor_side), st_buffer(patches, border_size))
-
-    regions <- lapply(list(core = core, stroma = stroma), function(g) if (length(g) == 0) empty else g)
-    regions$border <- st_difference(st_difference(tissue, regions$core), regions$stroma)
-    regions <- lapply(regions, function(g) if (length(g) == 0) empty else g)
+    near_non_patch <- which(is.na(patch_id) & spe$distToCells[sel] <= border_size + max(tissue_radii))
+    near_buffer    <- if (length(near_non_patch) > 0)
+                        st_union(st_buffer(cells_sfc[near_non_patch], border_size, nQuadSegs = 8))
+    patch_buffer   <- st_buffer(patches, border_size)
   }
 
-  # core and stroma should never share a boundary (length in px)
-  core_stroma_contact <- tryCatch(
-    sum(st_length(st_collection_extract(st_intersection(regions$core, regions$stroma), "LINESTRING"))),
-    error = function(e) NA_real_)
+  lapply(setNames(tissue_radii, tissue_radii), function(r) {
+    # tissue = area within r of a cell centre
+    tissue <- st_intersection(st_union(st_buffer(cells_sfc, r, nQuadSegs = 4)), roi)
 
-  cell_comp <- classify_by_polygon(cell_xy, regions)
+    if (length(polygons) == 0) {
+      regions <- list(core = empty, border = empty, stroma = tissue)
+    } else {
+      # core: tumor side further than border_size from any non-patch cell
+      core <- st_intersection(tissue, tumor_side)
+      if (!is.null(near_buffer)) core <- st_difference(core, near_buffer)
 
-  list(
-    areas     = data.frame(sample_id   = img,
-                           compartment = comp_levels,
-                           area_mm2    = sapply(regions[comp_levels], function(g) sum(st_area(g))) / 1e6),
-    roi       = data.frame(sample_id = img,
-                           width_px  = diff(x_range),
-                           height_px = diff(y_range),
-                           n_patches = length(polygons),
-                           tissue_fraction     = sum(st_area(tissue)) / sum(st_area(roi)),
-                           core_stroma_contact = core_stroma_contact),
-    agreement = data.frame(sample_id = img,
-                           n_cells   = sum(sel),
-                           agreement = mean(cell_comp == spe$compartment[sel])),
-    confusion = data.frame(sample_id = img,
-                           cell_rule = spe$compartment[sel],
-                           polygon   = cell_comp) %>%
-                  dplyr::count(sample_id, cell_rule, polygon),
-    example   = if (img %in% example_images) regions
-  )
+      # stroma: stroma side further than border_size from the patch outlines
+      stroma <- st_difference(st_difference(tissue, tumor_side), patch_buffer)
+
+      regions <- lapply(list(core = core, stroma = stroma), function(g) if (length(g) == 0) empty else g)
+      regions$border <- st_difference(st_difference(tissue, regions$core), regions$stroma)
+      regions <- lapply(regions, function(g) if (length(g) == 0) empty else g)
+    }
+
+    # core and stroma should never share a boundary (length in px)
+    core_stroma_contact <- tryCatch(
+      sum(st_length(st_collection_extract(st_intersection(regions$core, regions$stroma), "LINESTRING"))),
+      error = function(e) NA_real_)
+
+    cell_comp <- classify_by_polygon(cell_xy, regions)
+
+    list(
+      areas     = data.frame(sample_id     = img,
+                             tissue_radius = r,
+                             compartment   = comp_levels,
+                             area_mm2      = sapply(regions[comp_levels], function(g) sum(st_area(g))) / 1e6),
+      roi       = data.frame(sample_id           = img,
+                             tissue_radius       = r,
+                             width_px            = diff(x_range),
+                             height_px           = diff(y_range),
+                             n_patches           = length(polygons),
+                             tissue_fraction     = sum(st_area(tissue)) / sum(st_area(roi)),
+                             core_stroma_contact = core_stroma_contact,
+                             n_cells             = sum(sel),
+                             agreement           = mean(cell_comp == spe$compartment[sel])),
+      confusion = data.frame(sample_id = img,
+                             cell_rule = spe$compartment[sel],
+                             polygon   = cell_comp) %>%
+                    dplyr::count(sample_id, cell_rule, polygon) %>%
+                    dplyr::mutate(tissue_radius = r),
+      example   = if (img %in% example_images) regions
+    )
+  })
 })
+names(area_results) <- unique(spe$sample_id)
 
-# 1. image extents (check against the expected image size), share of the image
-# counted as tissue, and core-stroma contact (should be 0)
-roi_table <- dplyr::bind_rows(lapply(area_results, `[[`, "roi"))
-save_table(roi_table, "compartment_area_image_extent.csv", "areas")
-knitr::kable(roi_table)
+# collect one part of the results over all images and radii
+collect_area_results <- function(part)
+  dplyr::bind_rows(lapply(area_results, function(x) dplyr::bind_rows(lapply(x, `[[`, part))))
 
-# 2. agreement between the polygons and the cells' compartments
-area_agreement <- dplyr::bind_rows(lapply(area_results, `[[`, "agreement"))
-save_table(area_agreement, "compartment_area_polygon_agreement.csv", "areas")
-summary(area_agreement$agreement)
+# subfolder per tissue radius
+radius_dir <- function(base, r) file.path(base, paste0("tissue_radius_", r, "um"))
 
-area_confusion <- dplyr::bind_rows(lapply(area_results, `[[`, "confusion"))
-save_table(area_confusion, "compartment_area_polygon_confusion.csv", "areas")
-area_confusion %>%
-  dplyr::group_by(cell_rule, polygon) %>%
-  dplyr::summarise(n = sum(n), .groups = "drop") %>%
-  tidyr::pivot_wider(names_from = polygon, values_from = n, values_fill = 0) %>%
-  knitr::kable(caption = "Cells: compartment in 07 (rows) vs. polygon they fall into (columns)")
+# 1. per image: extent, share counted as tissue, core-stroma contact (should
+# be 0), and share of cells inside the polygon of their 07 compartment
+roi_table      <- collect_area_results("roi")
+area_confusion <- collect_area_results("confusion")
 
-# 3. areas per image and per sample (all images of a sample summed)
-areas_image <- dplyr::bind_rows(lapply(area_results, `[[`, "areas")) %>%
+# 2. areas per image and per sample (all images of a sample summed)
+areas_image_all <- collect_area_results("areas") %>%
   dplyr::left_join(dplyr::distinct(cell_df, sample_id, fm_id, patient_id), by = "sample_id") %>%
   dplyr::mutate(compartment = factor(compartment, levels = comp_levels))
 
-areas_sample <- areas_image %>%
-  dplyr::group_by(patient_id, fm_id, compartment) %>%
+areas_sample_all <- areas_image_all %>%
+  dplyr::group_by(tissue_radius, patient_id, fm_id, compartment) %>%
   dplyr::summarise(area_mm2 = sum(area_mm2), .groups = "drop")
 
-save_table(areas_image  %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
-           "compartment_area_per_image_mm2.csv", "areas")
-save_table(areas_sample %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
-           "compartment_area_per_sample_mm2.csv", "areas")
-knitr::kable(areas_sample %>% tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
-             digits = 3, caption = "Compartment area (mm²)")
+for (r in tissue_radii) {
+  sub <- radius_dir("areas", r)
+  save_table(dplyr::filter(roi_table, tissue_radius == r), "compartment_area_image_qc.csv", sub)
+  save_table(dplyr::filter(area_confusion, tissue_radius == r), "compartment_area_polygon_confusion.csv", sub)
+  save_table(areas_image_all %>% dplyr::filter(tissue_radius == r) %>%
+               tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+             "compartment_area_per_image_mm2.csv", sub)
+  save_table(areas_sample_all %>% dplyr::filter(tissue_radius == r) %>%
+               tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+             "compartment_area_per_sample_mm2.csv", sub)
+}
+
+# 3. comparison of the radii
+save_table(areas_sample_all %>%
+             tidyr::pivot_wider(names_from = c(compartment, tissue_radius), values_from = area_mm2,
+                                names_glue = "{compartment}_{tissue_radius}um"),
+           "compartment_area_per_sample_all_radii_mm2.csv", "areas")
+
+roi_table %>%
+  dplyr::group_by(tissue_radius) %>%
+  dplyr::summarise(median_tissue_fraction  = median(tissue_fraction),
+                   min_tissue_fraction     = min(tissue_fraction),
+                   median_agreement        = median(agreement),
+                   min_agreement           = min(agreement),
+                   max_core_stroma_contact = max(core_stroma_contact, na.rm = TRUE),
+                   .groups = "drop") %>%
+  knitr::kable(digits = 3, caption = "Per tissue radius: share of the image counted as tissue, share of cells inside their compartment polygon, core-stroma contact (px)")
+
+areas_sample_all %>%
+  dplyr::group_by(tissue_radius, compartment) %>%
+  dplyr::summarise(total_area_mm2 = sum(area_mm2), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = compartment, values_from = total_area_mm2) %>%
+  knitr::kable(digits = 2, caption = "Total compartment area over all samples (mm²)")
 ```
 
 ```{r compartment-area-plots, fig.width=8, fig.height=8}
-# 1. example images: compartment polygons with the cells (colored by their 07
-# compartment) on top; y is flipped to match plotSpatial
+# 1. example images per radius: compartment polygons with the cells (colored
+# by their 07 compartment) on top; y is flipped to match plotSpatial
 flip_y <- matrix(c(1, 0, 0, -1), 2, 2)
 
-for (example_image in example_images) {
-  example_idx <- match(example_image, unique(spe$sample_id))
-  if (is.na(example_idx)) { message("Example image not found: ", example_image); next }
+for (r in tissue_radii) {
+  for (example_image in example_images) {
+    if (!example_image %in% names(area_results)) { message("Example image not found: ", example_image); next }
 
-  example_regions <- do.call(rbind, lapply(comp_levels, function(comp)
-    st_sf(compartment = comp,
-          geometry    = st_union(area_results[[example_idx]]$example[[comp]]) * flip_y)))
-  example_cells <- data.frame(Pos_X       = cell_coords[spe$sample_id == example_image, 1],
-                              Pos_Y       = -cell_coords[spe$sample_id == example_image, 2],
-                              compartment = spe$compartment[spe$sample_id == example_image])
-  example_agreement <- area_agreement$agreement[area_agreement$sample_id == example_image]
+    res_r <- area_results[[example_image]][[as.character(r)]]
+    example_regions <- do.call(rbind, lapply(comp_levels, function(comp)
+      st_sf(compartment = comp, geometry = st_union(res_r$example[[comp]]) * flip_y)))
+    example_cells <- data.frame(Pos_X       = cell_coords[spe$sample_id == example_image, 1],
+                                Pos_Y       = -cell_coords[spe$sample_id == example_image, 2],
+                                compartment = spe$compartment[spe$sample_id == example_image])
 
-  p_example <- ggplot() +
-    geom_sf(data = example_regions, aes(fill = compartment), color = NA, alpha = 0.3) +
-    geom_point(data = example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment), size = 0.3) +
-    scale_fill_manual(values = COL_COMPARTMENT, name = "polygon") +
-    scale_color_manual(values = COL_COMPARTMENT, name = "cell (07)") +
-    labs(title = example_image,
-         subtitle = sprintf("%.1f%% of cells inside the polygon of their compartment",
-                            100 * example_agreement)) +
-    theme_void()
+    p_example <- ggplot() +
+      geom_sf(data = example_regions, aes(fill = compartment), color = NA, alpha = 0.3) +
+      geom_point(data = example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment), size = 0.3) +
+      scale_fill_manual(values = COL_COMPARTMENT, name = "polygon") +
+      scale_color_manual(values = COL_COMPARTMENT, name = "cell (07)") +
+      labs(title = example_image,
+           subtitle = sprintf("tissue_radius = %d um\n%.1f%% of cells inside the polygon of their compartment, %.1f%% of the image is tissue",
+                              r, 100 * res_r$roi$agreement, 100 * res_r$roi$tissue_fraction)) +
+      theme_void()
 
-  save_plot(p_example, paste0("compartment_area_example_", example_image, ".pdf"), "areas",
-            width = 8, height = 8)
-  print(p_example)
+    save_plot(p_example, paste0("compartment_area_example_", example_image, ".pdf"),
+              radius_dir("areas", r), width = 8, height = 8)
+    print(p_example)
+  }
+
+  # 2. area per sample and compartment
+  p_area <- ggplot(dplyr::filter(areas_sample_all, tissue_radius == r),
+                   aes(x = paste0(patient_id, " (", fm_id, ")"), y = area_mm2, fill = compartment)) +
+    geom_col() +
+    scale_fill_manual(values = COL_COMPARTMENT) +
+    labs(x = NULL, y = expression("area (mm"^2*")"),
+         title = paste0("Compartment area per sample (tissue_radius = ", r, " um)")) +
+    theme_pubr() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+  save_plot(p_area, "compartment_area_per_sample.pdf", radius_dir("areas", r), width = 10, height = 5)
 }
 
-# 2. area per sample and compartment
-p_area <- ggplot(areas_sample, aes(x = paste0(patient_id, " (", fm_id, ")"), y = area_mm2, fill = compartment)) +
-  geom_col() +
-  scale_fill_manual(values = COL_COMPARTMENT) +
-  labs(x = NULL, y = "area (mm^2)", title = "Compartment area per sample") +
-  theme_pubr() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+# 3. area vs. tissue radius, one line per sample
+p_radius <- ggplot(areas_sample_all, aes(x = tissue_radius, y = area_mm2, group = fm_id)) +
+  geom_line(color = "grey50") +
+  geom_point(size = 1) +
+  facet_wrap(~ compartment, scales = "free_y") +
+  scale_x_continuous(breaks = tissue_radii) +
+  labs(x = "tissue_radius (um)", y = expression("area (mm"^2*")"),
+       title = "Compartment area per sample vs. tissue radius") +
+  theme_pubr()
 
-save_plot(p_area, "compartment_area_per_sample.pdf", "areas", width = 10, height = 5)
-p_area
+save_plot(p_radius, "compartment_area_vs_tissue_radius.pdf", "areas", width = 10, height = 4)
+p_radius
 ```
 
 ## Densities per compartment
 
-Cells per mm² of compartment, per sample (all images summed). For each cluster
+Cells per mm² of compartment, per sample (all images summed), for each tissue
+radius (outputs in `densities/tissue_radius_<r>um`, and which calls depend on
+the radius in `densities/`). For each cluster
 and compartment pair, densities are compared with a negative-binomial GLM on
 the counts with the compartment area as offset and the sample as a fixed effect
 (the same paired design as the `diffcyt` test, `~ condition + sample`), fitted
@@ -813,24 +863,35 @@ in `diffcyt`), and p-values are BH-adjusted across clusters within each cell
 class and compartment pair.
 
 ```{r densities}
-density_df <- counts_long %>%
-  dplyr::select(-dplyr::any_of("sample_label")) %>%
-  dplyr::left_join(dplyr::select(areas_sample, fm_id, compartment, area_mm2),
-                   by = c("fm_id", "compartment")) %>%
-  dplyr::mutate(area_mm2 = dplyr::coalesce(area_mm2, 0),
-                density  = dplyr::if_else(area_mm2 > 0, n / area_mm2, NA_real_)) %>%
+# densities for every tissue radius; density_df (tissue_radius_main) is used by
+# the threshold check below
+density_df_all <- dplyr::bind_rows(lapply(tissue_radii, function(r) {
+  counts_long %>%
+    dplyr::select(-dplyr::any_of("sample_label")) %>%
+    dplyr::left_join(areas_sample_all %>%
+                       dplyr::filter(tissue_radius == r) %>%
+                       dplyr::select(fm_id, compartment, area_mm2),
+                     by = c("fm_id", "compartment")) %>%
+    dplyr::mutate(tissue_radius = r,
+                  area_mm2      = dplyr::coalesce(area_mm2, 0),
+                  density       = dplyr::if_else(area_mm2 > 0, n / area_mm2, NA_real_))
+})) %>%
   # cells of the class per sample and compartment (for the threshold check)
-  dplyr::group_by(cells, fm_id, compartment) %>%
+  dplyr::group_by(tissue_radius, cells, fm_id, compartment) %>%
   dplyr::mutate(total = sum(n)) %>%
   dplyr::ungroup()
 
-for (cells in cells_list) {
-  save_table(density_df %>%
-               dplyr::filter(cells == !!cells) %>%
-               dplyr::select(patient_id, fm_id, compartment, area_mm2, cluster_id, density) %>%
-               tidyr::pivot_wider(names_from = cluster_id, values_from = density) %>%
-               dplyr::arrange(patient_id, fm_id, compartment),
-             paste0("density_per_sample_compartment_", cells, ".csv"), "densities")
+density_df <- dplyr::filter(density_df_all, tissue_radius == tissue_radius_main)
+
+for (r in tissue_radii) {
+  for (cells in cells_list) {
+    save_table(density_df_all %>%
+                 dplyr::filter(tissue_radius == r, cells == !!cells) %>%
+                 dplyr::select(patient_id, fm_id, compartment, area_mm2, cluster_id, density) %>%
+                 tidyr::pivot_wider(names_from = cluster_id, values_from = density) %>%
+                 dplyr::arrange(patient_id, fm_id, compartment),
+               paste0("density_per_sample_compartment_", cells, ".csv"), radius_dir("densities", r))
+  }
 }
 
 # NB GLM for one cluster and compartment pair; min_total (threshold check only)
@@ -862,10 +923,10 @@ test_density_pair <- function(df, pair, min_total = 0) {
 }
 
 # All clusters of a cell class, all compartment pairs (BH within class x pair)
-density_tests <- function(cells, min_total = 0) {
+density_tests <- function(cells, min_total = 0, dens = density_df) {
   dplyr::bind_rows(lapply(comparison_pairs, function(pair) {
     res <- dplyr::bind_rows(lapply(class_definition(cells)$order, function(cluster_name) {
-      cluster_df <- dplyr::filter(density_df, cells == !!cells, cluster_id == cluster_name)
+      cluster_df <- dplyr::filter(dens, cells == !!cells, cluster_id == cluster_name)
       data.frame(cluster_name = cluster_name, test_density_pair(cluster_df, pair, min_total))
     }))
     res$p_adj  <- p.adjust(res$p_val, method = "BH")
@@ -876,7 +937,11 @@ density_tests <- function(cells, min_total = 0) {
   }))
 }
 
-density_stats <- dplyr::bind_rows(lapply(cells_list, density_tests)) %>%
+density_stats_all <- dplyr::bind_rows(lapply(tissue_radii, function(r) {
+  dens_r <- dplyr::filter(density_df_all, tissue_radius == r)
+  dplyr::bind_rows(lapply(cells_list, density_tests, dens = dens_r)) %>%
+    dplyr::mutate(tissue_radius = r)
+})) %>%
   dplyr::mutate(
     p_signif = dplyr::if_else(is.na(p_adj), "NA", trimws(gtools::stars.pval(p_adj))),
     p_signif = dplyr::if_else(p_signif == "", "ns", p_signif),
@@ -885,13 +950,33 @@ density_stats <- dplyr::bind_rows(lapply(cells_list, density_tests)) %>%
                       " ", p_signif, ")")
   )
 
-save_table(density_stats, "density_compartment_stats.csv", "densities")
-knitr::kable(density_stats %>% dplyr::select(cells, cluster_name, group1, group2, n_samples, logFC, p_adj, label),
-             digits = 3)
+for (r in tissue_radii)
+  save_table(dplyr::filter(density_stats_all, tissue_radius == r),
+             "density_compartment_stats.csv", radius_dir("densities", r))
+
+# does a call (up / down at adj. p < 0.05, or ns) depend on the tissue radius?
+density_radius_check <- density_stats_all %>%
+  dplyr::mutate(pair = paste(group1, group2, sep = "-"),
+                call = dplyr::case_when(is.na(p_adj) ~ "NA",
+                                        p_adj >= 0.05 ~ "ns",
+                                        logFC > 0     ~ "up",
+                                        TRUE          ~ "down")) %>%
+  dplyr::select(cells, cluster_name, pair, tissue_radius, logFC, p_adj, call) %>%
+  dplyr::group_by(cells, cluster_name, pair) %>%
+  dplyr::mutate(changed = dplyr::n_distinct(call) > 1) %>%
+  dplyr::ungroup() %>%
+  tidyr::pivot_wider(names_from = tissue_radius, values_from = c(logFC, p_adj, call),
+                     names_glue = "{.value}_{tissue_radius}um")
+
+save_table(density_radius_check, "density_calls_per_tissue_radius.csv", "densities")
+cat(sum(density_radius_check$changed), "of", nrow(density_radius_check),
+    "density tests change their call between tissue radii", paste(tissue_radii, collapse = " / "), "um\n")
+knitr::kable(dplyr::filter(density_radius_check, changed), digits = 3,
+             caption = "Density tests whose call depends on the tissue radius")
 ```
 
 Paired density boxplots, as above: one line per sample, point size = area of
-the compartment (the denominator of the density).
+the compartment (the denominator of the density), one set per tissue radius.
 
 ```{r density-boxplots}
 plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, size_limits) {
@@ -919,29 +1004,32 @@ plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, siz
           plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
 }
 
-size_limits_area <- c(0, max(areas_sample$area_mm2))
+size_limits_area <- c(0, max(areas_sample_all$area_mm2))
 
-for (cells in cells_list) {
-  def <- class_definition(cells)
+for (r in tissue_radii) {
+  for (cells in cells_list) {
+    def <- class_definition(cells)
 
-  plot_list_density <- list()
-  for (cluster_name in def$order) {
-    plot_list_density[[cluster_name]] <- plot_density_paired(
-      dplyr::filter(density_df, cells == !!cells, cluster_id == cluster_name),
-      dplyr::filter(density_stats, cells == !!cells, cluster_name == !!cluster_name),
-      cluster_name, cluster_color(cluster_name, def$color_vec), size_limits_area
-    )
+    plot_list_density <- list()
+    for (cluster_name in def$order) {
+      plot_list_density[[cluster_name]] <- plot_density_paired(
+        dplyr::filter(density_df_all, tissue_radius == r, cells == !!cells, cluster_id == cluster_name),
+        dplyr::filter(density_stats_all, tissue_radius == r, cells == !!cells, cluster_name == !!cluster_name),
+        cluster_name, cluster_color(cluster_name, def$color_vec), size_limits_area
+      )
+    }
+
+    n_cols    <- min(length(plot_list_density), max_plot_columns)
+    p_density <- wrap_plots(plot_list_density, ncol = n_cols) +
+      plot_layout(guides = "collect") +
+      plot_annotation(title = paste0("tissue_radius = ", r, " um"))
+
+    save_plot(p_density,
+              paste0("Fig4m_density_compartments_paired_", cells, ".pdf"), radius_dir("densities", r),
+              width = 3 * n_cols + 2,
+              height = 4 * ceiling(length(plot_list_density) / n_cols) + 0.5)
+    if (r == tissue_radius_main) print(p_density)
   }
-
-  n_cols    <- min(length(plot_list_density), max_plot_columns)
-  p_density <- wrap_plots(plot_list_density, ncol = n_cols) +
-    plot_layout(guides = "collect")
-
-  save_plot(p_density,
-            paste0("Fig4m_density_compartments_paired_", cells, ".pdf"), "densities",
-            width = 3 * n_cols + 2,
-            height = 4 * ceiling(length(plot_list_density) / n_cols))
-  print(p_density)
 }
 ```
 
@@ -950,7 +1038,8 @@ for (cells in cells_list) {
 Immune cells are scarce in the core of several samples, so we rerun the immune
 tests (proportions with `diffcyt`, densities with `glm.nb`) keeping, per
 compartment pair, only samples with at least 20 or 50 immune cells in both
-compartments. The unfiltered tests above stay the main result; this only shows
+compartments (densities at `tissue_radius_main`). The unfiltered tests above
+stay the main result; this only shows
 whether a call depends on the low-count samples. A call is "up" / "down" (higher
 / lower in the second compartment of the pair, adjusted p < 0.05) or "ns".
 
