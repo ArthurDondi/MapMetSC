@@ -105,7 +105,7 @@ for (mapmet_cc_path in c("analysis/00_MapMet_color_code.R", "00_MapMet_color_cod
 spe <- readRDS(file.path(params$output, "spe_07_spatial_analysis.rds"))
 
 required_cols <- c("compartment", "celltype_2", "metacluster", "cn_celltypes_2",
-                   "fm_id", "sample", "sample_id", "patient_id")
+                   "fm_id", "sample", "sample_id", "patient_id", "patch_id", "distToCells")
 missing_cols  <- setdiff(required_cols, colnames(colData(spe)))
 if (length(missing_cols) > 0)
   stop("spe_07_spatial_analysis.rds lacks: ", paste(missing_cols, collapse = ", "))
@@ -601,19 +601,22 @@ for (cells in cells_list) {
 ## Compartment areas
 
 To turn counts into densities (cells per mm²), we need the area of each
-compartment per image. We use the tumor-patch outlines:
+compartment per image (1 px = 1 µm). Space is assigned with the rules 07
+applies to cells:
 
-* each patch outline is the concave hull of all cells carrying its `patch_id`,
-  built as in `imcRtools::patchSize` / `patchDetection`
-  (`concaveman(..., concavity = 1)`);
-* core = patch outlines grown by 200 px, minus everything within 200 px of a
-  non-patch cell (the rule 07 applies to patch cells: distance to the nearest
-  non-patch cell > 200 px). Image edges therefore do not create a border, and
-  the strip between a patch outline and the image edge stays core;
-* border = patch outlines grown by 200 px, minus the core; stroma = the rest of
-  the image;
-* there is no tissue mask, so the image (ROI) is taken as fully covered by
-  tissue; its extent is the bounding box of the cell centres (1 px = 1 µm).
+* tissue: there is no tissue mask, so only area within `tissue_radius` of a
+  cell centre counts; larger empty regions are excluded. The image extent is
+  the bounding box of the cell centres;
+* tumor side / stroma side: each point takes the side of its nearest cell
+  (patch cell or not), i.e. the union of the Voronoi tiles of the patch cells;
+* core = tumor side further than 200 px from any non-patch cell (07: distance
+  of a patch cell to the nearest non-patch cell > 200 px). Image edges
+  therefore do not create a border;
+* stroma = stroma side further than 200 px from the tumor-patch outlines
+  (concave hull of the cells of each `patch_id`, as `imcRtools::patchSize` /
+  `patchDetection` build it with `concaveman(..., concavity = 1)`);
+* border = the rest of the tissue. Core and stroma can only touch across an
+  empty region wider than 2 x 200 px, which the tissue mask removes.
 
 The cells' compartments in 07 come from cell-to-cell distances
 (`minDistToCells`), not from the outlines, so we check per image how many cells
@@ -621,6 +624,7 @@ fall into the polygon of their own compartment.
 
 ```{r compartment-area-params}
 border_size     <- 200    # canonical border of 07 (canonical_border)
+tissue_radius   <- 50     # um; area further than this from any cell is empty (no tissue)
 no_patch_images <- "20221018_20220906_03-018_TU_001"   # all stroma in 07
 example_images  <- c("20220926_20220809_16-006_TU_003",
                      "20220925_20220804_17-001_TU_002")
@@ -659,26 +663,39 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
   polygons <- Filter(Negate(is.null), lapply(unique(na.omit(patch_id)), function(p)
     patch_polygon(cell_xy[which(patch_id == p), , drop = FALSE])))
 
+  # tissue = area within tissue_radius of a cell centre
+  cells_sfc <- st_cast(st_sfc(st_multipoint(cell_xy)), "POINT")
+  tissue    <- st_intersection(st_union(st_buffer(cells_sfc, tissue_radius, nQuadSegs = 4)), roi)
+
   empty <- st_sfc(st_polygon())
   if (length(polygons) == 0) {
-    regions <- list(core = empty, border = empty, stroma = roi)
+    regions <- list(core = empty, border = empty, stroma = tissue)
   } else {
     patches <- st_intersection(st_union(st_make_valid(st_sfc(polygons))), roi)
 
-    outer <- st_intersection(st_buffer(patches, border_size), roi)
+    # tumor side: Voronoi tiles of the patch cells
+    tiles      <- st_collection_extract(st_voronoi(st_sfc(st_multipoint(cell_xy)), envelope = roi), "POLYGON")
+    tumor_side <- st_union(tiles[lengths(st_intersects(tiles, cells_sfc[!is.na(patch_id)])) > 0])
 
-    # core: within border_size of a patch, but further than border_size from any
-    # non-patch cell (only non-patch cells within 2 x border_size of a patch can
-    # cut into it)
-    non_patch <- st_cast(st_sfc(st_multipoint(cell_xy[is.na(patch_id), , drop = FALSE])), "POINT")
-    non_patch <- non_patch[lengths(st_is_within_distance(non_patch, patches, 2 * border_size)) > 0]
-    core <- if (length(non_patch) == 0) outer else
-      st_difference(outer, st_union(st_buffer(non_patch, border_size, nQuadSegs = 8)))
-    regions <- list(core   = core,
-                    border = st_difference(outer, core),
-                    stroma = st_difference(roi, outer))
+    # core: tumor side further than border_size from any non-patch cell (only
+    # non-patch cells within border_size + tissue_radius of a patch cell matter)
+    near_non_patch <- which(is.na(patch_id) & spe$distToCells[sel] <= border_size + tissue_radius)
+    core <- st_intersection(tissue, tumor_side)
+    if (length(near_non_patch) > 0)
+      core <- st_difference(core, st_union(st_buffer(cells_sfc[near_non_patch], border_size, nQuadSegs = 8)))
+
+    # stroma: stroma side further than border_size from the patch outlines
+    stroma <- st_difference(st_difference(tissue, tumor_side), st_buffer(patches, border_size))
+
+    regions <- lapply(list(core = core, stroma = stroma), function(g) if (length(g) == 0) empty else g)
+    regions$border <- st_difference(st_difference(tissue, regions$core), regions$stroma)
     regions <- lapply(regions, function(g) if (length(g) == 0) empty else g)
   }
+
+  # core and stroma should never share a boundary (length in px)
+  core_stroma_contact <- tryCatch(
+    sum(st_length(st_collection_extract(st_intersection(regions$core, regions$stroma), "LINESTRING"))),
+    error = function(e) NA_real_)
 
   cell_comp <- classify_by_polygon(cell_xy, regions)
 
@@ -689,7 +706,9 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
     roi       = data.frame(sample_id = img,
                            width_px  = diff(x_range),
                            height_px = diff(y_range),
-                           n_patches = length(polygons)),
+                           n_patches = length(polygons),
+                           tissue_fraction     = sum(st_area(tissue)) / sum(st_area(roi)),
+                           core_stroma_contact = core_stroma_contact),
     agreement = data.frame(sample_id = img,
                            n_cells   = sum(sel),
                            agreement = mean(cell_comp == spe$compartment[sel])),
@@ -701,7 +720,8 @@ area_results <- lapply(unique(spe$sample_id), function(img) {
   )
 })
 
-# 1. image extents (check against the expected image size)
+# 1. image extents (check against the expected image size), share of the image
+# counted as tissue, and core-stroma contact (should be 0)
 roi_table <- dplyr::bind_rows(lapply(area_results, `[[`, "roi"))
 save_table(roi_table, "compartment_area_image_extent.csv", "areas")
 knitr::kable(roi_table)
