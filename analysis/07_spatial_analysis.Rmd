@@ -23,15 +23,17 @@ if (!dir.exists(plot_dir)) {
 date_prefix <- format(Sys.Date(), "%Y%m%d")
 
 # Save a plot (ggplot / ComplexHeatmap / base) into a figure subfolder
-save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
-  # Route every figure into exactly one of three subfolders by filename:
+save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300, subdir = NULL) {
+  # Unless a subfolder is given (cell_counts, density_analysis, threshold_check),
+  # route every figure into exactly one of three subfolders by filename:
   # cell-cell_interaction (Fig4b), neighborhood_level (anything CN/neighborhood-
   # related, incl. the combined Fig4d stack), celltype_level (everything else -
   # tumor/immune celltype breakdowns, spatial compartments, border distance by
   # celltype).
-  subdir <- if (grepl("cell-cell_interactions", filename))               "cell-cell_interaction" else
-            if (grepl("neighborhood|Fig4d_combined_stacked", filename))  "neighborhood_level"    else
-                                                                          "celltype_level"
+  if (is.null(subdir))
+    subdir <- if (grepl("cell-cell_interactions", filename))               "cell-cell_interaction" else
+              if (grepl("neighborhood|Fig4d_combined_stacked", filename))  "neighborhood_level"    else
+                                                                            "celltype_level"
   out_dir   <- file.path(plot_dir, subdir)
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   full_path <- file.path(out_dir, paste0(date_prefix, "_", filename))
@@ -52,6 +54,18 @@ save_plot <- function(plot_obj, filename, width = 8, height = 6, dpi = 300) {
     dev.off()
   }
   
+  message("Saved: ", full_path)
+}
+
+# Tables directory, with the same subfolders as the plots
+table_dir <- file.path(params$output, "tables/07_spatial_analysis")
+
+# Save a table as csv into a subfolder of table_dir
+save_table <- function(df, filename, subdir) {
+  out_dir <- file.path(table_dir, subdir)
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  full_path <- file.path(out_dir, paste0(date_prefix, "_", filename))
+  write.csv(df, full_path, row.names = FALSE)
   message("Saved: ", full_path)
 }
 
@@ -100,6 +114,7 @@ library(pheatmap)
 library(tidyverse)
 library(ggdendro)
 library(lme4)
+library(sf)
 ```
 </details>
 
@@ -1135,7 +1150,7 @@ p_spatial_celltype
 
 ### DA analysis in spatial compartments
 
-Next, we will plot the differential abundance of cell types with respect to spatial compartment on a sample level. We analyse tumor celltypes, immune metaclusters, and cellular neighborhoods, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing.
+Next, we will plot the differential abundance of cell types with respect to spatial compartment on a sample level. We analyse tumor celltypes, immune metaclusters, and cellular neighborhoods, looping over all three compartment comparison pairs (`core-border`, `core-stroma`, `border-stroma`). Differential abundance is tested with `diffcyt` (`testDA_edgeR`) controlling for sample-level pairing, and shown as paired boxplots (point size = number of cells, lines connecting the same sample).
 
 ```{r define-markers}
 
@@ -1174,6 +1189,28 @@ cluster_color <- function(name, color_vec = metadata(spe)$color_vectors$col_cell
   col <- unname(color_vec[as.character(name)])
   if (length(col) == 0 || is.na(col)) "grey50" else col
 }
+
+cells_list       <- c("tumor", "immune", "neighborhood")
+comp_levels      <- c("core", "border", "stroma")
+comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
+
+# Cells, cluster column, display order and colors of each cell class: celltype_2
+# for tumor/immune; cn_celltypes_2 for neighborhoods, so every cell counts.
+class_definition <- function(cells) {
+  list(
+    order         = switch(cells,
+                           immune       = immune_order,
+                           tumor        = tumor_order,
+                           neighborhood = neighborhood_order),
+    keep          = switch(cells,
+                           immune       = spe$metacluster %in% immune_order,
+                           tumor        = spe$metacluster == "tumor",
+                           neighborhood = rep(TRUE, ncol(spe))),
+    cluster_field = if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2",
+    color_vec     = if (cells == "neighborhood") metadata(spe)$color_vectors$col_cn else
+                                                 metadata(spe)$color_vectors$col_celltype_2
+  )
+}
 ```
 
 
@@ -1181,25 +1218,12 @@ cluster_color <- function(name, color_vec = metadata(spe)$color_vectors$col_cell
 
 
 
-```{r compartment-boxplots-all-comparisons}
-# For each cell class: run diffcyt (testDA_edgeR) for every compartment pair,
-# then draw boxplots labelled with log2FC + adjusted p-value and stars. Boxes
-# are filled by the cluster's own identity color (celltype_2/CN), with black
-# outlines/points.
+`diffcyt` (`testDA_edgeR`) analysis for every compartment pair, with
+sample-level pairing. `min_total` (default 0, i.e. all samples) is only used
+for the threshold check below: it keeps, per pair, only samples with at least
+`min_total` cells of the class in both compartments.
 
-cells_list       <- c("tumor", "immune", "neighborhood")
-comp_levels      <- c("core", "border", "stroma")
-comparison_pairs <- list(c("core","border"), c("core","stroma"), c("border","stroma"))
-
-# Freq is a percentage: panels use a fixed 0-100 y-axis with the pairwise
-# brackets drawn above it (clip = "off").
-y_axis_max        <- 100
-bracket_base      <- 106
-bracket_gap       <- 14
-title_gap         <- 85
-bracket_positions <- bracket_base + (seq_along(comparison_pairs) - 1) * bracket_gap
-max_plot_columns  <- 5
-
+```{r compartment-da}
 keep_rows <- rowData(spe)$use_channel
 
 # helper to build marker_info from the global marker vectors
@@ -1215,31 +1239,36 @@ keep_rows <- rowData(spe)$use_channel
 
 marker_info_da <- .make_marker_info(spe, keep_rows)
 
-for (cells in cells_list) {
-
-  order     <- switch(cells,
-                      immune       = immune_order,
-                      tumor        = tumor_order,
-                      neighborhood = neighborhood_order)
-  keep_meta <- switch(cells,
-                      immune       = spe$metacluster %in% immune_order,
-                      tumor        = spe$metacluster == "tumor",
-                      neighborhood = rep(TRUE, ncol(spe)))
-  # celltype_2 for tumor/immune; cn_celltypes_2 (and its color vector) for
-  # neighborhoods, so every cell (no metacluster subsetting) counts.
-  cluster_field <- if (cells == "neighborhood") "cn_celltypes_2" else "celltype_2"
-  color_vec     <- if (cells == "neighborhood") metadata(spe)$color_vectors$col_cn else
-                                                 metadata(spe)$color_vectors$col_celltype_2
+run_compartment_da <- function(cells, min_total = 0) {
+  def           <- class_definition(cells)
+  order         <- def$order
+  keep_meta     <- def$keep
+  cluster_field <- def$cluster_field
 
   # 1. diffcyt DA results for every compartment pair
   diffcyt_results <- list()
+  n_samples       <- list()
 
   for (pair in comparison_pairs) {
     comps     <- pair
     key       <- paste(comps, collapse = "-")
     keep_cols <- keep_meta & spe$compartment %in% comps
 
-    if (sum(keep_cols) < 10) { diffcyt_results[[key]] <- NULL; next }
+    # threshold check only: samples with >= min_total cells in both compartments
+    pair_totals <- table(spe$fm_id[keep_cols],
+                         factor(spe$compartment[keep_cols], levels = comps))
+    if (min_total > 0) {
+      kept_samples <- rownames(pair_totals)[apply(pair_totals >= min_total, 1, all)]
+      keep_cols    <- keep_cols & spe$fm_id %in% kept_samples
+    }
+    # samples with cells in both compartments (the ones informative for the pairing)
+    n_samples[[key]] <- sum(apply(pair_totals >= max(min_total, 1), 1, all))
+
+    # too few cells, or (after the threshold) too few samples / compartments
+    # left for the paired design
+    if (sum(keep_cols) < 10 ||
+        length(unique(spe$fm_id[keep_cols])) < 2 ||
+        length(unique(spe$compartment[keep_cols])) < 2) { diffcyt_results[[key]] <- NULL; next }
 
     sce_da <- SingleCellExperiment(
       assays = list(
@@ -1338,6 +1367,7 @@ for (cells in cells_list) {
         cluster_name = cluster_name,
         group1       = pair[1],
         group2       = pair[2],
+        n_samples    = n_samples[[key]],
         p_adj        = p_adj,
         logFC        = round(logFC, 2),
         label        = paste0(round(logFC, 2), " (",
@@ -1346,47 +1376,84 @@ for (cells in cells_list) {
       )))
     }
   }
-  all_stats <- dplyr::bind_rows(all_stats_list)
 
-  # 4. Boxplots, filled by the cluster's own identity color (celltype_2/CN,
-  # same color for all 3 compartments in a panel) with black outlines/points,
-  # annotated with the diffcyt log2FC/p-value.
-  plot_list_comp <- list()
-  for (cluster_name in order) {
-    proportions <- plot_data_list[[cluster_name]]
-    stats_df    <- all_stats[all_stats$cluster_name == cluster_name, ]
+  list(order          = order,
+       color_vec      = def$color_vec,
+       plot_data_list = plot_data_list,
+       all_stats      = dplyr::bind_rows(all_stats_list))
+}
 
-    # fixed bracket heights, identical for every panel
+da_results <- lapply(setNames(cells_list, cells_list), run_compartment_da)
+
+for (cells in cells_list) {
+  save_table(da_results[[cells]]$all_stats, paste0("compartment_DA_stats_", cells, ".csv"),
+             if (cells == "neighborhood") "neighborhood_level" else "celltype_level")
+  print(knitr::kable(da_results[[cells]]$all_stats, caption = cells))
+}
+```
+
+Each point is sized by the number of cells of the class in that sample and
+compartment (the denominator of the proportion), and the points of one sample
+are connected across core / border / stroma.
+
+```{r compartment-boxplots-paired}
+# Freq is a percentage: panels use a fixed 0-100 y-axis with the pairwise
+# brackets drawn above it (clip = "off").
+y_axis_max        <- 100
+bracket_base      <- 106
+bracket_gap       <- 14
+title_gap         <- 85
+bracket_positions <- bracket_base + (seq_along(comparison_pairs) - 1) * bracket_gap
+max_plot_columns  <- 5
+
+plot_compartment_paired <- function(proportions, stats_df, cluster_name,
+                                    color_cluster, size_limits, y_label) {
+  ggplot(proportions, aes(x = condition, y = Freq)) +
+    geom_boxplot(fill = color_cluster, color = "black", outlier.shape = NA, width = 0.6) +
+    geom_line(aes(group = sample_id), color = "grey40", alpha = 0.6, linewidth = 0.4) +
+    geom_point(aes(size = total), color = "black") +
+    stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
+    scale_x_discrete(limits = comp_levels) +
+    scale_size_area(max_size = 5, limits = size_limits, name = "cells in\ncompartment") +
+    ggtitle(str_wrap(cluster_name, width = 18)) +
+    labs(x = NULL, y = y_label) +
+    scale_y_continuous(breaks = seq(0, y_axis_max, 25),
+                       expand = expansion(mult = c(0.02, 0))) +
+    coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
+    theme_pubr() +
+    theme(aspect.ratio = 1.0, legend.position = "right",
+          plot.title  = element_text(hjust = 0.5, size = 14,
+                                     margin = margin(b = title_gap)),
+          plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
+}
+
+for (cells in cells_list) {
+  res <- da_results[[cells]]
+
+  # one shared size scale per cell class, so the legends collapse into one
+  size_limits <- c(0, max(sapply(res$plot_data_list, function(d) max(d$total))))
+  y_label     <- if (cells == "neighborhood") "% of all cells" else paste0("% of ", cells, " cells")
+
+  plot_list_paired <- list()
+  for (cluster_name in res$order) {
+    stats_df            <- res$all_stats[res$all_stats$cluster_name == cluster_name, ]
     stats_df$y.position <- bracket_positions[seq_len(nrow(stats_df))]
 
-    color_cluster <- cluster_color(cluster_name, color_vec)
-
-    plot_list_comp[[cluster_name]] <- ggboxplot(
-      proportions, x = "condition", y = "Freq", order = comp_levels,
-      fill = "condition", palette = rep(color_cluster, length(comp_levels)), color = "black",
-      add = "jitter", add.params = list(color = "black")
-    ) +
-      stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
-      # wrap long celltype names so they are not cropped in narrow panels
-      ggtitle(str_wrap(cluster_name, width = 18)) +
-      scale_y_continuous(breaks = seq(0, y_axis_max, 25),
-                         expand = expansion(mult = c(0.02, 0))) +
-      # lock axis to 0-100; brackets draw outside it
-      coord_cartesian(ylim = c(0, y_axis_max), clip = "off") +
-      theme(aspect.ratio = 1.0, legend.position = "none",
-            plot.title  = element_text(hjust = 0.5, size = 14,
-                                       margin = margin(b = title_gap)),
-            plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
+    plot_list_paired[[cluster_name]] <- plot_compartment_paired(
+      res$plot_data_list[[cluster_name]], stats_df, cluster_name,
+      cluster_color(cluster_name, res$color_vec), size_limits, y_label
+    )
   }
 
-  p_comp <- gridExtra::grid.arrange(
-    grobs = plot_list_comp,
-    ncol  = min(length(plot_list_comp), max_plot_columns)
-  )
+  n_cols   <- min(length(plot_list_paired), max_plot_columns)
+  p_paired <- wrap_plots(plot_list_paired, ncol = n_cols) +
+    plot_layout(guides = "collect")
 
-  save_plot(p_comp,
+  save_plot(p_paired,
             paste0("Fig4m_boxplot_compartments_", cells, ".pdf"),
-            width = 12, height = 8)
+            width = 3 * n_cols + 2,
+            height = 4.5 * ceiling(length(plot_list_paired) / n_cols))
+  print(p_paired)
 }
 ```
 
@@ -1474,6 +1541,677 @@ for (border in thresholds) {
 ```
 
 
+
+## Cells per sample and compartment
+
+Cell counts per sample (`fm_id`) and compartment (outputs in `cell_counts`).
+
+### Samples, images and patients
+
+The compartment statistics pool all images of a sample (`fm_id`), while the
+`diffcyt` design uses the `sample` column (image name without the image number,
+which also carries the acquisition date). Both should map one-to-one; samples
+where they do not are listed below.
+
+```{r sample-overview}
+cell_df <- data.frame(
+  patient_id  = spe$patient_id,
+  fm_id       = spe$fm_id,
+  sample      = spe$sample,
+  sample_id   = spe$sample_id,
+  compartment = spe$compartment,
+  metacluster = spe$metacluster
+)
+
+sample_overview <- cell_df %>%
+  dplyr::group_by(patient_id, fm_id) %>%
+  dplyr::summarise(n_images  = dplyr::n_distinct(sample_id),
+                   n_sample  = dplyr::n_distinct(sample),
+                   n_cells   = dplyr::n(),
+                   .groups   = "drop") %>%
+  dplyr::arrange(patient_id, fm_id)
+
+save_table(sample_overview, "sample_overview.csv", "cell_counts")
+knitr::kable(sample_overview)
+
+# fm_ids whose images carry several `sample` values (would break the diffcyt pairing)
+sample_overview %>% dplyr::filter(n_sample > 1)
+
+# patients with more than one PT sample
+sample_overview %>% dplyr::count(patient_id) %>% dplyr::filter(n > 1)
+```
+
+### Cells per cell type
+
+Cell counts per sample (`fm_id`) and compartment, per cluster and as totals
+per cell class (the denominators of the proportions above). Zero counts are
+kept explicitly (e.g. samples without a core).
+
+```{r cell-counts}
+count_thresholds <- c(10, 20, 50, 100)
+
+patient_lookup <- dplyr::distinct(cell_df, fm_id, patient_id)
+sample_levels  <- sort(unique(cell_df$fm_id))
+
+count_cells <- function(cells) {
+  def <- class_definition(cells)
+  data.frame(
+    fm_id       = factor(spe$fm_id, levels = sample_levels),
+    compartment = factor(spe$compartment, levels = comp_levels),
+    cluster_id  = factor(spe[[def$cluster_field]], levels = def$order)
+  )[def$keep, ] %>%
+    dplyr::filter(!is.na(compartment), !is.na(cluster_id)) %>%
+    dplyr::count(fm_id, compartment, cluster_id, name = "n", .drop = FALSE) %>%
+    dplyr::mutate(cells = cells)
+}
+
+counts_long <- dplyr::bind_rows(lapply(cells_list, count_cells)) %>%
+  dplyr::mutate(fm_id = as.character(fm_id)) %>%
+  dplyr::left_join(patient_lookup, by = "fm_id") %>%
+  dplyr::mutate(cells = factor(cells, levels = cells_list))
+
+totals <- counts_long %>%
+  dplyr::group_by(cells, patient_id, fm_id, compartment) %>%
+  dplyr::summarise(total = sum(n), .groups = "drop")
+
+# totals per sample: one column per cell class x compartment
+totals_wide <- totals %>%
+  tidyr::pivot_wider(names_from = c(cells, compartment), values_from = total) %>%
+  dplyr::arrange(patient_id, fm_id)
+save_table(totals_wide, "cell_counts_per_sample_compartment_totals.csv", "cell_counts")
+knitr::kable(totals_wide)
+
+# per cluster: one table per cell class, one column per cluster
+for (cells in cells_list) {
+  cluster_wide <- counts_long %>%
+    dplyr::filter(cells == !!cells) %>%
+    dplyr::select(-cells) %>%
+    tidyr::pivot_wider(names_from = cluster_id, values_from = n) %>%
+    dplyr::arrange(patient_id, fm_id, compartment)
+  save_table(cluster_wide, paste0("cell_counts_per_sample_compartment_", cells, ".csv"), "cell_counts")
+  print(knitr::kable(cluster_wide, caption = cells))
+}
+
+# per image (for a possible image-level analysis)
+image_counts <- cell_df %>%
+  dplyr::filter(compartment %in% comp_levels) %>%
+  dplyr::mutate(cells = dplyr::case_when(metacluster == "tumor"         ~ "tumor",
+                                         metacluster %in% immune_order  ~ "immune",
+                                         TRUE                           ~ "other")) %>%
+  dplyr::count(patient_id, fm_id, sample_id, compartment, cells, name = "n") %>%
+  tidyr::pivot_wider(names_from = c(cells, compartment), values_from = n, values_fill = 0) %>%
+  dplyr::arrange(patient_id, fm_id, sample_id)
+save_table(image_counts, "cell_counts_per_image_compartment.csv", "cell_counts")
+```
+
+How many samples would be kept at a given minimum number of cells: per
+compartment, and per compartment pair (a sample enters a paired comparison only
+if both compartments reach the threshold).
+
+```{r cell-count-thresholds}
+samples_per_compartment <- totals %>%
+  tidyr::crossing(min_cells = count_thresholds) %>%
+  dplyr::group_by(cells, min_cells, compartment) %>%
+  dplyr::summarise(n_samples = sum(total >= min_cells), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = compartment, values_from = n_samples)
+
+samples_per_pair <- dplyr::bind_rows(lapply(comparison_pairs, function(pair) {
+  totals %>%
+    dplyr::filter(compartment %in% pair) %>%
+    dplyr::group_by(cells, fm_id) %>%
+    dplyr::summarise(min_total = min(total), .groups = "drop") %>%
+    tidyr::crossing(min_cells = count_thresholds) %>%
+    dplyr::group_by(cells, min_cells) %>%
+    dplyr::summarise(n_samples = sum(min_total >= min_cells), .groups = "drop") %>%
+    dplyr::mutate(pair = paste(pair, collapse = "-"))
+})) %>%
+  tidyr::pivot_wider(names_from = pair, values_from = n_samples)
+
+samples_kept <- dplyr::left_join(samples_per_compartment, samples_per_pair,
+                                 by = c("cells", "min_cells"))
+save_table(samples_kept, "samples_kept_per_min_cells.csv", "cell_counts")
+knitr::kable(samples_kept, caption = paste0("Samples with at least min_cells cells (of ",
+                                            length(sample_levels), " samples)"))
+```
+
+```{r cell-count-plots, fig.width=10, fig.height=8}
+totals$sample_label <- paste0(totals$patient_id, " (", totals$fm_id, ")")
+counts_long$sample_label <- paste0(counts_long$patient_id, " (", counts_long$fm_id, ")")
+class_labels <- c(tumor = "tumor cells", immune = "immune cells", neighborhood = "all cells (CN)")
+n_samples    <- length(sample_levels)
+
+# 1. totals per sample x compartment, per cell class
+p_totals <- ggplot(totals, aes(x = compartment, y = sample_label, fill = log10(total + 1))) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = total, color = log10(total + 1) > 0.6 * max(log10(total + 1))), size = 2.5) +
+  scale_color_manual(values = c(`FALSE` = "black", `TRUE` = "white"), guide = "none") +
+  facet_grid(~ cells, labeller = as_labeller(class_labels)) +
+  scale_fill_viridis_c(name = "log10(cells + 1)", option = "magma", direction = -1) +
+  labs(x = NULL, y = NULL, title = "Cells per sample and compartment") +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+
+save_plot(p_totals, "cell_counts_totals_heatmap.pdf", subdir = "cell_counts", width = 10, height = 0.25 * n_samples + 2)
+p_totals
+
+# 2. distribution of the totals, with candidate thresholds
+p_dist <- ggplot(totals, aes(x = compartment, y = total)) +
+  geom_boxplot(aes(fill = compartment), outlier.shape = NA, alpha = 0.5) +
+  geom_line(aes(group = fm_id), color = "grey60", alpha = 0.6) +
+  geom_point(size = 1.5) +
+  geom_hline(yintercept = count_thresholds, linetype = "dashed", color = "grey40") +
+  facet_wrap(~ cells, labeller = as_labeller(class_labels)) +
+  scale_fill_manual(values = COL_COMPARTMENT, guide = "none") +
+  scale_y_continuous(trans = scales::pseudo_log_trans(base = 10),
+                     breaks = c(0, 10, 20, 50, 100, 1000, 10000)) +
+  labs(x = NULL, y = "cells per sample (pseudo-log scale)",
+       title = paste0("Cells per sample and compartment (dashed: ",
+                      paste(count_thresholds, collapse = ", "), " cells)")) +
+  theme_pubr()
+
+save_plot(p_dist, "cell_counts_totals_distribution.pdf", subdir = "cell_counts", width = 10, height = 5)
+p_dist
+
+# 3. per cluster, one figure per cell class
+for (cells in cells_list) {
+  p_clusters <- ggplot(dplyr::filter(counts_long, cells == !!cells),
+                       aes(x = compartment, y = sample_label, fill = log10(n + 1))) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = n, color = log10(n + 1) > 0.6 * max(log10(n + 1))), size = 2.2) +
+    scale_color_manual(values = c(`FALSE` = "black", `TRUE` = "white"), guide = "none") +
+    facet_wrap(~ cluster_id, nrow = 1, labeller = label_wrap_gen(width = 15)) +
+    scale_fill_viridis_c(name = "log10(cells + 1)", option = "magma", direction = -1) +
+    labs(x = NULL, y = NULL, title = paste0("Cells per sample and compartment - ", class_labels[[cells]])) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1))
+
+  save_plot(p_clusters, paste0("cell_counts_clusters_heatmap_", cells, ".pdf"), subdir = "cell_counts",
+            width = 2.2 * length(unique(p_clusters$data$cluster_id)) + 3,
+            height = 0.25 * n_samples + 2)
+  print(p_clusters)
+}
+```
+
+## Density analysis
+
+Cells per mm² of compartment, from compartment areas defined around the cells
+(outputs in `density_analysis`).
+
+### Compartment areas
+
+To turn counts into densities (cells per mm²), we need the area of each
+compartment per image (1 px = 1 µm). Two rules:
+
+1. tissue: there is no tissue mask, so only area within a tissue radius of a
+   cell centre counts; larger empty regions are excluded. The image extent is
+   the bounding box of the cell centres. Areas (and the densities below) are
+   computed for tissue radii of 50, 75 and 100 µm, with the outputs of each
+   radius in its own `density_analysis/tissue_radius_<r>um` subfolder;
+2. each piece of tissue takes the compartment (core / border / stroma,
+   `spe$compartment`) of its nearest cell, i.e. the Voronoi tiles of the cells,
+   merged per compartment.
+
+By construction every cell lies inside its own compartment (checked per image),
+and core and stroma can only touch across an empty gap, which the tissue mask
+removes (the core-stroma contact is reported and should be 0).
+
+```{r compartment-area-params}
+tissue_radii       <- c(50, 75, 100)   # um; area further than this from any cell is empty (no tissue)
+tissue_radius_main <- 50               # um; densities used by the threshold check
+example_images     <- c("20220926_20220809_16-006_TU_003",
+                        "20220925_20220804_17-001_TU_002")
+```
+
+```{r compartment-areas}
+# Assign points to the compartment polygons
+classify_by_polygon <- function(points, regions) {
+  comp <- rep("stroma", nrow(points))
+  pts  <- st_cast(st_sfc(st_multipoint(points)), "POINT")
+  comp[lengths(st_intersects(pts, regions$border)) > 0] <- "border"
+  comp[lengths(st_intersects(pts, regions$core))   > 0] <- "core"
+  comp
+}
+
+cell_coords <- spatialCoords(spe)[, c("Pos_X", "Pos_Y")]
+
+area_results <- lapply(unique(spe$sample_id), function(img) {
+  sel       <- spe$sample_id == img
+  cell_xy   <- cell_coords[sel, , drop = FALSE]
+  cell_comp <- spe$compartment[sel]
+
+  # image extent = bounding box of the cell centres
+  x_range <- range(cell_xy[, 1])
+  y_range <- range(cell_xy[, 2])
+  roi <- st_sfc(st_polygon(list(rbind(c(x_range[1], y_range[1]), c(x_range[2], y_range[1]),
+                                      c(x_range[2], y_range[2]), c(x_range[1], y_range[2]),
+                                      c(x_range[1], y_range[1])))))
+
+  cells_sfc <- st_cast(st_sfc(st_multipoint(cell_xy)), "POINT")
+  empty     <- st_sfc(st_polygon())
+
+  # rule 2 (independent of the tissue radius): Voronoi tile of every cell,
+  # labelled with its cell's compartment and merged per compartment
+  tiles     <- st_collection_extract(st_voronoi(st_sfc(st_multipoint(cell_xy)), envelope = roi), "POLYGON")
+  tile_cell <- sapply(st_intersects(tiles, cells_sfc), `[`, 1)   # cell generating each tile
+  comp_area <- lapply(setNames(comp_levels, comp_levels), function(comp) {
+    in_comp <- which(cell_comp[tile_cell] == comp)
+    if (length(in_comp) == 0) empty else st_intersection(st_union(tiles[in_comp]), roi)
+  })
+
+  lapply(setNames(tissue_radii, tissue_radii), function(r) {
+    # rule 1: tissue = area within r of a cell centre
+    tissue  <- st_intersection(st_union(st_buffer(cells_sfc, r, nQuadSegs = 4)), roi)
+    regions <- lapply(comp_area, function(g) {
+      g <- st_intersection(g, tissue)
+      if (length(g) == 0) empty else g
+    })
+
+    # core and stroma should never share a boundary (length in px)
+    core_stroma_contact <- tryCatch(
+      sum(st_length(st_collection_extract(st_intersection(regions$core, regions$stroma), "LINESTRING"))),
+      error = function(e) NA_real_)
+
+    cell_poly <- classify_by_polygon(cell_xy, regions)
+
+    list(
+      areas     = data.frame(sample_id     = img,
+                             tissue_radius = r,
+                             compartment   = comp_levels,
+                             area_mm2      = sapply(regions[comp_levels], function(g) sum(st_area(g))) / 1e6),
+      roi       = data.frame(sample_id           = img,
+                             tissue_radius       = r,
+                             width_px            = diff(x_range),
+                             height_px           = diff(y_range),
+                             tissue_fraction     = sum(st_area(tissue)) / sum(st_area(roi)),
+                             core_stroma_contact = core_stroma_contact,
+                             n_cells             = sum(sel),
+                             agreement           = mean(cell_poly == cell_comp)),
+      confusion = data.frame(sample_id = img,
+                             cell_rule = cell_comp,
+                             polygon   = cell_poly) %>%
+                    dplyr::count(sample_id, cell_rule, polygon) %>%
+                    dplyr::mutate(tissue_radius = r),
+      example   = if (img %in% example_images) regions
+    )
+  })
+})
+names(area_results) <- unique(spe$sample_id)
+
+# collect one part of the results over all images and radii
+collect_area_results <- function(part)
+  dplyr::bind_rows(lapply(area_results, function(x) dplyr::bind_rows(lapply(x, `[[`, part))))
+
+# subfolder per tissue radius
+radius_dir <- function(base, r) file.path(base, paste0("tissue_radius_", r, "um"))
+
+# 1. per image: extent, share counted as tissue, core-stroma contact (should
+# be 0), and share of cells inside the polygon of their own compartment
+roi_table      <- collect_area_results("roi")
+area_confusion <- collect_area_results("confusion")
+
+# 2. areas per image and per sample (all images of a sample summed)
+areas_image_all <- collect_area_results("areas") %>%
+  dplyr::left_join(dplyr::distinct(cell_df, sample_id, fm_id, patient_id), by = "sample_id") %>%
+  dplyr::mutate(compartment = factor(compartment, levels = comp_levels))
+
+areas_sample_all <- areas_image_all %>%
+  dplyr::group_by(tissue_radius, patient_id, fm_id, compartment) %>%
+  dplyr::summarise(area_mm2 = sum(area_mm2), .groups = "drop")
+
+for (r in tissue_radii) {
+  sub <- radius_dir("density_analysis", r)
+  save_table(dplyr::filter(roi_table, tissue_radius == r), "compartment_area_image_qc.csv", sub)
+  save_table(dplyr::filter(area_confusion, tissue_radius == r), "compartment_area_polygon_confusion.csv", sub)
+  save_table(areas_image_all %>% dplyr::filter(tissue_radius == r) %>%
+               tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+             "compartment_area_per_image_mm2.csv", sub)
+  save_table(areas_sample_all %>% dplyr::filter(tissue_radius == r) %>%
+               tidyr::pivot_wider(names_from = compartment, values_from = area_mm2),
+             "compartment_area_per_sample_mm2.csv", sub)
+}
+
+# 3. comparison of the radii
+save_table(areas_sample_all %>%
+             tidyr::pivot_wider(names_from = c(compartment, tissue_radius), values_from = area_mm2,
+                                names_glue = "{compartment}_{tissue_radius}um"),
+           "compartment_area_per_sample_all_radii_mm2.csv", "density_analysis")
+
+roi_table %>%
+  dplyr::group_by(tissue_radius) %>%
+  dplyr::summarise(median_tissue_fraction  = median(tissue_fraction),
+                   min_tissue_fraction     = min(tissue_fraction),
+                   median_agreement        = median(agreement),
+                   min_agreement           = min(agreement),
+                   max_core_stroma_contact = max(core_stroma_contact, na.rm = TRUE),
+                   .groups = "drop") %>%
+  knitr::kable(digits = 3, caption = "Per tissue radius: share of the image counted as tissue, share of cells inside their compartment polygon, core-stroma contact (px)")
+
+areas_sample_all %>%
+  dplyr::group_by(tissue_radius, compartment) %>%
+  dplyr::summarise(total_area_mm2 = sum(area_mm2), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = compartment, values_from = total_area_mm2) %>%
+  knitr::kable(digits = 2, caption = "Total compartment area over all samples (mm²)")
+```
+
+```{r compartment-area-plots, fig.width=8, fig.height=8}
+# 1. example images per radius: compartment polygons with the cells (colored
+# by spe$compartment) on top; y is flipped to match plotSpatial
+flip_y <- matrix(c(1, 0, 0, -1), 2, 2)
+
+for (r in tissue_radii) {
+  for (example_image in example_images) {
+    if (!example_image %in% names(area_results)) { message("Example image not found: ", example_image); next }
+
+    res_r <- area_results[[example_image]][[as.character(r)]]
+    example_regions <- do.call(rbind, lapply(comp_levels, function(comp)
+      st_sf(compartment = comp, geometry = st_union(res_r$example[[comp]]) * flip_y)))
+    example_cells <- data.frame(Pos_X       = cell_coords[spe$sample_id == example_image, 1],
+                                Pos_Y       = -cell_coords[spe$sample_id == example_image, 2],
+                                compartment = spe$compartment[spe$sample_id == example_image])
+
+    p_example <- ggplot() +
+      geom_sf(data = example_regions, aes(fill = compartment), color = NA, alpha = 0.3) +
+      geom_point(data = example_cells, aes(x = Pos_X, y = Pos_Y, color = compartment), size = 0.3) +
+      scale_fill_manual(values = COL_COMPARTMENT, name = "polygon") +
+      scale_color_manual(values = COL_COMPARTMENT, name = "cell") +
+      labs(title = example_image,
+           subtitle = sprintf("tissue_radius = %d um\n%.1f%% of cells inside the polygon of their compartment, %.1f%% of the image is tissue",
+                              r, 100 * res_r$roi$agreement, 100 * res_r$roi$tissue_fraction)) +
+      theme_void()
+
+    save_plot(p_example, paste0("compartment_area_example_", example_image, ".pdf"),
+              subdir = radius_dir("density_analysis", r), width = 8, height = 8)
+    print(p_example)
+  }
+
+  # 2. area per sample and compartment
+  p_area <- ggplot(dplyr::filter(areas_sample_all, tissue_radius == r),
+                   aes(x = paste0(patient_id, " (", fm_id, ")"), y = area_mm2, fill = compartment)) +
+    geom_col() +
+    scale_fill_manual(values = COL_COMPARTMENT) +
+    labs(x = NULL, y = expression("area (mm"^2*")"),
+         title = paste0("Compartment area per sample (tissue_radius = ", r, " um)")) +
+    theme_pubr() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+  save_plot(p_area, "compartment_area_per_sample.pdf", subdir = radius_dir("density_analysis", r), width = 10, height = 5)
+}
+
+# 3. area vs. tissue radius, one line per sample
+p_radius <- ggplot(areas_sample_all, aes(x = tissue_radius, y = area_mm2, group = fm_id)) +
+  geom_line(color = "grey50") +
+  geom_point(size = 1) +
+  facet_wrap(~ compartment, scales = "free_y") +
+  scale_x_continuous(breaks = tissue_radii) +
+  labs(x = "tissue_radius (um)", y = expression("area (mm"^2*")"),
+       title = "Compartment area per sample vs. tissue radius") +
+  theme_pubr()
+
+save_plot(p_radius, "compartment_area_vs_tissue_radius.pdf", subdir = "density_analysis", width = 10, height = 4)
+p_radius
+```
+
+### Densities per compartment
+
+Cells per mm² of compartment, per sample (all images summed), for each tissue
+radius (outputs in `density_analysis/tissue_radius_<r>um`, and which calls
+depend on the radius in `density_analysis/`). For each cluster
+and compartment pair, densities are compared with a negative-binomial GLM on
+the counts with the compartment area as offset and the sample as a fixed effect
+(the same paired design as the `diffcyt` test, `~ condition + sample`), fitted
+per cluster with `MASS::glm.nb`. Samples with an empty compartment (area 0) or
+with no cells of the cluster in either compartment are left out of that test.
+The log2 fold change is the second compartment of the pair vs. the first (as
+in `diffcyt`), and p-values are BH-adjusted across clusters within each cell
+class and compartment pair.
+
+```{r densities}
+# densities for every tissue radius; density_df (tissue_radius_main) is used by
+# the threshold check below
+density_df_all <- dplyr::bind_rows(lapply(tissue_radii, function(r) {
+  counts_long %>%
+    dplyr::select(-dplyr::any_of("sample_label")) %>%
+    dplyr::left_join(areas_sample_all %>%
+                       dplyr::filter(tissue_radius == r) %>%
+                       dplyr::select(fm_id, compartment, area_mm2),
+                     by = c("fm_id", "compartment")) %>%
+    dplyr::mutate(tissue_radius = r,
+                  area_mm2      = dplyr::coalesce(area_mm2, 0),
+                  density       = dplyr::if_else(area_mm2 > 0, n / area_mm2, NA_real_))
+})) %>%
+  # cells of the class per sample and compartment (for the threshold check)
+  dplyr::group_by(tissue_radius, cells, fm_id, compartment) %>%
+  dplyr::mutate(total = sum(n)) %>%
+  dplyr::ungroup()
+
+density_df <- dplyr::filter(density_df_all, tissue_radius == tissue_radius_main)
+
+for (r in tissue_radii) {
+  for (cells in cells_list) {
+    save_table(density_df_all %>%
+                 dplyr::filter(tissue_radius == r, cells == !!cells) %>%
+                 dplyr::select(patient_id, fm_id, compartment, area_mm2, cluster_id, density) %>%
+                 tidyr::pivot_wider(names_from = cluster_id, values_from = density) %>%
+                 dplyr::arrange(patient_id, fm_id, compartment),
+               paste0("density_per_sample_compartment_", cells, ".csv"), radius_dir("density_analysis", r))
+  }
+}
+
+# NB GLM for one cluster and compartment pair; min_total (threshold check only)
+# keeps samples with >= min_total cells of the class in both compartments
+test_density_pair <- function(df, pair, min_total = 0) {
+  d <- df %>%
+    dplyr::filter(compartment %in% pair, area_mm2 > 0) %>%
+    dplyr::group_by(fm_id) %>%
+    dplyr::filter(dplyr::n() == 2, sum(n) > 0, all(total >= min_total)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(compartment = factor(as.character(compartment), levels = pair),
+                  fm_id       = factor(fm_id))
+
+  if (dplyr::n_distinct(d$fm_id) < 3) return(data.frame(n_samples = dplyr::n_distinct(d$fm_id), logFC = NA_real_, p_val = NA_real_))
+
+  fit <- tryCatch(
+    suppressWarnings(MASS::glm.nb(n ~ compartment + fm_id + offset(log(area_mm2)), data = d)),
+    error = function(e) { message("glm.nb failed: ", e$message); NULL }
+  )
+  if (is.null(fit)) return(data.frame(n_samples = dplyr::n_distinct(d$fm_id), logFC = NA_real_, p_val = NA_real_))
+
+  coefs    <- summary(fit)$coefficients
+  coef_row <- if (paste0("compartment", pair[2]) %in% rownames(coefs))
+                coefs[paste0("compartment", pair[2]), ] else
+                c(Estimate = NA_real_, `Pr(>|z|)` = NA_real_)
+  data.frame(n_samples = dplyr::n_distinct(d$fm_id),
+             logFC     = unname(coef_row["Estimate"]) / log(2),
+             p_val     = unname(coef_row["Pr(>|z|)"]))
+}
+
+# All clusters of a cell class, all compartment pairs (BH within class x pair)
+density_tests <- function(cells, min_total = 0, dens = density_df) {
+  dplyr::bind_rows(lapply(comparison_pairs, function(pair) {
+    res <- dplyr::bind_rows(lapply(class_definition(cells)$order, function(cluster_name) {
+      cluster_df <- dplyr::filter(dens, cells == !!cells, cluster_id == cluster_name)
+      data.frame(cluster_name = cluster_name, test_density_pair(cluster_df, pair, min_total))
+    }))
+    res$p_adj  <- p.adjust(res$p_val, method = "BH")
+    res$cells  <- cells
+    res$group1 <- pair[1]
+    res$group2 <- pair[2]
+    res
+  }))
+}
+
+density_stats_all <- dplyr::bind_rows(lapply(tissue_radii, function(r) {
+  dens_r <- dplyr::filter(density_df_all, tissue_radius == r)
+  dplyr::bind_rows(lapply(cells_list, density_tests, dens = dens_r)) %>%
+    dplyr::mutate(tissue_radius = r)
+})) %>%
+  dplyr::mutate(
+    p_signif = dplyr::if_else(is.na(p_adj), "NA", trimws(gtools::stars.pval(p_adj))),
+    p_signif = dplyr::if_else(p_signif == "", "ns", p_signif),
+    label    = paste0(round(logFC, 2), " (",
+                      dplyr::if_else(is.na(p_adj), "NA", sprintf("%.3f", p_adj)),
+                      " ", p_signif, ")")
+  )
+
+for (r in tissue_radii)
+  save_table(dplyr::filter(density_stats_all, tissue_radius == r),
+             "density_compartment_stats.csv", radius_dir("density_analysis", r))
+
+# does a call (up / down at adj. p < 0.05, or ns) depend on the tissue radius?
+density_radius_check <- density_stats_all %>%
+  dplyr::mutate(pair = paste(group1, group2, sep = "-"),
+                call = dplyr::case_when(is.na(p_adj) ~ "NA",
+                                        p_adj >= 0.05 ~ "ns",
+                                        logFC > 0     ~ "up",
+                                        TRUE          ~ "down")) %>%
+  dplyr::select(cells, cluster_name, pair, tissue_radius, logFC, p_adj, call) %>%
+  dplyr::group_by(cells, cluster_name, pair) %>%
+  dplyr::mutate(changed = dplyr::n_distinct(call) > 1) %>%
+  dplyr::ungroup() %>%
+  tidyr::pivot_wider(names_from = tissue_radius, values_from = c(logFC, p_adj, call),
+                     names_glue = "{.value}_{tissue_radius}um")
+
+save_table(density_radius_check, "density_calls_per_tissue_radius.csv", "density_analysis")
+cat(sum(density_radius_check$changed), "of", nrow(density_radius_check),
+    "density tests change their call between tissue radii", paste(tissue_radii, collapse = " / "), "um\n")
+knitr::kable(dplyr::filter(density_radius_check, changed), digits = 3,
+             caption = "Density tests whose call depends on the tissue radius")
+```
+
+Paired density boxplots, as above: one line per sample, point size = area of
+the compartment (the denominator of the density), one set per tissue radius.
+
+```{r density-boxplots}
+plot_density_paired <- function(dens, stats_df, cluster_name, color_cluster, size_limits) {
+  dens <- dplyr::filter(dens, !is.na(density))
+
+  y_top <- max(dens$density, 1)
+  stats_df$y.position <- y_top * (1.08 + 0.14 * (seq_len(nrow(stats_df)) - 1))
+
+  ggplot(dens, aes(x = compartment, y = density)) +
+    geom_boxplot(fill = color_cluster, color = "black", outlier.shape = NA, width = 0.6) +
+    geom_line(aes(group = fm_id), color = "grey40", alpha = 0.6, linewidth = 0.4) +
+    geom_point(aes(size = area_mm2), color = "black") +
+    stat_pvalue_manual(stats_df, y.position = "y.position", label = "label") +
+    scale_x_discrete(limits = comp_levels) +
+    scale_size_area(max_size = 5, limits = size_limits,
+                    name = expression(atop("compartment", "area (mm"^2*")"))) +
+    # headroom for the bracket labels above the top bracket
+    scale_y_continuous(expand = expansion(mult = c(0.02, 0.12))) +
+    coord_cartesian(clip = "off") +
+    ggtitle(str_wrap(cluster_name, width = 18)) +
+    labs(x = NULL, y = expression("cells / mm"^2)) +
+    theme_pubr() +
+    theme(aspect.ratio = 1.0, legend.position = "right",
+          plot.title  = element_text(hjust = 0.5, size = 14, margin = margin(b = 12)),
+          plot.margin = margin(t = 10, r = 8, b = 8, l = 8))
+}
+
+size_limits_area <- c(0, max(areas_sample_all$area_mm2))
+
+for (r in tissue_radii) {
+  for (cells in cells_list) {
+    def <- class_definition(cells)
+
+    plot_list_density <- list()
+    for (cluster_name in def$order) {
+      plot_list_density[[cluster_name]] <- plot_density_paired(
+        dplyr::filter(density_df_all, tissue_radius == r, cells == !!cells, cluster_id == cluster_name),
+        dplyr::filter(density_stats_all, tissue_radius == r, cells == !!cells, cluster_name == !!cluster_name),
+        cluster_name, cluster_color(cluster_name, def$color_vec), size_limits_area
+      )
+    }
+
+    n_cols    <- min(length(plot_list_density), max_plot_columns)
+    p_density <- wrap_plots(plot_list_density, ncol = n_cols) +
+      plot_layout(guides = "collect") +
+      plot_annotation(title = paste0("tissue_radius = ", r, " um"))
+
+    save_plot(p_density,
+              paste0("Fig4m_density_compartments_paired_", cells, ".pdf"), subdir = radius_dir("density_analysis", r),
+              width = 3 * n_cols + 2,
+              height = 4 * ceiling(length(plot_list_density) / n_cols) + 0.5)
+    if (r == tissue_radius_main) print(p_density)
+  }
+}
+```
+
+## Threshold check (immune cells)
+
+Immune cells are scarce in the core of several samples, so we rerun the immune
+tests (proportions with `diffcyt`, densities with `glm.nb`) keeping, per
+compartment pair, only samples with at least 20 or 50 immune cells in both
+compartments (densities at `tissue_radius_main`). The unfiltered tests above
+stay the main result; this only shows
+whether a call depends on the low-count samples. A call is "up" / "down" (higher
+/ lower in the second compartment of the pair, adjusted p < 0.05) or "ns".
+
+```{r threshold-check}
+threshold_check_classes   <- "immune"
+threshold_check_min_cells <- c(20, 50)
+alpha_check               <- 0.05
+
+check_columns <- c("test", "cells", "cluster_name", "group1", "group2",
+                   "min_cells", "n_samples", "logFC", "p_adj")
+
+check_diffcyt <- dplyr::bind_rows(lapply(threshold_check_classes, function(cells) {
+  dplyr::bind_rows(lapply(c(0, threshold_check_min_cells), function(m) {
+    stats <- if (m == 0) da_results[[cells]]$all_stats else run_compartment_da(cells, min_total = m)$all_stats
+    dplyr::mutate(stats, test = "proportions (diffcyt)", cells = cells, min_cells = m)
+  }))
+}))
+
+check_density <- dplyr::bind_rows(lapply(threshold_check_classes, function(cells) {
+  dplyr::bind_rows(lapply(c(0, threshold_check_min_cells), function(m)
+    dplyr::mutate(density_tests(cells, min_total = m), test = "densities (glm.nb)", min_cells = m)))
+}))
+
+threshold_check <- dplyr::bind_rows(check_diffcyt[, check_columns], check_density[, check_columns]) %>%
+  dplyr::mutate(pair = paste(group1, group2, sep = "-"),
+                call = dplyr::case_when(is.na(p_adj)        ~ "NA",
+                                        p_adj >= alpha_check ~ "ns",
+                                        logFC > 0            ~ "up",
+                                        TRUE                 ~ "down")) %>%
+  dplyr::group_by(test, cells, cluster_name, pair) %>%
+  dplyr::mutate(changed = any(call != call[min_cells == 0])) %>%
+  dplyr::ungroup()
+
+save_table(threshold_check, "threshold_check_long.csv", "threshold_check")
+
+# one row per test x cluster x pair: samples, log2FC, adj. p and call per threshold
+threshold_summary <- threshold_check %>%
+  dplyr::select(test, cells, cluster_name, pair, min_cells, n_samples, logFC, p_adj, call, changed) %>%
+  tidyr::pivot_wider(names_from = min_cells, values_from = c(n_samples, logFC, p_adj, call),
+                     names_glue = "{.value}_min{min_cells}")
+
+save_table(threshold_summary, "threshold_check_summary.csv", "threshold_check")
+
+cat(sum(threshold_summary$changed), "of", nrow(threshold_summary),
+    "tests change their call with a minimum of", paste(threshold_check_min_cells, collapse = " or "), "cells\n")
+knitr::kable(dplyr::filter(threshold_summary, changed), digits = 3,
+             caption = "Tests whose call changes with the threshold")
+```
+
+```{r threshold-check-plot, fig.width=10, fig.height=6}
+p_check <- ggplot(threshold_check,
+                  aes(x = cluster_name, y = logFC, color = factor(min_cells),
+                      shape = p_adj < alpha_check)) +
+  geom_hline(yintercept = 0, color = "grey60") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.6), stroke = 0.8) +
+  facet_grid(test ~ pair) +
+  scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1), na.value = 4,
+                     labels = c(`TRUE` = paste0("adj. p < ", alpha_check),
+                                `FALSE` = paste0("adj. p >= ", alpha_check)),
+                     name = NULL) +
+  scale_color_brewer(palette = "Dark2", name = "min. cells\nper compartment") +
+  labs(x = NULL, y = "log2 fold change (second vs. first compartment)",
+       title = "Immune tests with and without a minimum number of cells") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+save_plot(p_check, "threshold_check_immune.pdf", subdir = "threshold_check", width = 10, height = 6)
+p_check
+```
 
 ## Save R object
 
